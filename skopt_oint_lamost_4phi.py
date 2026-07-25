@@ -7,7 +7,7 @@ binning, density scoring, and optional velocity scoring.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 
@@ -16,10 +16,16 @@ import numpy as np
 from halo_mw_lmc.config import ZhuComparisonConfig
 from halo_mw_lmc.density import DensityComparison, compare_density, orbit_density
 from halo_mw_lmc.orbits import OrbitLibrary, integrate_agama_orbits
-from halo_mw_lmc.phase_space import cartesian_to_spherical_phase_space
-from halo_mw_lmc.plotting import plot_density_comparison
+from halo_mw_lmc.phase_space import (
+    SphericalPhaseSpace,
+    cartesian_to_spherical_phase_space,
+)
+from halo_mw_lmc.plotting import plot_model_diagnostics
 from halo_mw_lmc.velocity import (
+    VelocityDistributionComparison,
+    VelocityHistogramSummary,
     conditional_velocity_histogram,
+    multinomial_histogram_uncertainty,
     velocity_log_likelihood,
 )
 from halo_mw_lmc.weights import (
@@ -40,6 +46,11 @@ class PreparedFixedWeightData:
     config: ZhuComparisonConfig
     catalog_path: Path
     density_path: Path
+    catalog_phase_space: SphericalPhaseSpace | None = None
+    observed_velocity_histograms: Mapping[
+        str,
+        VelocityHistogramSummary,
+    ] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -50,6 +61,7 @@ class ModelEvaluation:
     velocity_loglike: Mapping[str, float]
     velocity_loglike_by_phi: Mapping[str, np.ndarray]
     velocity_stars_by_phi: Mapping[str, np.ndarray]
+    velocity_distributions: Mapping[str, VelocityDistributionComparison]
     successful_orbits: int
     representative_weights: RepresentativeWeightResult
 
@@ -115,6 +127,41 @@ def _initial_conditions(data) -> np.ndarray:
     return np.column_stack([np.asarray(data[name], dtype=float) for name in names])
 
 
+def _phase_space_from_initial(initial_conditions: np.ndarray) -> SphericalPhaseSpace:
+    return cartesian_to_spherical_phase_space(
+        *[initial_conditions[:, index] for index in range(6)]
+    )
+
+
+def _observed_velocity_histograms(
+    phase_space: SphericalPhaseSpace,
+    config: ZhuComparisonConfig,
+) -> dict[str, VelocityHistogramSummary]:
+    velocity = {
+        "vr": phase_space.radial_velocity,
+        "vphi": phase_space.azimuthal_velocity,
+        "vtheta": phase_space.polar_velocity,
+    }
+    result: dict[str, VelocityHistogramSummary] = {}
+    for name, values in velocity.items():
+        probability, occupancy = conditional_velocity_histogram(
+            phase_space.radius,
+            phase_space.theta,
+            phase_space.phi,
+            values,
+            config.velocity_grid,
+        )
+        result[name] = VelocityHistogramSummary(
+            probability=probability,
+            uncertainty=multinomial_histogram_uncertainty(
+                probability,
+                occupancy,
+            ),
+            occupancy=occupancy,
+        )
+    return result
+
+
 def _default_density_path(base_path: Path, config: ZhuComparisonConfig) -> Path:
     n_r, n_z, n_phi = config.density_grid.shape
     if n_r != n_z or n_r != 25 or n_phi != 4:
@@ -175,6 +222,12 @@ def prepare_fixed_weight_data(
 
     data = table.Table.read(catalog_path, format="ascii")
     initial = _initial_conditions(data)
+    catalog_phase_space = _phase_space_from_initial(initial)
+    observed_velocity_histograms = (
+        _observed_velocity_histograms(catalog_phase_space, config)
+        if config.include_velocity
+        else {}
+    )
     target_density, target_error = _read_density(density_path, config)
     fixed_weights = representative_weights_from_target(
         initial[:, 0],
@@ -198,11 +251,15 @@ def prepare_fixed_weight_data(
         config=config,
         catalog_path=catalog_path,
         density_path=density_path,
+        catalog_phase_space=catalog_phase_space,
+        observed_velocity_histograms=observed_velocity_histograms,
     )
 
 
 def _score_velocities(
     data,
+    catalogue_phase: SphericalPhaseSpace,
+    observed_histograms: Mapping[str, VelocityHistogramSummary],
     library: OrbitLibrary,
     orbit_weights: np.ndarray,
     config: ZhuComparisonConfig,
@@ -214,12 +271,6 @@ def _score_velocities(
         library.vx,
         library.vy,
         library.vz,
-    )
-    catalogue_phase = cartesian_to_spherical_phase_space(
-        *[
-            np.asarray(data[name], dtype=float)
-            for name in ("x_gc", "y_gc", "z_gc", "vx_gc", "vy_gc", "vz_gc")
-        ]
     )
     error_columns = {
         "vr": "vr_err",
@@ -241,8 +292,10 @@ def _score_velocities(
     total: dict[str, float] = {}
     by_phi: dict[str, np.ndarray] = {}
     stars_by_phi: dict[str, np.ndarray] = {}
+    distributions: dict[str, VelocityDistributionComparison] = {}
     for name in ("vr", "vphi", "vtheta"):
-        probability, _ = conditional_velocity_histogram(
+        observed = observed_histograms[name]
+        model_probability, model_occupancy = conditional_velocity_histogram(
             model_phase.radius,
             model_phase.theta,
             model_phase.phi,
@@ -256,13 +309,22 @@ def _score_velocities(
             catalogue_phase.phi,
             observed_velocity[name],
             np.asarray(data[error_columns[name]], dtype=float),
-            probability,
+            model_probability,
             config.velocity_grid,
         )
         total[name] = loglike
         by_phi[name] = component_by_phi
         stars_by_phi[name] = used_by_phi
-    return total, by_phi, stars_by_phi
+        distributions[name] = VelocityDistributionComparison(
+            component=name,
+            grid=config.velocity_grid,
+            data_probability=observed.probability,
+            data_uncertainty=observed.uncertainty,
+            data_occupancy=observed.occupancy,
+            model_probability=model_probability,
+            model_occupancy=model_occupancy,
+        )
+    return total, by_phi, stars_by_phi, distributions
 
 
 def evaluate_prepared_model(
@@ -321,9 +383,28 @@ def evaluate_prepared_model(
     velocity_loglike: Mapping[str, float] = {}
     velocity_by_phi: Mapping[str, np.ndarray] = {}
     velocity_stars: Mapping[str, np.ndarray] = {}
+    velocity_distributions: Mapping[str, VelocityDistributionComparison] = {}
     if config.include_velocity:
-        velocity_loglike, velocity_by_phi, velocity_stars = _score_velocities(
+        catalogue_phase = prepared.catalog_phase_space
+        if catalogue_phase is None or not prepared.observed_velocity_histograms:
+            catalogue_phase = _phase_space_from_initial(
+                prepared.initial_conditions,
+            )
+            observed_velocity_histograms = _observed_velocity_histograms(
+                catalogue_phase,
+                config,
+            )
+        else:
+            observed_velocity_histograms = prepared.observed_velocity_histograms
+        (
+            velocity_loglike,
+            velocity_by_phi,
+            velocity_stars,
+            velocity_distributions,
+        ) = _score_velocities(
             prepared.catalog,
+            catalogue_phase,
+            observed_velocity_histograms,
             library,
             orbit_weights,
             config,
@@ -334,6 +415,7 @@ def evaluate_prepared_model(
         velocity_loglike=velocity_loglike,
         velocity_loglike_by_phi=velocity_by_phi,
         velocity_stars_by_phi=velocity_stars,
+        velocity_distributions=velocity_distributions,
         successful_orbits=library.successful_seed_index.size,
         representative_weights=prepared.representative_weights,
     )
@@ -342,9 +424,10 @@ def evaluate_prepared_model(
             f"rho0{rho0:.3f}_rs{rs:.3f}_p{phalo:.3f}_q{qhalo:.3f}"
             f"_gamma{gamma:.3f}"
         )
-        plot_density_comparison(
+        plot_model_diagnostics(
             density,
-            base / model / "density_rzphi" / f"{tag}.pdf",
+            velocity_distributions,
+            base / model / "diagnostics" / tag,
         )
     return result
 

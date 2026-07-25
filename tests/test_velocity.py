@@ -6,6 +6,7 @@ from halo_mw_lmc.phase_space import cartesian_to_spherical_phase_space
 from halo_mw_lmc.velocity import (
     SphericalVelocityGrid,
     conditional_velocity_histogram,
+    multinomial_histogram_uncertainty,
     velocity_log_likelihood,
 )
 
@@ -26,6 +27,24 @@ class VelocityTests(unittest.TestCase):
         self.assertTrue(np.all(np.isfinite(probability)))
         self.assertEqual(occupancy[0, 0, 1], 0)
         self.assertTrue(np.all(probability[0, 0, 1] == 0))
+
+    def test_histogram_uncertainty_uses_cell_occupancy(self):
+        probability = np.array([[[[0.25, 0.75], [0.0, 0.0]]]])
+        occupancy = np.array([[[4.0, 0.0]]])
+        uncertainty = multinomial_histogram_uncertainty(
+            probability,
+            occupancy,
+        )
+        expected = np.sqrt(0.25 * 0.75 / 4.0)
+        np.testing.assert_allclose(uncertainty[0, 0, 0], [expected, expected])
+        np.testing.assert_array_equal(uncertainty[0, 0, 1], [0.0, 0.0])
+
+    def test_histogram_uncertainty_rejects_mismatched_shapes(self):
+        with self.assertRaises(ValueError):
+            multinomial_histogram_uncertainty(
+                np.zeros((1, 2)),
+                np.zeros((2,)),
+            )
 
     def test_velocity_likelihood_keeps_phi_bins_separate(self):
         probability, _ = conditional_velocity_histogram(

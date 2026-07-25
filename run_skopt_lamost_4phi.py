@@ -57,7 +57,10 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--plot",
         action="store_true",
-        help="write a three-row phi diagnostic PDF for every trial",
+        help=(
+            "for each new best-so-far trial, write phi-resolved density maps, "
+            "flattening profiles, and (with --include-velocity) velocity PDFs"
+        ),
     )
     return parser
 
@@ -155,6 +158,7 @@ def main(argv=None) -> int:
         Real(0.1, 3.0, name="gamma"),
     ]
     optimizer = Optimizer(parameter_space, random_state=args.random_state)
+    best_objective = np.inf
     phi_columns = " ".join(f"chi2_phi{i}" for i in range(args.nphi))
     velocity_columns = ""
     if args.include_velocity:
@@ -196,10 +200,23 @@ def main(argv=None) -> int:
             0.0,
             gamma,
             prepared,
-            plot=args.plot,
+            plot=False,
         )
         objective = -evaluation.log_likelihood
         optimizer.tell(suggested, objective)
+        if args.plot and objective < best_objective:
+            from halo_mw_lmc.plotting import plot_model_diagnostics
+
+            tag = (
+                f"rho0{rho0:.3f}_rs{log_rs:.3f}_p{phalo:.3f}_q{qhalo:.3f}"
+                f"_gamma{gamma:.3f}"
+            )
+            plot_model_diagnostics(
+                evaluation.density,
+                evaluation.velocity_distributions,
+                output_dir / "diagnostics" / tag,
+            )
+        best_objective = min(best_objective, objective)
 
         chi2_phi = " ".join(
             f"{value:.8e}" for value in evaluation.density.chi2_by_phi

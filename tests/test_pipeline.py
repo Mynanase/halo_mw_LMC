@@ -74,6 +74,9 @@ class FixedWeightPipelineTests(unittest.TestCase):
                     "skopt_oint_lamost_4phi.integrate_agama_orbits",
                     return_value=library,
                 ),
+                patch(
+                    "skopt_oint_lamost_4phi.plot_model_diagnostics"
+                ) as plot_diagnostics,
             ):
                 result = evaluate_prepared_model(
                     directory,
@@ -86,12 +89,15 @@ class FixedWeightPipelineTests(unittest.TestCase):
                     0.0,
                     1.0,
                     prepared,
+                    plot=True,
                 )
 
         self.assertAlmostEqual(result.density.scale, 1.0)
         self.assertAlmostEqual(result.density.chi2, 0.0)
         self.assertAlmostEqual(result.log_likelihood, 0.0)
         self.assertEqual(result.successful_orbits, 3)
+        plot_diagnostics.assert_called_once()
+        self.assertEqual(plot_diagnostics.call_args.args[1], {})
 
 
 if __name__ == "__main__":

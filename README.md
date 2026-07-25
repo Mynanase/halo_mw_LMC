@@ -33,7 +33,21 @@ python run_skopt_lamost_4phi.py \
 
 若改变 `--nphi`、`--n-rz` 或 `--rz-max`，必须通过 `--density`
 给出使用完全相同边界生成的 `nu_target(R,z,phi)` 文件。加入 Zhu 的速度项可使用
-`--include-velocity`。
+`--include-velocity`。使用 `--plot` 会在每次刷新当前最优值时，于
+`model_skopt/diagnostics/<parameter-tag>/` 中生成：
+
+- `density_overview.pdf`：target、model、target 相对误差和标准化残差；
+  第一列保留论文式 `phi` 平均基准，后续每个 `phi` bin 一列；
+- `density_phiXX.pdf`：每个 `phi` bin 单独一页的 Fig. 6 式密度比较；
+- `density_flattening.pdf`：由等密度轮廓主、次轴截距提取的
+  `q_star(R)`，不同 `phi` 分面展示；
+- `velocity_phi_average.pdf` 和 `velocity_phiXX.pdf`：开启
+  `--include-velocity` 后生成；前者是论文式 `phi` 平均基准，后者每个方位扇区
+  一页，在 `(r,theta)` 分箱中比较 `v_r`、`v_phi`、`v_theta` 的观测与模型
+  分布，形式对应论文 Fig. 7。
+
+完整图组不会为所有 trial 无条件输出；未改善当前最优目标值的 trial
+只参与优化和写入 `sample.dat`，避免大规模扫描产生过量 PDF。
 
 运行开始时会把固定权重、每格种子数、target density 和网格边界写入
 `model_skopt/fixed_weights_rzphi.npz`。这些权重在整个势参数优化过程中

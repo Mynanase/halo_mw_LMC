@@ -69,6 +69,28 @@ class SphericalVelocityGrid:
         return wrap_periodic(phi, self.phi_edges[0])
 
 
+@dataclass(frozen=True)
+class VelocityHistogramSummary:
+    """A conditional velocity histogram and its spatial-cell occupancy."""
+
+    probability: FloatArray
+    uncertainty: FloatArray
+    occupancy: FloatArray
+
+
+@dataclass(frozen=True)
+class VelocityDistributionComparison:
+    """Observed and model velocity distributions on one common grid."""
+
+    component: str
+    grid: SphericalVelocityGrid
+    data_probability: FloatArray
+    data_uncertainty: FloatArray
+    data_occupancy: FloatArray
+    model_probability: FloatArray
+    model_occupancy: FloatArray
+
+
 def conditional_velocity_histogram(
     radius: ArrayLike,
     theta: ArrayLike,
@@ -116,6 +138,25 @@ def conditional_velocity_histogram(
         where=occupancy[..., None] > 0,
     )
     return probability, occupancy
+
+
+def multinomial_histogram_uncertainty(
+    probability: ArrayLike,
+    occupancy: ArrayLike,
+) -> FloatArray:
+    """Return the diagonal multinomial 1-sigma uncertainty of each bin."""
+
+    probability = np.asarray(probability, dtype=float)
+    occupancy = np.asarray(occupancy, dtype=float)
+    if probability.shape[:-1] != occupancy.shape:
+        raise ValueError("probability and occupancy shapes are inconsistent")
+    variance = np.divide(
+        probability * np.clip(1.0 - probability, 0.0, None),
+        occupancy[..., None],
+        out=np.zeros_like(probability),
+        where=occupancy[..., None] > 0,
+    )
+    return np.sqrt(variance)
 
 
 def velocity_log_likelihood(
