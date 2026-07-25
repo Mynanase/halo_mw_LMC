@@ -16,6 +16,9 @@ output/
 __pycache__/
 *.pyc
 *.pyo
+.pytest_cache/
+.coverage
+.venv/
 
 # === Jupyter checkpoints ===
 .ipynb_checkpoints/

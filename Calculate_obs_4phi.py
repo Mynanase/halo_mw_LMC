@@ -1,122 +1,76 @@
-#!/usr/bin/env python
-# coding: utf-8
+"""Backward-compatible wrappers for azimuth-resolved model histograms.
+
+New code should import :mod:`halo_mw_lmc.density` and
+:mod:`halo_mw_lmc.velocity` directly.  These functions retain the historical
+names and array order expected by the original scripts.
+"""
+
+from __future__ import annotations
 
 import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-from astropy.io import fits
-from astropy import table
-from glob import glob
 
-#######################################################
+from halo_mw_lmc.density import orbit_density
+from halo_mw_lmc.grids import CylindricalGrid
+from halo_mw_lmc.velocity import (
+    SphericalVelocityGrid,
+    conditional_velocity_histogram,
+)
+
+
 def calculate_RzSB_4phi(dt, nRz, Rzmax, nphi):
-    # calculate SB from the model
-    
-    phi_bin = np.linspace(-np.pi, np.pi, nphi+1)
-    Rbin = np.linspace(0, Rzmax, nRz+1)
-    Zbin = np.linspace(0, Rzmax, nRz+1)
+    """Return density in the legacy ``(z, R, phi)`` axis order."""
 
-    z2d = np.zeros([nRz,nRz,nphi])
-    R2d = np.zeros([nRz,nRz,nphi])
-    for i in range(nRz):
-        R2d[:,i,:] = (Rbin[i] + Rbin[i+1])/2
-        z2d[i,:,:] = (Zbin[i] + Zbin[i+1])/2
+    grid = CylindricalGrid.uniform(
+        n_r=nRz,
+        r_range=(0.0, Rzmax),
+        n_z=nRz,
+        z_range=(0.0, Rzmax),
+        n_phi=nphi,
+    )
+    density_rzphi = orbit_density(
+        dt["x"],
+        dt["y"],
+        dt["z"],
+        dt["w"],
+        grid,
+    )
+    radius, z, _ = grid.center_mesh
+    # Historical callers expect z to be the first array dimension.
+    return (
+        np.transpose(z, (1, 0, 2)),
+        np.transpose(radius, (1, 0, 2)),
+        np.transpose(density_rzphi, (1, 0, 2)),
+    )
 
-    
-    ww_model = dt['w'] # dt['w0']*dt['ws']
 
-    R_gc = np.sqrt( dt['x']**2 + dt['y']**2 )
-    pos3d = np.array([dt['z'], R_gc,  dt['phi'] ])
-    
-    nd = np.size(dt)
-    pos3d = np.reshape(pos3d, [3, nd]).T
-
-    hist_model, edges = np.histogramdd(pos3d, weights = ww_model, bins=(Zbin, Rbin,  phi_bin))
-
-    den_m = hist_model / (2*np.pi/nphi * R2d)
-    return z2d, R2d, den_m
-
+def _velocity_histograms(dt, rbd, tbd, pbd, vbd, *, weighted):
+    grid = SphericalVelocityGrid(
+        radius_edges=np.asarray(rbd, dtype=float),
+        theta_edges=np.deg2rad(np.asarray(tbd, dtype=float)),
+        phi_edges=np.deg2rad(np.asarray(pbd, dtype=float)),
+        velocity_edges=np.asarray(vbd, dtype=float),
+    )
+    weights = dt["w"] if weighted else None
+    arguments = (
+        np.asarray(dt["r3d"], dtype=float),
+        np.asarray(dt["theta"], dtype=float),
+        np.asarray(dt["phi"], dtype=float),
+    )
+    vr, _ = conditional_velocity_histogram(
+        *arguments, np.asarray(dt["vr"], dtype=float), grid, weights=weights
+    )
+    vphi, _ = conditional_velocity_histogram(
+        *arguments, np.asarray(dt["v_phi"], dtype=float), grid, weights=weights
+    )
+    vtheta, _ = conditional_velocity_histogram(
+        *arguments, np.asarray(dt["v_the"], dtype=float), grid, weights=weights
+    )
+    return vr, vphi, vtheta
 
 
 def calculate_vhist_weight_4phi(dt, rbd, tbd, pbd, vbd):
-        
-    nr = int(np.size(rbd)-1)
-    ntheta = int(np.size(tbd)-1)
-    nv = int(np.size(vbd)-1)
-    nphi = int(np.size(pbd)-1)
-        
-    # calculate the velocity histograms
-    vr_m = np.zeros([nr, ntheta, nphi, nv])
-    vp_m = np.zeros([nr, ntheta, nphi, nv])
-    vt_m = np.zeros([nr, ntheta, nphi, nv])
-
-    r3d_int1 = dt['r3d']
-    z_int1 = dt['z']
-    theta_int1 = dt['theta'] *180 / np.pi
-    phi_int1 = dt['phi'] *180/ np.pi
-    
-    ww_model =dt['w'] # dt['w0']*dt['ws']
-        
-    bin3d = (rbd, tbd, pbd, vbd)
-    
-    dd3d = (dt['r3d'], theta_int1, phi_int1, dt['vr'])
-    vr_m,xyz = np.histogramdd(dd3d, weights= ww_model, bins=bin3d)
-    
-    dd3d = (dt['r3d'], theta_int1, phi_int1, dt['v_phi'])
-    vp_m,xyz = np.histogramdd(dd3d, weights= ww_model, bins=bin3d)
-
-    dd3d = (dt['r3d'], theta_int1, phi_int1, dt['v_the'])
-    vt_m,xyz = np.histogramdd(dd3d, weights= ww_model, bins=bin3d)
-
-
-    vm_norm = np.sum(vr_m, axis = 3)
-    for br in range(0, nr):
-        for bt in range(0, ntheta):
-            for bp in range(0, nphi):
-                vr_m[br, bt, bp, :] = vr_m[br, bt, bp, :]/ vm_norm[br, bt, bp]
-                vp_m[br, bt, bp, :] = vp_m[br, bt, bp, :]/ vm_norm[br, bt, bp]
-                vt_m[br, bt, bp, :] = vt_m[br, bt, bp, :]/ vm_norm[br, bt, bp]
-            
-    return vr_m, vp_m, vt_m
+    return _velocity_histograms(dt, rbd, tbd, pbd, vbd, weighted=True)
 
 
 def calculate_vhist_4phi(dt, rbd, tbd, pbd, vbd):
-        
-    nr = int(np.size(rbd)-1)
-    ntheta = int(np.size(tbd)-1)
-    nv = int(np.size(vbd)-1)
-    nphi = int(np.size(pbd)-1)
-        
-    # calculate the velocity histograms
-    vr_m = np.zeros([nr, ntheta, nphi, nv])
-    vp_m = np.zeros([nr, ntheta, nphi, nv])
-    vt_m = np.zeros([nr, ntheta, nphi, nv])
-
-    r3d_int1 = dt['r3d']
-    z_int1 = dt['z']
-    theta_int1 = dt['theta'] *180 / np.pi
-    phi_int1 = dt['phi'] *180/ np.pi
-    
-    bin3d = (rbd, tbd, pbd, vbd)
-    
-    dd3d = (dt['r3d'], theta_int1, phi_int1, dt['vr'])
-    vr_m,xyz = np.histogramdd(dd3d, bins=bin3d)
-    
-    dd3d = (dt['r3d'], theta_int1, phi_int1, dt['v_phi'])
-    vp_m,xyz = np.histogramdd(dd3d, bins=bin3d)
-
-    dd3d = (dt['r3d'], theta_int1, phi_int1, dt['v_the'])
-    vt_m,xyz = np.histogramdd(dd3d, bins=bin3d)
-
-
-    vm_norm = np.sum(vr_m, axis = 3)
-    for br in range(0, nr):
-        for bt in range(0, ntheta):
-            for bp in range(0, nphi):
-                vr_m[br, bt, bp, :] = vr_m[br, bt, bp, :]/ vm_norm[br, bt, bp]
-                vp_m[br, bt, bp, :] = vp_m[br, bt, bp, :]/ vm_norm[br, bt, bp]
-                vt_m[br, bt, bp, :] = vt_m[br, bt, bp, :]/ vm_norm[br, bt, bp]
-            
-    return vr_m, vp_m, vt_m
-
-
+    return _velocity_histograms(dt, rbd, tbd, pbd, vbd, weighted=False)

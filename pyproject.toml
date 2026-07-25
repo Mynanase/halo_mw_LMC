@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "halo-mw-lmc"
+version = "0.1.0"
+description = "Azimuth-resolved empirical orbit-superposition tools for the Milky Way halo"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+astronomy = [
+    "astropy>=6",
+    "matplotlib>=3.8",
+]
+inference = [
+    "scikit-optimize>=0.10",
+]
+dev = [
+    "pytest>=8",
+]
+
+[tool.setuptools.packages.find]
+include = ["halo_mw_lmc*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

@@ -1,125 +1,172 @@
-#!/usr/bin/env python
-# coding: utf-8
-import numpy as np
-from numpy import abs, array, ceil, floor, log10, mean, ones,zeros, inf
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-from astropy.io import fits
-from astropy import table
-import os
-import sys
-import subprocess
-#import emcee
-from time import time
-#from emcee.mpi_pool import MPIPool
-#from gpry.run import Runner
-#from mpipool import MPIExecutor
-#from mpi4py.MPI import COMM_WORLD
+#!/usr/bin/env python3
+"""Optimize the Zhu empirical-orbit model on an ``(R,z,phi)`` grid."""
 
-#import mpi4py
-#mpi4py.rc.initialize = False  # do not initialize MPI automatically
-#mpi4py.rc.finalize = False    # do not finalize MPI automatically
-#from mpi4py import MPI
+from __future__ import annotations
+
+import argparse
+from pathlib import Path
+
+from halo_mw_lmc.config import ZhuComparisonConfig
 
 
-from skopt_oint_lamost_4phi import int_one_model
-from numpy.random import rand
-import numpy as np
-from skopt import gp_minimize
-from skopt import Optimizer
-from skopt.space import Real, Integer
-from skopt.utils import use_named_args
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--base-path",
+        type=Path,
+        default=Path.cwd(),
+        help="project/data root (default: current directory)",
+    )
+    parser.add_argument(
+        "--catalog",
+        type=Path,
+        default=Path(
+            "data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+        ),
+        help="6D seed-star catalogue, relative to --base-path unless absolute",
+    )
+    parser.add_argument(
+        "--density",
+        type=Path,
+        default=None,
+        help=(
+            "flattened observed density file; required when the grid is not "
+            "the historical 25x25x4 setup"
+        ),
+    )
+    parser.add_argument("--model", default="model_skopt", help="output directory name")
+    parser.add_argument("--nphi", type=int, default=4)
+    parser.add_argument("--n-rz", type=int, default=25)
+    parser.add_argument("--rz-max", type=float, default=50.0)
+    parser.add_argument("--orbit-samples", type=int, default=1000)
+    parser.add_argument("--iterations", type=int, default=1000)
+    parser.add_argument("--random-state", type=int, default=None)
+    parser.add_argument(
+        "--include-velocity",
+        action="store_true",
+        help="also include Zhu's three per-star velocity likelihood terms",
+    )
+    parser.add_argument(
+        "--plot",
+        action="store_true",
+        help="write a three-row phi diagnostic PDF for every trial",
+    )
+    return parser
 
 
-
-def ll_submit_one(prun):
-
-    base_path = '/home/tqiu/research/halo_mw_LMC/'
-    model = 'model_skopt'
-
-    partfile ='data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt'
-    alpha_halo = 0 #prun[5]
-    beta_halo =  0 #prun[6]
-
-    qhalo = prun[0]
-    phalo = prun[1]
-    rho0 = prun[2]
-    rhors2 = prun[3]
-    gamma = prun[4]
-
-    phalo = round(phalo, 3)
-    qhalo = round(qhalo, 3)
-   
-    rho0 = round( rho0, 3)
-    rs = round((rhors2 - rho0)/2, 3)
-    gamma = round(gamma, 3)
-    alpha_halo = round(alpha_halo, 3)
-    beta_halo = round(beta_halo, 3)
-    
+def _resolve(base: Path, path: Path | None) -> Path | None:
+    if path is None:
+        return None
+    return path.expanduser().resolve() if path.is_absolute() else (base / path).resolve()
 
 
-    dtfile =base_path+ partfile
+def main(argv=None) -> int:
+    args = build_parser().parse_args(argv)
+    if min(args.nphi, args.n_rz, args.orbit_samples, args.iterations) < 1:
+        raise SystemExit("bin counts, orbit samples, and iterations must be positive")
+    if (
+        args.density is None
+        and (args.nphi != 4 or args.n_rz != 25 or args.rz_max != 50.0)
+    ):
+        raise SystemExit("--density is required for a non-default R-z-phi grid")
 
-    ll_tot = -int_one_model(base_path,model, rho0, rs, phalo, qhalo, alpha_halo, beta_halo, gamma, dtfile)    
-        
-    return ll_tot
+    try:
+        from skopt import Optimizer
+        from skopt.space import Real
+    except ImportError as exc:
+        raise SystemExit(
+            "scikit-optimize is required to run the optimizer; install the 'inference' extra"
+        ) from exc
+    from skopt_oint_lamost_4phi import evaluate_one_model
 
+    base = args.base_path.expanduser().resolve()
+    catalog = _resolve(base, args.catalog)
+    density = _resolve(base, args.density)
+    assert catalog is not None
+    if not catalog.exists():
+        raise SystemExit(f"catalogue not found: {catalog}")
+    if density is not None and not density.exists():
+        raise SystemExit(f"observed density file not found: {density}")
 
-#(base_path,model, rho0, rs, phalo, qhalo, alpha_halo, beta_halo, gamma, dtfile):
-# initialise mpi pool
-#pool = MPIPool()
+    config = ZhuComparisonConfig.legacy_4phi(
+        n_phi=args.nphi,
+        n_rz=args.n_rz,
+        rz_max=args.rz_max,
+        orbit_samples_per_orbit=args.orbit_samples,
+        include_velocity=args.include_velocity,
+    )
+    output_dir = base / args.model
+    output_dir.mkdir(parents=True, exist_ok=True)
+    sample_file = output_dir / "sample.dat"
 
-#if not pool.is_master():
-    # wait for instructions from the master process
-#    pool.wait()
-#    sys.exit(0)
-
-
-# start time
-start = time()
-
-base_path = '/home/tqiu/research/halo_mw_LMC/'
-model = 'model_skopt'
-
-#Only use the data in North hemisphere to integrate the orbit and build the orbit-superposition model
-#But calculate the Likelihood for stars in both the North and sorthern hemisphere
-
-if not os.path.exists(base_path + model):
-    os.mkdir(base_path + model)
-    os.mkdir(base_path + model + '/Orbits')
-    os.mkdir(base_path + model + '/SB_Rz')
-    os.mkdir(base_path + model + '/params')
-    os.mkdir(base_path + model + '/vvhist')
-    os.mkdir(base_path + model + '/llp')
-
-
-#y = ll_submit_one( [0.92, 0.84, 6.77, 9.77, 1.0])
-
-
-pspace = [
-    Real(0.5, 1.5, name='qhalo'),
-    Real(0.1, 1.5, name='phalo'),
-    Real(5, 8, name='rho0'),
-    Real(9.3, 10.3, name='rs2rho'),
-    Real(0.1, 3, name='gamma')
-    #Real(0, 180, name='alpha_halo'),
-    #Real(0, 90, name='beta_halo')
+    parameter_space = [
+        Real(0.5, 1.5, name="qhalo"),
+        Real(0.1, 1.5, name="phalo"),
+        Real(5.0, 8.0, name="rho0"),
+        Real(9.3, 10.3, name="rho0_plus_2logrs"),
+        Real(0.1, 3.0, name="gamma"),
     ]
-opt = Optimizer(pspace)
+    optimizer = Optimizer(parameter_space, random_state=args.random_state)
+    if not sample_file.exists():
+        phi_columns = " ".join(f"chi2_phi{i}" for i in range(args.nphi))
+        velocity_columns = ""
+        if args.include_velocity:
+            velocity_columns = " " + " ".join(
+                f"lnL_{component}_phi{iphi}"
+                for component in ("vr", "vphi", "vtheta")
+                for iphi in range(args.nphi)
+            )
+        sample_file.write_text(
+            "# iteration qhalo phalo rho0 rho0_plus_2logrs gamma "
+            f"objective chi2 {phi_columns}{velocity_columns}\n"
+        )
 
-fsave = base_path + model + '/sample.dat'
+    for iteration in range(args.iterations):
+        suggested = optimizer.ask()
+        qhalo, phalo, rho0, rho0_plus_2logrs, gamma = [
+            round(value, 3) for value in suggested
+        ]
+        log_rs = round((rho0_plus_2logrs - rho0) / 2, 3)
+        evaluation = evaluate_one_model(
+            base,
+            args.model,
+            rho0,
+            log_rs,
+            phalo,
+            qhalo,
+            0.0,
+            0.0,
+            gamma,
+            catalog,
+            observed_density_file=density,
+            comparison_config=config,
+            plot=args.plot,
+        )
+        objective = -evaluation.log_likelihood
+        optimizer.tell(suggested, objective)
 
-for i in range(1000):
-    suggested = opt.ask()
-    y = ll_submit_one( suggested)
-    opt.tell(suggested, y)
-    print('iteration:', i, suggested, y)
+        chi2_phi = " ".join(
+            f"{value:.8e}" for value in evaluation.density.chi2_by_phi
+        )
+        velocity_phi = ""
+        if args.include_velocity:
+            velocity_phi = " " + " ".join(
+                f"{value:.8e}"
+                for component in ("vr", "vphi", "vtheta")
+                for value in evaluation.velocity_loglike_by_phi[component]
+            )
+        with sample_file.open("a") as stream:
+            stream.write(
+                f"{iteration:d} {qhalo:.3f} {phalo:.3f} {rho0:.3f} "
+                f"{rho0_plus_2logrs:.3f} {gamma:.3f} {objective:.8e} "
+                f"{evaluation.density.chi2:.8e} {chi2_phi}{velocity_phi}\n"
+            )
+        print(
+            f"iteration={iteration} objective={objective:.6g} "
+            f"chi2_phi={evaluation.density.chi2_by_phi.tolist()}"
+        )
+    return 0
 
 
-    strout = ("%5.0f" % i) + '  '+("%5.3f" % suggested[0]) + '  '+ ("%5.3f" % suggested[1]) + '  '+ ("%5.3f" % suggested[2]) + '  '+ ("%5.3f" % suggested[3]) + '  '+ ("%5.3f" % suggested[4]) + '  '+ ("%10.5e" % y) + '\n'
-    ff = open( fsave, "a" )
-    ff.write( strout )
-    ff.close()
-
-# --------------------------------------
-
+if __name__ == "__main__":
+    raise SystemExit(main())

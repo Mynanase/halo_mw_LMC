@@ -1,69 +1,67 @@
-#!/usr/bin/env python
-# coding: utf-8
+"""Readers for historical flattened ``4phi`` products."""
+
+from __future__ import annotations
 
 import numpy as np
-import matplotlib as mpl
-import matplotlib.pyplot as plt
-from astropy.io import fits
 from astropy import table
-from glob import glob
 
-#######################################################
+
+def _reshape_column(data, column, shape):
+    values = np.asarray(data[column], dtype=float)
+    expected = int(np.prod(shape))
+    if values.size != expected:
+        raise ValueError(
+            f"column {column!r} contains {values.size} values; "
+            f"expected {expected} for shape {shape}"
+        )
+    return values.reshape(shape)
+
+
 def Read_obsSB_v2_4phi(dtfile, nRz, nphi):
-    dd_data = table.Table.read(dtfile, format='ascii')
-    den_Rz = dd_data['den']
-    den_err = dd_data['den_srr']
-    R2d =dd_data['R2d']
-    z2d =dd_data['z2d']
-    den_Rz = np.reshape(den_Rz,[nRz, nRz, nphi])
-    den_err = np.reshape(den_err,[nRz, nRz, nphi])
-    R2d = np.reshape(R2d,[nRz, nRz, nphi])
-    z2d = np.reshape(z2d,[nRz, nRz, nphi])
-    return den_Rz, den_err, R2d, z2d
+    """Read density arrays in the legacy ``(z, R, phi)`` order."""
+
+    data = table.Table.read(dtfile, format="ascii")
+    shape = (nRz, nRz, nphi)
+    return (
+        _reshape_column(data, "den", shape),
+        _reshape_column(data, "den_srr", shape),
+        _reshape_column(data, "R2d", shape),
+        _reshape_column(data, "z2d", shape),
+    )
 
 
 def Read_obsSB_4phi(dtfile, nRz, nphi):
-    dd_data = table.Table.read(dtfile, format='ascii')
-    den_Rz = dd_data['den']
-    den_err = dd_data['den_srr']
-    den_Rz = np.reshape(den_Rz,[nRz, nRz, nphi])
-    den_err = np.reshape(den_err,[nRz, nRz, nphi])
-    return den_Rz, den_err
-
+    data = table.Table.read(dtfile, format="ascii")
+    shape = (nRz, nRz, nphi)
+    return (
+        _reshape_column(data, "den", shape),
+        _reshape_column(data, "den_srr", shape),
+    )
 
 
 def Read_obsvhist_4phi(dtfile, nr, ntheta, nphi, nv):
-
-    vbd =  np.linspace(-500, 500, nv +1)
-    rbd = np.linspace(5,50,nr+1)
-    tbd = np.linspace(0,90,ntheta+1)
-    pbd = np.linspace(-180, 180, nphi+1)
-
-
-    t1= table.Table.read(dtfile, format ='ascii')
-    vr_obs = t1['vr_mean']
-    vr_obs = np.reshape(vr_obs,[nr, ntheta, nphi, nv])
-    vr_err = t1['vr_err']
-    vr_err = np.reshape(vr_err,[nr, ntheta, nphi, nv])
-
-    vp_obs = t1['vphi_mean']
-    vp_obs = np.reshape(vp_obs,[nr, ntheta, nphi, nv])
-    vp_err = t1['vphi_err']
-    vp_err = np.reshape(vp_err,[nr, ntheta, nphi, nv])
-
-    vt_obs = t1['vtheta_mean']
-    vt_obs = np.reshape(vt_obs,[nr, ntheta, nphi, nv])
-    vt_err = t1['vtheta_err']
-    vt_err = np.reshape(vt_err,[nr, ntheta, nphi, nv])
-    
-
-    v_norm = np.sum(vr_obs, axis = 3)
-    for br in range(0, nr):
-        for bt in range(0, ntheta):
-            for bp in range(0, nphi):
-                vr_obs[br, bt, bp, :] = vr_obs[br, bt, bp, :]/ v_norm[br, bt, bp]
-                vp_obs[br, bt, bp, :] = vp_obs[br, bt, bp, :]/ v_norm[br, bt, bp]
-                vt_obs[br, bt, bp, :] = vt_obs[br, bt, bp, :]/ v_norm[br, bt, bp]
-                
-    return vr_obs, vr_err, vp_obs,vp_err, vt_obs, vt_err
-
+    data = table.Table.read(dtfile, format="ascii")
+    shape = (nr, ntheta, nphi, nv)
+    components = []
+    for value_column, error_column in (
+        ("vr_mean", "vr_err"),
+        ("vphi_mean", "vphi_err"),
+        ("vtheta_mean", "vtheta_err"),
+    ):
+        values = _reshape_column(data, value_column, shape)
+        errors = _reshape_column(data, error_column, shape)
+        norm = np.sum(values, axis=-1, keepdims=True)
+        values = np.divide(
+            values,
+            norm,
+            out=np.zeros_like(values),
+            where=norm > 0,
+        )
+        errors = np.divide(
+            errors,
+            norm,
+            out=np.zeros_like(errors),
+            where=norm > 0,
+        )
+        components.extend((values, errors))
+    return tuple(components)

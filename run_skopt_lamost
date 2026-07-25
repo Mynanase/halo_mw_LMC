@@ -1,2 +1,4 @@
-#!/bin/bash
-mpirun -n 4 python run_skopt_lamost_4phi.py 
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec python3 run_skopt_lamost_4phi.py "$@"
