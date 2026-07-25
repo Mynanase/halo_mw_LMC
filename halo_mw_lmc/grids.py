@@ -101,6 +101,40 @@ class CylindricalGrid:
         origin = self.phi_edges[0]
         return (phi_values - origin) % (2 * np.pi) + origin
 
+    def bin_indices(
+        self,
+        radius: ArrayLike,
+        z: ArrayLike,
+        phi: ArrayLike,
+    ) -> tuple[NDArray[np.int64], NDArray[np.int64], NDArray[np.int64], NDArray[np.bool_]]:
+        """Return integer ``(R,z,phi)`` indices and an in-grid mask."""
+
+        radius_values, z_values, phi_values = np.broadcast_arrays(
+            np.asarray(radius, dtype=float),
+            np.asarray(z, dtype=float),
+            self.wrap_phi(phi),
+        )
+        ir = np.searchsorted(self.r_edges, radius_values, side="right") - 1
+        iz = np.searchsorted(self.z_edges, z_values, side="right") - 1
+        iphi = np.searchsorted(self.phi_edges, phi_values, side="right") - 1
+        valid = (
+            np.isfinite(radius_values)
+            & np.isfinite(z_values)
+            & np.isfinite(phi_values)
+            & (ir >= 0)
+            & (ir < self.shape[0])
+            & (iz >= 0)
+            & (iz < self.shape[1])
+            & (iphi >= 0)
+            & (iphi < self.shape[2])
+        )
+        return (
+            np.asarray(ir, dtype=np.int64),
+            np.asarray(iz, dtype=np.int64),
+            np.asarray(iphi, dtype=np.int64),
+            np.asarray(valid, dtype=bool),
+        )
+
     def histogram(
         self,
         radius: ArrayLike,

@@ -54,6 +54,7 @@ class ZhuComparisonConfig:
     density_fit: DensityFitSettings = field(default_factory=DensityFitSettings)
     velocity_grid: SphericalVelocityGrid = field(default_factory=_default_velocity_grid)
     include_velocity: bool = False
+    minimum_seed_count: int = 1
     orbit_samples_per_orbit: int = 1000
     # The legacy run compares z>0 after sampling a full orbit.  Dividing by
     # Nsample/2 preserves its amplitude; a subsequent single global scale makes
@@ -63,6 +64,8 @@ class ZhuComparisonConfig:
     def __post_init__(self) -> None:
         if self.orbit_samples_per_orbit < 1:
             raise ValueError("orbit_samples_per_orbit must be positive")
+        if self.minimum_seed_count < 1:
+            raise ValueError("minimum_seed_count must be positive")
         if self.orbit_sample_divisor <= 0:
             raise ValueError("orbit_sample_divisor must be positive")
 
@@ -75,6 +78,7 @@ class ZhuComparisonConfig:
         rz_max: float = 50.0,
         orbit_samples_per_orbit: int = 1000,
         include_velocity: bool = False,
+        minimum_seed_count: int = 1,
     ) -> "ZhuComparisonConfig":
         phi_edges = np.linspace(-np.pi, np.pi, n_phi + 1)
         return cls(
@@ -96,6 +100,7 @@ class ZhuComparisonConfig:
                 velocity_edges=np.linspace(-800, 800, 202),
             ),
             include_velocity=include_velocity,
+            minimum_seed_count=minimum_seed_count,
             orbit_samples_per_orbit=orbit_samples_per_orbit,
             orbit_sample_divisor=orbit_samples_per_orbit / 2,
         )

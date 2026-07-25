@@ -2,12 +2,22 @@
 
 ## 1. 不变的部分：经验轨道叠加
 
-对每个 6D 观测相点，在候选势中积分轨道，并在时间上均匀采样。
-若第 `i` 个种子星的代表性权重为 `w_i`，其每个轨道样本继承该权重；
+先在目标密度的三维格 `j=(R,z,phi)` 中统计种子星数，并固定
+
+```text
+w_i = nu_target[j] V[j] / N_seed[j].
+```
+
+因此每个有支持的空间格内，种子权重之和严格等于目标 tracer mass。
+这一组权重在候选势优化开始前只计算一次，不随势参数变化。
+
+随后对每个 6D 观测相点，在候选势中积分轨道，并在时间上均匀采样。
+第 `i` 个种子星的每个轨道样本继承相同的固定 `w_i`；
 在构造密度时再除以所采用的轨道样本归一化常数。这个常数只改变模型
 总幅度，不改变形状。
 
-本分支仍使用输入目录中的 `w` 作为轨道代表性权重，没有重新估计选择函数。
+这仍然是 Zhu 式固定经验权重方法，不包含传统 Schwarzschild
+`A w = d` 的内层非负权重求解。
 
 ## 2. 从轴对称网格到 `(R,z,phi)` 网格
 
@@ -38,13 +48,13 @@ phi 被当作周期变量。核心代码统一把它包裹到
 `A`。默认的体积归一化为
 
 ```text
-A = sum(data_ijk V_ijk) / sum(model_ijk V_ijk),
+A = sum(target_ijk V_ijk) / sum(model_ijk V_ijk),
 ```
 
 求和同时跨越所有 phi bin。随后
 
 ```text
-chi2_k = sum_ij [(data_ijk - A model_ijk) / sigma_ijk]^2,
+chi2_k = sum_ij [(target_ijk - A model_ijk) / sigma_ijk]^2,
 chi2_density = sum_k chi2_k.
 ```
 
@@ -77,5 +87,7 @@ L_a = sum_l p_l Normal(v_a | v_l, sigma_a).
 - 密度拟合区保留旧设置：`|z|>=2 kpc` 且 `15<=r<40 kpc`。
 - 模型幅度默认在 `r>=10 kpc` 的所有有效 phi bin 上共同确定。
 - 非 4-bin 实验必须重新生成匹配边界的观测密度文件。
+- `nu_target(R,z,phi)` 同时用于固定权重计算和最终密度验证。
+- 没有足够种子星的 target 格会记录为 unsupported，并输出其质量比例。
 - 当前 AGAMA `Spheroid` 势与坐标轴对齐；非零 halo 旋转角会明确报错，
   不再像旧代码一样被静默忽略。

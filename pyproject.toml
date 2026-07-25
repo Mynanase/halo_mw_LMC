@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "halo-mw-lmc"
-version = "0.1.0"
+version = "0.2.0"
 description = "Azimuth-resolved empirical orbit-superposition tools for the Milky Way halo"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -6,6 +6,8 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+import numpy as np
+
 from halo_mw_lmc.config import ZhuComparisonConfig
 
 
@@ -30,7 +32,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "flattened observed density file; required when the grid is not "
+            "flattened nu_target(R,z,phi) file; required when the grid is not "
             "the historical 25x25x4 setup"
         ),
     )
@@ -39,6 +41,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--n-rz", type=int, default=25)
     parser.add_argument("--rz-max", type=float, default=50.0)
     parser.add_argument("--orbit-samples", type=int, default=1000)
+    parser.add_argument(
+        "--minimum-seed-count",
+        type=int,
+        default=1,
+        help="minimum seed stars required before a target cell receives weight",
+    )
     parser.add_argument("--iterations", type=int, default=1000)
     parser.add_argument("--random-state", type=int, default=None)
     parser.add_argument(
@@ -62,7 +70,13 @@ def _resolve(base: Path, path: Path | None) -> Path | None:
 
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
-    if min(args.nphi, args.n_rz, args.orbit_samples, args.iterations) < 1:
+    if min(
+        args.nphi,
+        args.n_rz,
+        args.orbit_samples,
+        args.minimum_seed_count,
+        args.iterations,
+    ) < 1:
         raise SystemExit("bin counts, orbit samples, and iterations must be positive")
     if (
         args.density is None
@@ -77,7 +91,10 @@ def main(argv=None) -> int:
         raise SystemExit(
             "scikit-optimize is required to run the optimizer; install the 'inference' extra"
         ) from exc
-    from skopt_oint_lamost_4phi import evaluate_one_model
+    from skopt_oint_lamost_4phi import (
+        evaluate_prepared_model,
+        prepare_fixed_weight_data,
+    )
 
     base = args.base_path.expanduser().resolve()
     catalog = _resolve(base, args.catalog)
@@ -86,7 +103,7 @@ def main(argv=None) -> int:
     if not catalog.exists():
         raise SystemExit(f"catalogue not found: {catalog}")
     if density is not None and not density.exists():
-        raise SystemExit(f"observed density file not found: {density}")
+        raise SystemExit(f"target density file not found: {density}")
 
     config = ZhuComparisonConfig.legacy_4phi(
         n_phi=args.nphi,
@@ -94,10 +111,41 @@ def main(argv=None) -> int:
         rz_max=args.rz_max,
         orbit_samples_per_orbit=args.orbit_samples,
         include_velocity=args.include_velocity,
+        minimum_seed_count=args.minimum_seed_count,
     )
     output_dir = base / args.model
     output_dir.mkdir(parents=True, exist_ok=True)
     sample_file = output_dir / "sample.dat"
+    prepared = prepare_fixed_weight_data(
+        base,
+        catalog,
+        observed_density_file=density,
+        comparison_config=config,
+    )
+    fixed = prepared.representative_weights
+    np.savez_compressed(
+        output_dir / "fixed_weights_rzphi.npz",
+        weights=fixed.weights,
+        seed_counts=fixed.seed_counts,
+        cell_weight=fixed.cell_weight,
+        supported_cells=fixed.supported_cells,
+        target_density=prepared.target_density,
+        target_error=prepared.target_error,
+        assigned_mass=np.asarray(fixed.assigned_mass),
+        positive_target_mass=np.asarray(fixed.positive_target_mass),
+        unsupported_positive_mass=np.asarray(fixed.unsupported_positive_mass),
+        supported_mass_fraction=np.asarray(fixed.supported_mass_fraction),
+        r_edges=config.density_grid.r_edges,
+        z_edges=config.density_grid.z_edges,
+        phi_edges=config.density_grid.phi_edges,
+        catalog_path=np.asarray(str(prepared.catalog_path)),
+        density_path=np.asarray(str(prepared.density_path)),
+    )
+    print(
+        "fixed R-z-phi weights: "
+        f"{fixed.weighted_seed_count}/{fixed.in_grid_seed_count} in-grid seeds weighted, "
+        f"supported target mass={fixed.supported_mass_fraction:.4f}"
+    )
 
     parameter_space = [
         Real(0.5, 1.5, name="qhalo"),
@@ -107,19 +155,29 @@ def main(argv=None) -> int:
         Real(0.1, 3.0, name="gamma"),
     ]
     optimizer = Optimizer(parameter_space, random_state=args.random_state)
-    if not sample_file.exists():
-        phi_columns = " ".join(f"chi2_phi{i}" for i in range(args.nphi))
-        velocity_columns = ""
-        if args.include_velocity:
-            velocity_columns = " " + " ".join(
-                f"lnL_{component}_phi{iphi}"
-                for component in ("vr", "vphi", "vtheta")
-                for iphi in range(args.nphi)
-            )
-        sample_file.write_text(
-            "# iteration qhalo phalo rho0 rho0_plus_2logrs gamma "
-            f"objective chi2 {phi_columns}{velocity_columns}\n"
+    phi_columns = " ".join(f"chi2_phi{i}" for i in range(args.nphi))
+    velocity_columns = ""
+    if args.include_velocity:
+        velocity_columns = " " + " ".join(
+            f"lnL_{component}_phi{iphi}"
+            for component in ("vr", "vphi", "vtheta")
+            for iphi in range(args.nphi)
         )
+    expected_header = (
+        "# iteration qhalo phalo rho0 rho0_plus_2logrs gamma "
+        f"objective chi2 density_scale successful_orbits "
+        f"{phi_columns}{velocity_columns}"
+    )
+    if not sample_file.exists():
+        sample_file.write_text(expected_header + "\n")
+    else:
+        with sample_file.open() as stream:
+            existing_header = stream.readline().rstrip("\n")
+        if existing_header != expected_header:
+            raise SystemExit(
+                f"existing sample schema does not match this run: {sample_file}; "
+                "choose a new --model directory"
+            )
 
     for iteration in range(args.iterations):
         suggested = optimizer.ask()
@@ -127,7 +185,7 @@ def main(argv=None) -> int:
             round(value, 3) for value in suggested
         ]
         log_rs = round((rho0_plus_2logrs - rho0) / 2, 3)
-        evaluation = evaluate_one_model(
+        evaluation = evaluate_prepared_model(
             base,
             args.model,
             rho0,
@@ -137,9 +195,7 @@ def main(argv=None) -> int:
             0.0,
             0.0,
             gamma,
-            catalog,
-            observed_density_file=density,
-            comparison_config=config,
+            prepared,
             plot=args.plot,
         )
         objective = -evaluation.log_likelihood
@@ -159,7 +215,8 @@ def main(argv=None) -> int:
             stream.write(
                 f"{iteration:d} {qhalo:.3f} {phalo:.3f} {rho0:.3f} "
                 f"{rho0_plus_2logrs:.3f} {gamma:.3f} {objective:.8e} "
-                f"{evaluation.density.chi2:.8e} {chi2_phi}{velocity_phi}\n"
+                f"{evaluation.density.chi2:.8e} {evaluation.density.scale:.8e} "
+                f"{evaluation.successful_orbits:d} {chi2_phi}{velocity_phi}\n"
             )
         print(
             f"iteration={iteration} objective={objective:.6g} "

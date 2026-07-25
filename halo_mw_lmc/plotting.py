@@ -13,7 +13,7 @@ def plot_density_comparison(
     comparison: DensityComparison,
     output: str | Path,
 ) -> None:
-    """Write data/model/residual panels with one column per phi bin."""
+    """Write target/model/residual panels with one column per phi bin."""
 
     import matplotlib.pyplot as plt
 
@@ -76,7 +76,9 @@ def plot_density_comparison(
         )
         axes[2, iphi].set_xlabel("R [kpc]")
 
-    for row, label in enumerate(("data log₁₀ ν", "model log₁₀ ν", "(data-model)/σ")):
+    for row, label in enumerate(
+        ("target log₁₀ ν", "model log₁₀ ν", "(target-model)/σ")
+    ):
         axes[row, 0].set_ylabel(f"{label}\nz [kpc]")
     figure.colorbar(density_images[0], ax=axes[:2, :], label="log₁₀ ν")
     if residual_image is not None:

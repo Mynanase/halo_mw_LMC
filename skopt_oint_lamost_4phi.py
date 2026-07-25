@@ -22,6 +22,24 @@ from halo_mw_lmc.velocity import (
     conditional_velocity_histogram,
     velocity_log_likelihood,
 )
+from halo_mw_lmc.weights import (
+    RepresentativeWeightResult,
+    representative_weights_from_target,
+)
+
+
+@dataclass(frozen=True)
+class PreparedFixedWeightData:
+    """Catalogue and fixed weights shared by every trial potential."""
+
+    catalog: object
+    initial_conditions: np.ndarray
+    target_density: np.ndarray
+    target_error: np.ndarray
+    representative_weights: RepresentativeWeightResult
+    config: ZhuComparisonConfig
+    catalog_path: Path
+    density_path: Path
 
 
 @dataclass(frozen=True)
@@ -33,6 +51,7 @@ class ModelEvaluation:
     velocity_loglike_by_phi: Mapping[str, np.ndarray]
     velocity_stars_by_phi: Mapping[str, np.ndarray]
     successful_orbits: int
+    representative_weights: RepresentativeWeightResult
 
     @property
     def log_likelihood(self) -> float:
@@ -100,7 +119,7 @@ def _default_density_path(base_path: Path, config: ZhuComparisonConfig) -> Path:
     n_r, n_z, n_phi = config.density_grid.shape
     if n_r != n_z or n_r != 25 or n_phi != 4:
         raise ValueError(
-            "observed_density_file is required for a grid other than the "
+            "a target density file is required for a grid other than the "
             "historical 25x25x4 product"
         )
     return (
@@ -126,6 +145,59 @@ def _read_density(path: str | Path, config: ZhuComparisonConfig):
     return (
         np.transpose(density_zrphi, (1, 0, 2)),
         np.transpose(error_zrphi, (1, 0, 2)),
+    )
+
+
+def _resolve_input_path(base: Path, path: str | Path) -> Path:
+    result = Path(path).expanduser()
+    return result.resolve() if result.is_absolute() else (base / result).resolve()
+
+
+def prepare_fixed_weight_data(
+    base_path,
+    dtfile,
+    *,
+    observed_density_file=None,
+    comparison_config: ZhuComparisonConfig | None = None,
+) -> PreparedFixedWeightData:
+    """Read inputs and compute one fixed ``(R,z,phi)`` weight per seed orbit."""
+
+    config = comparison_config or ZhuComparisonConfig.legacy_4phi()
+    base = Path(base_path).expanduser().resolve()
+    catalog_path = _resolve_input_path(base, dtfile)
+    density_path = (
+        _resolve_input_path(base, observed_density_file)
+        if observed_density_file is not None
+        else _default_density_path(base, config)
+    )
+
+    from astropy import table
+
+    data = table.Table.read(catalog_path, format="ascii")
+    initial = _initial_conditions(data)
+    target_density, target_error = _read_density(density_path, config)
+    fixed_weights = representative_weights_from_target(
+        initial[:, 0],
+        initial[:, 1],
+        initial[:, 2],
+        target_density,
+        config.density_grid,
+        minimum_seed_count=config.minimum_seed_count,
+    )
+    if fixed_weights.weighted_seed_count == 0:
+        raise ValueError(
+            "the target density and seed catalogue have no positively weighted "
+            "cells in common"
+        )
+    return PreparedFixedWeightData(
+        catalog=data,
+        initial_conditions=initial,
+        target_density=target_density,
+        target_error=target_error,
+        representative_weights=fixed_weights,
+        config=config,
+        catalog_path=catalog_path,
+        density_path=density_path,
     )
 
 
@@ -193,6 +265,90 @@ def _score_velocities(
     return total, by_phi, stars_by_phi
 
 
+def evaluate_prepared_model(
+    base_path,
+    model,
+    rho0,
+    rs,
+    phalo,
+    qhalo,
+    alpha_halo,
+    beta_halo,
+    gamma,
+    prepared: PreparedFixedWeightData,
+    *,
+    plot=False,
+) -> ModelEvaluation:
+    """Build and score one trial potential using precomputed fixed weights.
+
+    ``rho0`` and ``rs`` retain the historical log10 parameterization.
+    """
+
+    config = prepared.config
+    base = Path(base_path).expanduser().resolve()
+    potential = _build_potential(
+        rho0,
+        rs,
+        phalo,
+        qhalo,
+        gamma,
+        alpha_halo,
+        beta_halo,
+    )
+    library = integrate_agama_orbits(
+        prepared.initial_conditions,
+        potential,
+        periods=10,
+        samples_per_orbit=config.orbit_samples_per_orbit,
+    )
+    orbit_weights = prepared.representative_weights.weights[library.seed_index]
+    model_density = orbit_density(
+        library.x,
+        library.y,
+        library.z,
+        orbit_weights,
+        config.density_grid,
+        sample_divisor=config.orbit_sample_divisor,
+    )
+    density = compare_density(
+        prepared.target_density,
+        prepared.target_error,
+        model_density,
+        config.density_grid,
+        config.density_fit,
+    )
+
+    velocity_loglike: Mapping[str, float] = {}
+    velocity_by_phi: Mapping[str, np.ndarray] = {}
+    velocity_stars: Mapping[str, np.ndarray] = {}
+    if config.include_velocity:
+        velocity_loglike, velocity_by_phi, velocity_stars = _score_velocities(
+            prepared.catalog,
+            library,
+            orbit_weights,
+            config,
+        )
+
+    result = ModelEvaluation(
+        density=density,
+        velocity_loglike=velocity_loglike,
+        velocity_loglike_by_phi=velocity_by_phi,
+        velocity_stars_by_phi=velocity_stars,
+        successful_orbits=library.successful_seed_index.size,
+        representative_weights=prepared.representative_weights,
+    )
+    if plot:
+        tag = (
+            f"rho0{rho0:.3f}_rs{rs:.3f}_p{phalo:.3f}_q{qhalo:.3f}"
+            f"_gamma{gamma:.3f}"
+        )
+        plot_density_comparison(
+            density,
+            base / model / "density_rzphi" / f"{tag}.pdf",
+        )
+    return result
+
+
 def evaluate_one_model(
     base_path,
     model,
@@ -209,85 +365,27 @@ def evaluate_one_model(
     comparison_config: ZhuComparisonConfig | None = None,
     plot=False,
 ) -> ModelEvaluation:
-    """Build and score one trial potential.
+    """Compatibility wrapper that prepares fixed weights and evaluates a model."""
 
-    ``rho0`` and ``rs`` retain the historical log10 parameterization.
-    """
-
-    config = comparison_config or ZhuComparisonConfig.legacy_4phi()
-    base = Path(base_path).expanduser().resolve()
-    from astropy import table
-
-    data = table.Table.read(dtfile, format="ascii")
-    _require_columns(data, ("w",))
-
-    potential = _build_potential(
+    prepared = prepare_fixed_weight_data(
+        base_path,
+        dtfile,
+        observed_density_file=observed_density_file,
+        comparison_config=comparison_config,
+    )
+    return evaluate_prepared_model(
+        base_path,
+        model,
         rho0,
         rs,
         phalo,
         qhalo,
-        gamma,
         alpha_halo,
         beta_halo,
+        gamma,
+        prepared,
+        plot=plot,
     )
-    library = integrate_agama_orbits(
-        _initial_conditions(data),
-        potential,
-        periods=10,
-        samples_per_orbit=config.orbit_samples_per_orbit,
-    )
-    orbit_weights = np.asarray(data["w"], dtype=float)[library.seed_index]
-    model_density = orbit_density(
-        library.x,
-        library.y,
-        library.z,
-        orbit_weights,
-        config.density_grid,
-        sample_divisor=config.orbit_sample_divisor,
-    )
-
-    density_path = (
-        Path(observed_density_file)
-        if observed_density_file is not None
-        else _default_density_path(base, config)
-    )
-    data_density, data_error = _read_density(density_path, config)
-    density = compare_density(
-        data_density,
-        data_error,
-        model_density,
-        config.density_grid,
-        config.density_fit,
-    )
-
-    velocity_loglike: Mapping[str, float] = {}
-    velocity_by_phi: Mapping[str, np.ndarray] = {}
-    velocity_stars: Mapping[str, np.ndarray] = {}
-    if config.include_velocity:
-        velocity_loglike, velocity_by_phi, velocity_stars = _score_velocities(
-            data,
-            library,
-            orbit_weights,
-            config,
-        )
-
-    result = ModelEvaluation(
-        density=density,
-        velocity_loglike=velocity_loglike,
-        velocity_loglike_by_phi=velocity_by_phi,
-        velocity_stars_by_phi=velocity_stars,
-        successful_orbits=library.successful_seed_index.size,
-    )
-    if plot:
-        tag = (
-            f"rho0{rho0:.3f}_rs{rs:.3f}_p{phalo:.3f}_q{qhalo:.3f}"
-            f"_gamma{gamma:.3f}"
-        )
-        plot_density_comparison(
-            density,
-            base / model / "density_rzphi" / f"{tag}.pdf",
-        )
-    return result
 
 
 def int_one_model(

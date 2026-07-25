@@ -214,6 +214,11 @@ def nu(SF_m, SF_i, PI, MK, JK, Dt, DL, DU, SF, n_jobs, lc = False):
 
 
 def w(R, z, nu_ph, bins, x_range, y_range):
+	"""Legacy axisymmetric ``w(R,z)`` helper.
+
+	The current phi-resolved pipeline does not call this function; it computes
+	fixed weights from ``nu_target(R,z,phi)`` in ``halo_mw_lmc.weights``.
+	"""
 
 	nu_ph_stats = stats.binned_statistic_2d(R, z, nu_ph, statistic = 'mean',  
 	                                        bins = bins, range = (x_range, y_range))
@@ -402,5 +407,4 @@ def nu_n(PI, MK, JK, Dt_tl, DL, DU, SF, n, n_jobs):
 
 # data['nu_sp'], data['nu_ph'], _, _ = nu_ph(PI, MK, JK, Dt, DL, DU, SF)
 # del PI, MK, JK, Dt, DL, DU
-
 
