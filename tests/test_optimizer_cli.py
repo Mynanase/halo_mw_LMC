@@ -11,6 +11,7 @@ class OptimizerCliTests(unittest.TestCase):
     def test_cold_start_has_reproducible_default_seed(self):
         args = build_parser().parse_args([])
         self.assertEqual(args.random_state, 0)
+        self.assertEqual(args.velocity_plot_bin_factor, 3)
 
     def test_default_bounds_are_paper_centered_and_contain_best_fit(self):
         args = build_parser().parse_args([])

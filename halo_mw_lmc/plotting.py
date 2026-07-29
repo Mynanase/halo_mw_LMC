@@ -533,14 +533,47 @@ def _velocity_panel_values(
     return data_probability, data_uncertainty, model_probability, float(data_occupancy)
 
 
+def _coarsen_velocity_panel(
+    velocity_edges: np.ndarray,
+    data_probability: np.ndarray,
+    model_probability: np.ndarray,
+    data_occupancy: float,
+    bin_factor: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Aggregate adjacent likelihood bins for plotting without changing the fit."""
+
+    if isinstance(bin_factor, bool) or not isinstance(bin_factor, (int, np.integer)):
+        raise ValueError("velocity plotting bin factor must be an integer")
+    if bin_factor < 1:
+        raise ValueError("velocity plotting bin factor must be positive")
+
+    edges = np.asarray(velocity_edges, dtype=float)
+    data = np.asarray(data_probability, dtype=float)
+    model = np.asarray(model_probability, dtype=float)
+    fine_bin_count = edges.size - 1
+    if data.shape != (fine_bin_count,) or model.shape != (fine_bin_count,):
+        raise ValueError("velocity panel values do not match the velocity grid")
+    coarse_starts = np.arange(0, fine_bin_count, bin_factor)
+    coarse_edges = np.append(edges[coarse_starts], edges[-1])
+    coarse_centers = 0.5 * (coarse_edges[:-1] + coarse_edges[1:])
+    coarse_data = np.add.reduceat(data, coarse_starts)
+    coarse_model = np.add.reduceat(model, coarse_starts)
+    coarse_uncertainty = multinomial_histogram_uncertainty(
+        coarse_data[None, :],
+        np.asarray([data_occupancy], dtype=float),
+    )[0]
+    return coarse_centers, coarse_data, coarse_uncertainty, coarse_model
+
+
 def plot_velocity_distributions(
     comparisons: Mapping[str, VelocityDistributionComparison],
     output_directory: str | Path,
     *,
     minimum_radius: float = 8.0,
     theta_indices: tuple[int, ...] = (0, 2, 4),
+    velocity_bin_factor: int = 3,
 ) -> list[Path]:
-    """Write one Zhu-Fig.-7-style velocity grid for every azimuth bin."""
+    """Write velocity grids, coarsening only their visual representation."""
 
     import matplotlib.pyplot as plt
 
@@ -565,7 +598,6 @@ def plot_velocity_distributions(
     nrows = len(radial_indices)
     ntheta = len(selected_theta)
     ncolumns = len(required) * ntheta
-    centers = grid.velocity_centers
     labels = {"vr": "vᵣ", "vphi": "vφ", "vtheta": "vθ"}
     output_directory = Path(output_directory)
     output_directory.mkdir(parents=True, exist_ok=True)
@@ -594,6 +626,13 @@ def plot_velocity_distributions(
                             itheta,
                             iphi,
                         )
+                    )
+                    centers, data, uncertainty, model = _coarsen_velocity_panel(
+                        grid.velocity_edges,
+                        data,
+                        model,
+                        data_occupancy,
+                        velocity_bin_factor,
                     )
                     if data_occupancy > 0:
                         data_line = axis.plot(
@@ -680,6 +719,8 @@ def plot_model_diagnostics(
     density: DensityComparison,
     velocities: Mapping[str, VelocityDistributionComparison],
     output_directory: str | Path,
+    *,
+    velocity_bin_factor: int = 3,
 ) -> list[Path]:
     """Create the complete phi-resolved density and velocity plot set."""
 
@@ -691,5 +732,11 @@ def plot_model_diagnostics(
     plot_density_shape(density, shape)
     written = [overview, shape]
     written.extend(plot_density_phi_pages(density, output_directory))
-    written.extend(plot_velocity_distributions(velocities, output_directory))
+    written.extend(
+        plot_velocity_distributions(
+            velocities,
+            output_directory,
+            velocity_bin_factor=velocity_bin_factor,
+        )
+    )
     return written

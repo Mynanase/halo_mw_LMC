@@ -129,6 +129,15 @@ def build_parser() -> argparse.ArgumentParser:
             "flattening profiles, and (with --include-velocity) velocity PDFs"
         ),
     )
+    parser.add_argument(
+        "--velocity-plot-bin-factor",
+        type=int,
+        default=3,
+        help=(
+            "combine this many adjacent fitting bins in velocity plots only "
+            "(default: 3, about 24 km/s)"
+        ),
+    )
     return parser
 
 
@@ -179,8 +188,12 @@ def main(argv=None) -> int:
         args.orbit_samples,
         args.minimum_seed_count,
         args.iterations,
+        args.velocity_plot_bin_factor,
     ) < 1:
-        raise SystemExit("bin counts, orbit samples, and iterations must be positive")
+        raise SystemExit(
+            "bin counts, orbit samples, iterations, and the velocity plot "
+            "bin factor must be positive"
+        )
     if (
         args.density is None
         and (args.nphi != 4 or args.n_rz != 25 or args.rz_max != 50.0)
@@ -321,6 +334,7 @@ def main(argv=None) -> int:
         },
         "include_velocity": args.include_velocity,
         "plot_new_best": args.plot,
+        "velocity_plot_bin_factor": args.velocity_plot_bin_factor,
     }
     (output_dir / "run_config.json").write_text(
         json.dumps(run_config, indent=2, sort_keys=True) + "\n"
@@ -395,6 +409,7 @@ def main(argv=None) -> int:
                 evaluation.density,
                 evaluation.velocity_distributions,
                 output_dir / "diagnostics" / tag,
+                velocity_bin_factor=args.velocity_plot_bin_factor,
             )
         best_objective = min(best_objective, objective)
 

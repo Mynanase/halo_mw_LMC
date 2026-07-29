@@ -14,6 +14,7 @@ from pathlib import Path
 import numpy as np
 
 from halo_mw_lmc.config import ZhuComparisonConfig
+from halo_mw_lmc.plotting import plot_model_diagnostics
 from halo_mw_lmc.samples import SampleFileError, best_sample, load_sample_table
 from skopt_oint_lamost_4phi import (
     evaluate_prepared_model,
@@ -102,14 +103,27 @@ def main(argv=None) -> int:
     parser.add_argument(
         "--minimum-seed-count", type=int, default=1,
     )
+    parser.add_argument(
+        "--velocity-plot-bin-factor",
+        type=int,
+        default=3,
+        help=(
+            "combine this many adjacent fitting bins in velocity plots only "
+            "(default: 3, about 24 km/s)"
+        ),
+    )
     args = parser.parse_args(argv)
     if min(
         args.nphi,
         args.n_rz,
         args.orbit_samples,
         args.minimum_seed_count,
+        args.velocity_plot_bin_factor,
     ) < 1:
-        raise SystemExit("bin counts and orbit samples must be positive")
+        raise SystemExit(
+            "bin counts, orbit samples, and the velocity plot bin factor "
+            "must be positive"
+        )
     if (
         args.density is None
         and (args.nphi != 4 or args.n_rz != 25 or args.rz_max != 50.0)
@@ -192,11 +206,17 @@ def main(argv=None) -> int:
         0.0,
         best["gamma"],
         prepared,
-        plot=True,
+        plot=False,
     )
     diagnostics_dir = output_dir / "diagnostics" / (
         f"rho0{best['rho0']:.3f}_rs{log_rs:.3f}_p{best['phalo']:.3f}"
         f"_q{best['qhalo']:.3f}_gamma{best['gamma']:.3f}"
+    )
+    plot_model_diagnostics(
+        evaluation.density,
+        evaluation.velocity_distributions,
+        diagnostics_dir,
+        velocity_bin_factor=args.velocity_plot_bin_factor,
     )
     print(f"wrote diagnostics into {diagnostics_dir}")
 

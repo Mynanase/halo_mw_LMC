@@ -56,6 +56,24 @@ python run_skopt_lamost_4phi.py \
 算法约定和旧代码差异见
 [`docs/zhu_phi_binning.md`](docs/zhu_phi_binning.md)。
 
+## 检查观测数据覆盖
+
+在开始拟合前，可单独检查六维星表在不同方向和空间格中的覆盖情况：
+
+```bash
+python plot_data_coverage.py \
+  --base-path /path/to/halo_mw_LMC \
+  --nphi 4 \
+  --n-rz 25 \
+  --rz-max 50
+```
+
+默认写入 `data_coverage/`，包括位置和速度投影、逐 `phi` 的
+`(R,z)` 与 `(r,theta)` 原始占据数/采样数密度、边缘剖面、
+空格与低样本格摘要，以及可供后续分析使用的
+`coverage_summary.json` 和 `coverage_counts.npz`。这些图只描述实际样本
+覆盖，不进行对称化、插值或选择函数校正，零计数空间格会被明确保留。
+
 ## 测试
 
 ```bash

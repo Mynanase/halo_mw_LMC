@@ -23,6 +23,11 @@ Observational inputs, generated model directories, PDFs, and most research data
 are intentionally excluded from Git. Do not assume that ignored data are absent
 merely because `git status` does not show them.
 
+Use `plot_data_coverage.py` for data-only coverage diagnostics before changing
+the statistical treatment of sparse or empty 6D regions. Its sampling-density
+plots are raw catalogue number densities, not selection-function-corrected
+physical stellar densities.
+
 ## Local Python environment
 
 - Preferred Conda environment: `dp-jax` (the name is lowercase).
@@ -68,6 +73,10 @@ environments or installing packages.
   directory rather than append to an existing `sample.dat`.
 - Keep the coordinates used for model evaluation, `optimizer.tell()`, and
   persisted samples identical.
+- Keep the 201-bin velocity grid used by the likelihood separate from plot
+  smoothing. Diagnostic velocity plots aggregate three adjacent fitting bins
+  by default (about 24 km/s per plotted bin); changing the plotting factor must
+  not change the fitted likelihood.
 - The active potential is the static, constant-shape fiducial model from Zhu
   et al. (2026), equations 6--8: Ferrers barred bulge, thin and thick AGAMA
   `Disk` components, and a generalized-NFW triaxial `Spheroid` halo. Its

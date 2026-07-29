@@ -6,6 +6,7 @@ from halo_mw_lmc.config import DensityFitSettings
 from halo_mw_lmc.density import compare_density
 from halo_mw_lmc.grids import CylindricalGrid
 from halo_mw_lmc.plotting import (
+    _coarsen_velocity_panel,
     _velocity_panel_values,
     isodensity_shape_profile,
 )
@@ -105,6 +106,38 @@ class PlottingDiagnosticsTests(unittest.TestCase):
             np.sqrt(np.array([0.25, 0.75]) * np.array([0.75, 0.25]) / 4.0),
         )
         self.assertEqual(occupancy, 4.0)
+
+    def test_velocity_plot_bins_are_coarsened_without_changing_mass(self):
+        centers, data, uncertainty, model = _coarsen_velocity_panel(
+            np.arange(-4.0, 5.0),
+            np.array([0.05, 0.05, 0.10, 0.20, 0.10, 0.10, 0.20, 0.20]),
+            np.array([0.10, 0.10, 0.10, 0.10, 0.15, 0.15, 0.15, 0.15]),
+            data_occupancy=20.0,
+            bin_factor=2,
+        )
+
+        np.testing.assert_allclose(centers, [-3.0, -1.0, 1.0, 3.0])
+        np.testing.assert_allclose(data, [0.10, 0.30, 0.20, 0.40])
+        np.testing.assert_allclose(model, [0.20, 0.20, 0.30, 0.30])
+        np.testing.assert_allclose(
+            uncertainty,
+            np.sqrt(data * (1.0 - data) / 20.0),
+        )
+        self.assertAlmostEqual(float(data.sum()), 1.0)
+        self.assertAlmostEqual(float(model.sum()), 1.0)
+
+    def test_velocity_plot_coarsening_preserves_a_remainder_bin(self):
+        centers, data, _, model = _coarsen_velocity_panel(
+            np.arange(0.0, 6.0),
+            np.full(5, 0.2),
+            np.full(5, 0.2),
+            data_occupancy=5.0,
+            bin_factor=2,
+        )
+
+        np.testing.assert_allclose(centers, [1.0, 3.0, 4.5])
+        np.testing.assert_allclose(data, [0.4, 0.4, 0.2])
+        np.testing.assert_allclose(model, [0.4, 0.4, 0.2])
 
 
 if __name__ == "__main__":
