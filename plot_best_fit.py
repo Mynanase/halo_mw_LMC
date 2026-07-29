@@ -14,35 +14,49 @@ from pathlib import Path
 import numpy as np
 
 from halo_mw_lmc.config import ZhuComparisonConfig
+from halo_mw_lmc.samples import SampleFileError, best_sample, load_sample_table
 from skopt_oint_lamost_4phi import (
     evaluate_prepared_model,
     prepare_fixed_weight_data,
 )
 
 
-def _best_row(sample_file: Path) -> dict:
-    data = np.genfromtxt(sample_file, names=True)
-    best = data[np.argmin(data["objective"])]
+def _best_row(data: np.ndarray, nphi: int) -> dict:
+    best = best_sample(data)
+    scalar_names = (
+        "iteration",
+        "qhalo",
+        "phalo",
+        "rho0",
+        "rho0_plus_2logrs",
+        "gamma",
+        "objective",
+        "chi2",
+        "density_scale",
+    )
+    values = {name: float(best[name]) for name in scalar_names}
+    chi2_by_phi = [float(best[f"chi2_phi{i}"]) for i in range(nphi)]
+    if not np.all(np.isfinite([*values.values(), *chi2_by_phi])):
+        raise SampleFileError("best sample contains non-finite diagnostic values")
     return {
-        "iteration": int(best["iteration"]),
-        "qhalo": float(best["qhalo"]),
-        "phalo": float(best["phalo"]),
-        "rho0": float(best["rho0"]),
-        "rho0_plus_2logrs": float(best["rho0_plus_2logrs"]),
-        "gamma": float(best["gamma"]),
-        "objective": float(best["objective"]),
-        "chi2": float(best["chi2"]),
-        "density_scale": float(best["density_scale"]),
-        "chi2_by_phi": [float(best[f"chi2_phi{i}"]) for i in range(4)],
+        **values,
+        "iteration": int(values["iteration"]),
+        "chi2_by_phi": chi2_by_phi,
     }
 
 
-def _plot_convergence(sample_file: Path, output: Path) -> None:
+def _plot_convergence(data: np.ndarray, output: Path) -> None:
     import matplotlib.pyplot as plt
 
-    data = np.genfromtxt(sample_file, names=True)
-    iteration = data["iteration"]
-    objective = data["objective"]
+    iteration = np.asarray(data["iteration"], dtype=float)
+    objective = np.asarray(data["objective"], dtype=float)
+    finite = np.isfinite(iteration) & np.isfinite(objective)
+    iteration = iteration[finite]
+    objective = objective[finite]
+    if objective.size == 0:
+        raise SampleFileError(
+            "sample file contains no finite iteration/objective pairs"
+        )
     cmin = np.minimum.accumulate(objective)
 
     figure, axis = plt.subplots(figsize=(7.5, 4.5), constrained_layout=True)
@@ -52,7 +66,7 @@ def _plot_convergence(sample_file: Path, output: Path) -> None:
     axis.axvline(best_i, color="0.5", linestyle="--", alpha=0.7)
     axis.set_xlabel("iteration")
     axis.set_ylabel("objective (-log likelihood)")
-    axis.set_yscale("log")
+    axis.set_yscale("log" if np.all(objective > 0) else "symlog")
     axis.grid(alpha=0.2)
     axis.legend(loc="upper right")
     axis.set_title(
@@ -71,6 +85,15 @@ def main(argv=None) -> int:
     parser.add_argument("--catalog", type=Path, default=Path(
         "data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
     ))
+    parser.add_argument(
+        "--density",
+        type=Path,
+        default=None,
+        help=(
+            "flattened target density file; required for a non-default "
+            "R-z-phi grid"
+        ),
+    )
     parser.add_argument("--nphi", type=int, default=4)
     parser.add_argument("--n-rz", type=int, default=25)
     parser.add_argument("--rz-max", type=float, default=50.0)
@@ -80,6 +103,18 @@ def main(argv=None) -> int:
         "--minimum-seed-count", type=int, default=1,
     )
     args = parser.parse_args(argv)
+    if min(
+        args.nphi,
+        args.n_rz,
+        args.orbit_samples,
+        args.minimum_seed_count,
+    ) < 1:
+        raise SystemExit("bin counts and orbit samples must be positive")
+    if (
+        args.density is None
+        and (args.nphi != 4 or args.n_rz != 25 or args.rz_max != 50.0)
+    ):
+        raise SystemExit("--density is required for a non-default R-z-phi grid")
 
     base = args.base_path.expanduser().resolve()
     output_dir = base / args.model
@@ -87,7 +122,26 @@ def main(argv=None) -> int:
     if not sample_file.exists():
         raise SystemExit(f"no sample file found at {sample_file}")
 
-    best = _best_row(sample_file)
+    required_columns = (
+        "iteration",
+        "qhalo",
+        "phalo",
+        "rho0",
+        "rho0_plus_2logrs",
+        "gamma",
+        "objective",
+        "chi2",
+        "density_scale",
+        *(f"chi2_phi{i}" for i in range(args.nphi)),
+    )
+    try:
+        samples = load_sample_table(
+            sample_file,
+            required_columns=required_columns,
+        )
+        best = _best_row(samples, args.nphi)
+    except SampleFileError as exc:
+        raise SystemExit(f"invalid sample file: {exc}") from exc
     log_rs = round((best["rho0_plus_2logrs"] - best["rho0"]) / 2, 3)
     print(
         f"best trial: iter={best['iteration']} objective={best['objective']:.4f} "
@@ -112,8 +166,19 @@ def main(argv=None) -> int:
         if args.catalog.is_absolute()
         else (base / args.catalog).resolve()
     )
+    density = (
+        args.density.expanduser().resolve()
+        if args.density is not None and args.density.is_absolute()
+        else (base / args.density).resolve()
+        if args.density is not None
+        else None
+    )
+    if not catalog.exists():
+        raise SystemExit(f"catalogue not found: {catalog}")
+    if density is not None and not density.exists():
+        raise SystemExit(f"target density file not found: {density}")
     prepared = prepare_fixed_weight_data(
-        base, catalog, observed_density_file=None, comparison_config=config,
+        base, catalog, observed_density_file=density, comparison_config=config,
     )
 
     evaluation = evaluate_prepared_model(
@@ -136,7 +201,10 @@ def main(argv=None) -> int:
     print(f"wrote diagnostics into {diagnostics_dir}")
 
     convergence_path = output_dir / "convergence.pdf"
-    _plot_convergence(sample_file, convergence_path)
+    try:
+        _plot_convergence(samples, convergence_path)
+    except SampleFileError as exc:
+        raise SystemExit(f"could not plot convergence: {exc}") from exc
     print(f"wrote convergence figure to {convergence_path}")
 
     print(

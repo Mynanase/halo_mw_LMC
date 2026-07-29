@@ -21,6 +21,7 @@ from halo_mw_lmc.phase_space import (
     cartesian_to_spherical_phase_space,
 )
 from halo_mw_lmc.plotting import plot_model_diagnostics
+from halo_mw_lmc.potentials import build_zhu_2026_potential
 from halo_mw_lmc.velocity import (
     VelocityDistributionComparison,
     VelocityHistogramSummary,
@@ -77,48 +78,15 @@ def _require_columns(data, names) -> None:
 
 
 def _build_potential(rho0, rs, phalo, qhalo, gamma, alpha_halo, beta_halo):
-    if phalo <= 0 or qhalo <= 0:
-        raise ValueError("halo axis ratios p and q must be positive")
-    if not np.isclose(alpha_halo, 0) or not np.isclose(beta_halo, 0):
-        raise NotImplementedError(
-            "the current AGAMA Spheroid is axis-aligned; halo rotation angles "
-            "must be zero until the rotated Multipole implementation is enabled"
-        )
-
-    import agama
-
-    agama.setUnits(length=1, velocity=1, mass=1)
-    disk = agama.Potential(
-        type="Disk",
-        mass=10**10.5,
-        scaleRadius=3,
-        scaleHeight=-0.4,
-        innerCutoffRadius=0,
-        sersicIndex=1,
+    return build_zhu_2026_potential(
+        rho0,
+        rs,
+        phalo,
+        qhalo,
+        gamma,
+        alpha_halo,
+        beta_halo,
     )
-    bulge = agama.Potential(
-        type="Spheroid",
-        mass=10**10.2,
-        alpha=1,
-        gamma=0,
-        beta=1.8,
-        scaleRadius=0.2,
-        outerCutoffRadius=1.8,
-        cutoffStrength=2,
-    )
-    halo = agama.Potential(
-        type="Spheroid",
-        rho0=10**rho0,
-        alpha=1,
-        gamma=min(gamma, 2.99),
-        beta=3,
-        scaleRadius=10**rs,
-        p=phalo,
-        q=qhalo,
-        outerCutoffRadius=500,
-        cutoffStrength=5,
-    )
-    return agama.Potential(disk, bulge, halo)
 
 
 def _initial_conditions(data) -> np.ndarray:

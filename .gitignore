@@ -30,6 +30,10 @@ __pycache__/
 # === macOS / IDE ===
 .DS_Store
 .trae/
+.vscode/
+
+# === Local agent context / private research material ===
+.agent-local/
 
 # === txt data files (observational data, not source code) ===
 *.txt

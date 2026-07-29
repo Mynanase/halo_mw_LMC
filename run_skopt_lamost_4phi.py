@@ -4,11 +4,19 @@
 from __future__ import annotations
 
 import argparse
+import json
+import subprocess
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
 
 from halo_mw_lmc.config import ZhuComparisonConfig
+from halo_mw_lmc.potentials import (
+    ZHU_2026_BEST_FIT,
+    ZHU_2026_LOCAL_SEARCH_BOUNDS,
+    ZHU_2026_POTENTIAL_NAME,
+)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -48,27 +56,66 @@ def build_parser() -> argparse.ArgumentParser:
         help="minimum seed stars required before a target cell receives weight",
     )
     parser.add_argument("--iterations", type=int, default=1000)
-    parser.add_argument("--rho0-min", type=float, default=5.0, help="lower bound for rho0")
-    parser.add_argument("--rho0-max", type=float, default=8.0, help="upper bound for rho0")
+    parser.add_argument(
+        "--qhalo-min",
+        type=float,
+        default=ZHU_2026_LOCAL_SEARCH_BOUNDS["qhalo"][0],
+    )
+    parser.add_argument(
+        "--qhalo-max",
+        type=float,
+        default=ZHU_2026_LOCAL_SEARCH_BOUNDS["qhalo"][1],
+    )
+    parser.add_argument(
+        "--phalo-min",
+        type=float,
+        default=ZHU_2026_LOCAL_SEARCH_BOUNDS["phalo"][0],
+    )
+    parser.add_argument(
+        "--phalo-max",
+        type=float,
+        default=ZHU_2026_LOCAL_SEARCH_BOUNDS["phalo"][1],
+    )
+    parser.add_argument(
+        "--rho0-min",
+        type=float,
+        default=ZHU_2026_LOCAL_SEARCH_BOUNDS["rho0"][0],
+        help="lower bound for log10 halo density normalization",
+    )
+    parser.add_argument(
+        "--rho0-max",
+        type=float,
+        default=ZHU_2026_LOCAL_SEARCH_BOUNDS["rho0"][1],
+        help="upper bound for log10 halo density normalization",
+    )
     parser.add_argument(
         "--rho0-plus-2logrs-min",
         type=float,
-        default=9.3,
+        default=ZHU_2026_LOCAL_SEARCH_BOUNDS["rho0_plus_2logrs"][0],
         help="lower bound for rho0+2logrs",
     )
     parser.add_argument(
         "--rho0-plus-2logrs-max",
         type=float,
-        default=10.3,
+        default=ZHU_2026_LOCAL_SEARCH_BOUNDS["rho0_plus_2logrs"][1],
         help="upper bound for rho0+2logrs",
     )
     parser.add_argument(
-        "--warm-start",
-        type=Path,
-        default=None,
-        help="previous sample.dat to replay into the optimizer before new ask/tell loop",
+        "--gamma-min",
+        type=float,
+        default=ZHU_2026_LOCAL_SEARCH_BOUNDS["gamma"][0],
     )
-    parser.add_argument("--random-state", type=int, default=None)
+    parser.add_argument(
+        "--gamma-max",
+        type=float,
+        default=ZHU_2026_LOCAL_SEARCH_BOUNDS["gamma"][1],
+    )
+    parser.add_argument(
+        "--random-state",
+        type=int,
+        default=0,
+        help="optimizer random seed (default: 0)",
+    )
     parser.add_argument(
         "--include-velocity",
         action="store_true",
@@ -91,6 +138,39 @@ def _resolve(base: Path, path: Path | None) -> Path | None:
     return path.expanduser().resolve() if path.is_absolute() else (base / path).resolve()
 
 
+def _source_provenance() -> dict[str, object]:
+    repository = Path(__file__).resolve().parent
+    try:
+        commit = subprocess.run(
+            ["git", "rev-parse", "HEAD"],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.strip()
+        status = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout
+    except (OSError, subprocess.CalledProcessError):
+        return {"git_commit": None, "git_dirty": None}
+    return {"git_commit": commit, "git_dirty": bool(status.strip())}
+
+
+def _paper_best_optimizer_point() -> list[float]:
+    best = ZHU_2026_BEST_FIT
+    return [
+        best["qhalo"],
+        best["phalo"],
+        best["rho0"],
+        best["rho0"] + 2 * best["log_rs"],
+        best["gamma"],
+    ]
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     if min(
@@ -107,12 +187,21 @@ def main(argv=None) -> int:
     ):
         raise SystemExit("--density is required for a non-default R-z-phi grid")
 
-    if args.rho0_min >= args.rho0_max:
-        raise SystemExit("--rho0-min must be strictly less than --rho0-max")
-    if args.rho0_plus_2logrs_min >= args.rho0_plus_2logrs_max:
-        raise SystemExit(
-            "--rho0-plus-2logrs-min must be strictly less than --rho0-plus-2logrs-max"
-        )
+    configured_bounds = {
+        "qhalo": (args.qhalo_min, args.qhalo_max),
+        "phalo": (args.phalo_min, args.phalo_max),
+        "rho0": (args.rho0_min, args.rho0_max),
+        "rho0-plus-2logrs": (
+            args.rho0_plus_2logrs_min,
+            args.rho0_plus_2logrs_max,
+        ),
+        "gamma": (args.gamma_min, args.gamma_max),
+    }
+    for name, (lower, upper) in configured_bounds.items():
+        if lower >= upper:
+            raise SystemExit(
+                f"--{name}-min must be strictly less than --{name}-max"
+            )
 
     try:
         from skopt import Optimizer
@@ -146,6 +235,97 @@ def main(argv=None) -> int:
     output_dir = base / args.model
     output_dir.mkdir(parents=True, exist_ok=True)
     sample_file = output_dir / "sample.dat"
+
+    parameter_space = [
+        Real(args.qhalo_min, args.qhalo_max, name="qhalo"),
+        Real(args.phalo_min, args.phalo_max, name="phalo"),
+        Real(args.rho0_min, args.rho0_max, name="rho0"),
+        Real(
+            args.rho0_plus_2logrs_min,
+            args.rho0_plus_2logrs_max,
+            name="rho0_plus_2logrs",
+        ),
+        Real(args.gamma_min, args.gamma_max, name="gamma"),
+    ]
+    optimizer = Optimizer(parameter_space, random_state=args.random_state)
+    paper_best_point = _paper_best_optimizer_point()
+    evaluate_paper_best_first = all(
+        dimension.low <= value <= dimension.high
+        for dimension, value in zip(parameter_space, paper_best_point)
+    )
+    phi_columns = " ".join(f"chi2_phi{i}" for i in range(args.nphi))
+    velocity_columns = ""
+    if args.include_velocity:
+        velocity_columns = " " + " ".join(
+            f"lnL_{component}_phi{iphi}"
+            for component in ("vr", "vphi", "vtheta")
+            for iphi in range(args.nphi)
+        )
+    expected_header = (
+        "# iteration qhalo phalo rho0 rho0_plus_2logrs gamma "
+        f"objective chi2 density_scale successful_orbits "
+        f"{phi_columns}{velocity_columns}"
+    )
+    if not sample_file.exists():
+        sample_file.write_text(expected_header + "\n")
+    else:
+        with sample_file.open() as stream:
+            existing_header = stream.readline().rstrip("\n")
+            output_has_samples = any(
+                line.strip() and not line.lstrip().startswith("#") for line in stream
+            )
+        if existing_header != expected_header:
+            raise SystemExit(
+                f"existing sample schema does not match this run: {sample_file}; "
+                "choose a new --model directory"
+            )
+        if output_has_samples:
+            raise SystemExit(
+                f"{sample_file} already contains samples; cold-start runs require "
+                "a new --model directory"
+            )
+
+    run_config = {
+        "schema_version": 1,
+        "created_at_utc": datetime.now(timezone.utc).isoformat(),
+        **_source_provenance(),
+        "paths": {
+            "base": str(base),
+            "catalog": str(catalog),
+            "density": str(density) if density is not None else None,
+            "output": str(output_dir),
+        },
+        "grid": {
+            "n_phi": args.nphi,
+            "n_rz": args.n_rz,
+            "rz_max": args.rz_max,
+            "orbit_samples_per_orbit": args.orbit_samples,
+            "minimum_seed_count": args.minimum_seed_count,
+        },
+        "optimizer": {
+            "iterations": args.iterations,
+            "random_state": args.random_state,
+            "parameter_bounds": {
+                dimension.name: [dimension.low, dimension.high]
+                for dimension in parameter_space
+            },
+        },
+        "potential": {
+            "name": ZHU_2026_POTENTIAL_NAME,
+            "reference": (
+                "Zhu et al. (2026), A vertically orientated dark matter halo "
+                "marks a flip of the Galactic disc, equations 6-8"
+            ),
+            "representative_best_fit": ZHU_2026_BEST_FIT,
+            "paper_best_evaluated_first": evaluate_paper_best_first,
+        },
+        "include_velocity": args.include_velocity,
+        "plot_new_best": args.plot,
+    }
+    (output_dir / "run_config.json").write_text(
+        json.dumps(run_config, indent=2, sort_keys=True) + "\n"
+    )
+
     prepared = prepare_fixed_weight_data(
         base,
         catalog,
@@ -177,77 +357,15 @@ def main(argv=None) -> int:
         f"supported target mass={fixed.supported_mass_fraction:.4f}"
     )
 
-    parameter_space = [
-        Real(0.5, 1.5, name="qhalo"),
-        Real(0.1, 1.5, name="phalo"),
-        Real(args.rho0_min, args.rho0_max, name="rho0"),
-        Real(
-            args.rho0_plus_2logrs_min,
-            args.rho0_plus_2logrs_max,
-            name="rho0_plus_2logrs",
-        ),
-        Real(0.1, 2.9, name="gamma"),
-    ]
-    optimizer = Optimizer(parameter_space, random_state=args.random_state)
-    if args.warm_start is not None:
-        warm_path = _resolve(base, args.warm_start)
-        if not warm_path.exists():
-            raise SystemExit(f"warm-start sample not found: {warm_path}")
-        warm = np.genfromtxt(warm_path, names=True)
-        Xi, yi = [], []
-        for row in warm:
-            params = [
-                float(row["qhalo"]),
-                float(row["phalo"]),
-                float(row["rho0"]),
-                float(row["rho0_plus_2logrs"]),
-                float(row["gamma"]),
-            ]
-            if not (args.rho0_min <= params[2] <= args.rho0_max):
-                continue
-            if not (
-                args.rho0_plus_2logrs_min <= params[3] <= args.rho0_plus_2logrs_max
-            ):
-                continue
-            Xi.append(params)
-            yi.append(float(row["objective"]))
-        if Xi:
-            optimizer.tell(Xi, yi)
-        print(
-            f"warm-start: replayed {len(Xi)}/{len(warm)} prior samples "
-            f"into the optimizer (within rho0=[{args.rho0_min},{args.rho0_max}], "
-            f"rho0+2logrs=[{args.rho0_plus_2logrs_min},{args.rho0_plus_2logrs_max}])"
-        )
     best_objective = np.inf
-    phi_columns = " ".join(f"chi2_phi{i}" for i in range(args.nphi))
-    velocity_columns = ""
-    if args.include_velocity:
-        velocity_columns = " " + " ".join(
-            f"lnL_{component}_phi{iphi}"
-            for component in ("vr", "vphi", "vtheta")
-            for iphi in range(args.nphi)
-        )
-    expected_header = (
-        "# iteration qhalo phalo rho0 rho0_plus_2logrs gamma "
-        f"objective chi2 density_scale successful_orbits "
-        f"{phi_columns}{velocity_columns}"
-    )
-    if not sample_file.exists():
-        sample_file.write_text(expected_header + "\n")
-    else:
-        with sample_file.open() as stream:
-            existing_header = stream.readline().rstrip("\n")
-        if existing_header != expected_header:
-            raise SystemExit(
-                f"existing sample schema does not match this run: {sample_file}; "
-                "choose a new --model directory"
-            )
-
     for iteration in range(args.iterations):
-        suggested = optimizer.ask()
-        qhalo, phalo, rho0, rho0_plus_2logrs, gamma = [
-            round(value, 3) for value in suggested
-        ]
+        suggested = (
+            paper_best_point
+            if iteration == 0 and evaluate_paper_best_first
+            else optimizer.ask()
+        )
+        evaluated = [round(float(value), 3) for value in suggested]
+        qhalo, phalo, rho0, rho0_plus_2logrs, gamma = evaluated
         log_rs = round((rho0_plus_2logrs - rho0) / 2, 3)
         evaluation = evaluate_prepared_model(
             base,
@@ -263,7 +381,9 @@ def main(argv=None) -> int:
             plot=False,
         )
         objective = -evaluation.log_likelihood
-        optimizer.tell(suggested, objective)
+        # Keep the surrogate coordinates identical to the evaluated and
+        # persisted coordinates.
+        optimizer.tell(evaluated, objective)
         if args.plot and objective < best_objective:
             from halo_mw_lmc.plotting import plot_model_diagnostics
 
