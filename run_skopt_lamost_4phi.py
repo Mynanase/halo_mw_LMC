@@ -48,6 +48,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="minimum seed stars required before a target cell receives weight",
     )
     parser.add_argument("--iterations", type=int, default=1000)
+    parser.add_argument("--rho0-min", type=float, default=5.0, help="lower bound for rho0")
+    parser.add_argument("--rho0-max", type=float, default=8.0, help="upper bound for rho0")
+    parser.add_argument(
+        "--rho0-plus-2logrs-min",
+        type=float,
+        default=9.3,
+        help="lower bound for rho0+2logrs",
+    )
+    parser.add_argument(
+        "--rho0-plus-2logrs-max",
+        type=float,
+        default=10.3,
+        help="upper bound for rho0+2logrs",
+    )
+    parser.add_argument(
+        "--warm-start",
+        type=Path,
+        default=None,
+        help="previous sample.dat to replay into the optimizer before new ask/tell loop",
+    )
     parser.add_argument("--random-state", type=int, default=None)
     parser.add_argument(
         "--include-velocity",
@@ -86,6 +106,13 @@ def main(argv=None) -> int:
         and (args.nphi != 4 or args.n_rz != 25 or args.rz_max != 50.0)
     ):
         raise SystemExit("--density is required for a non-default R-z-phi grid")
+
+    if args.rho0_min >= args.rho0_max:
+        raise SystemExit("--rho0-min must be strictly less than --rho0-max")
+    if args.rho0_plus_2logrs_min >= args.rho0_plus_2logrs_max:
+        raise SystemExit(
+            "--rho0-plus-2logrs-min must be strictly less than --rho0-plus-2logrs-max"
+        )
 
     try:
         from skopt import Optimizer
@@ -153,11 +180,44 @@ def main(argv=None) -> int:
     parameter_space = [
         Real(0.5, 1.5, name="qhalo"),
         Real(0.1, 1.5, name="phalo"),
-        Real(5.0, 8.0, name="rho0"),
-        Real(9.3, 10.3, name="rho0_plus_2logrs"),
-        Real(0.1, 3.0, name="gamma"),
+        Real(args.rho0_min, args.rho0_max, name="rho0"),
+        Real(
+            args.rho0_plus_2logrs_min,
+            args.rho0_plus_2logrs_max,
+            name="rho0_plus_2logrs",
+        ),
+        Real(0.1, 2.9, name="gamma"),
     ]
     optimizer = Optimizer(parameter_space, random_state=args.random_state)
+    if args.warm_start is not None:
+        warm_path = _resolve(base, args.warm_start)
+        if not warm_path.exists():
+            raise SystemExit(f"warm-start sample not found: {warm_path}")
+        warm = np.genfromtxt(warm_path, names=True)
+        Xi, yi = [], []
+        for row in warm:
+            params = [
+                float(row["qhalo"]),
+                float(row["phalo"]),
+                float(row["rho0"]),
+                float(row["rho0_plus_2logrs"]),
+                float(row["gamma"]),
+            ]
+            if not (args.rho0_min <= params[2] <= args.rho0_max):
+                continue
+            if not (
+                args.rho0_plus_2logrs_min <= params[3] <= args.rho0_plus_2logrs_max
+            ):
+                continue
+            Xi.append(params)
+            yi.append(float(row["objective"]))
+        if Xi:
+            optimizer.tell(Xi, yi)
+        print(
+            f"warm-start: replayed {len(Xi)}/{len(warm)} prior samples "
+            f"into the optimizer (within rho0=[{args.rho0_min},{args.rho0_max}], "
+            f"rho0+2logrs=[{args.rho0_plus_2logrs_min},{args.rho0_plus_2logrs_max}])"
+        )
     best_objective = np.inf
     phi_columns = " ".join(f"chi2_phi{i}" for i in range(args.nphi))
     velocity_columns = ""

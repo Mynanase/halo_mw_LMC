@@ -17,7 +17,7 @@ from numpy import log, arange
 def lnfac( n ):
     
     if n < 0:
-        print "n should be non-negative"
+        print("n should be non-negative")
         res = float( "nan" )
     
     elif n == 0: 

@@ -110,7 +110,7 @@ def _build_potential(rho0, rs, phalo, qhalo, gamma, alpha_halo, beta_halo):
         type="Spheroid",
         rho0=10**rho0,
         alpha=1,
-        gamma=gamma,
+        gamma=min(gamma, 2.99),
         beta=3,
         scaleRadius=10**rs,
         p=phalo,
