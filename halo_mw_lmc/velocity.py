@@ -113,7 +113,7 @@ def conditional_velocity_histogram(
     if weights is not None:
         histogram_weights = np.broadcast_to(np.asarray(weights, dtype=float), radius.shape)
         if np.any(np.isfinite(histogram_weights) & (histogram_weights < 0)):
-            raise ValueError("orbit representative weights must be non-negative")
+            raise ValueError("orbit weights must be non-negative")
         valid &= np.isfinite(histogram_weights)
         histogram_weights = histogram_weights[valid]
 
@@ -169,6 +169,7 @@ def velocity_log_likelihood(
     grid: SphericalVelocityGrid,
     *,
     probability_floor: float = 1e-300,
+    minimum_radius: float | None = None,
 ) -> tuple[float, FloatArray, NDArray[np.int64]]:
     """Convolve model velocity bins with each star's Gaussian uncertainty.
 
@@ -176,6 +177,8 @@ def velocity_log_likelihood(
     used there.  Stars outside the configured spatial grid are excluded.
     Observed stars in an empty model cell receive the probability floor, so a
     trial potential cannot improve merely by failing to cover the data.
+    ``minimum_radius`` restores the paper/legacy exclusion of the incomplete
+    inner orbit library (8 kpc in the production configuration).
     """
 
     model = np.asarray(model_probability, dtype=float)
@@ -183,6 +186,10 @@ def velocity_log_likelihood(
         raise ValueError(f"model_probability has shape {model.shape}; expected {grid.shape}")
     if probability_floor <= 0:
         raise ValueError("probability_floor must be positive")
+    if minimum_radius is not None and (
+        not np.isfinite(minimum_radius) or minimum_radius < 0
+    ):
+        raise ValueError("minimum_radius must be finite and non-negative")
 
     radius, theta, phi, observed_velocity, velocity_error = np.broadcast_arrays(
         np.asarray(radius, dtype=float),
@@ -204,6 +211,8 @@ def velocity_log_likelihood(
         & np.isfinite(velocity_error)
         & (velocity_error > 0)
     )
+    if minimum_radius is not None:
+        valid &= radius >= minimum_radius
 
     ir = np.searchsorted(grid.radius_edges, radius, side="right") - 1
     it = np.searchsorted(grid.theta_edges, theta, side="right") - 1

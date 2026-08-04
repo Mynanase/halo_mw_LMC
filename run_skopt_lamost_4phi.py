@@ -49,12 +49,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--n-rz", type=int, default=25)
     parser.add_argument("--rz-max", type=float, default=50.0)
     parser.add_argument("--orbit-samples", type=int, default=1000)
-    parser.add_argument(
-        "--minimum-seed-count",
-        type=int,
-        default=1,
-        help="minimum seed stars required before a target cell receives weight",
-    )
     parser.add_argument("--iterations", type=int, default=1000)
     parser.add_argument(
         "--qhalo-min",
@@ -119,7 +113,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--include-velocity",
         action="store_true",
-        help="also include Zhu's three per-star velocity likelihood terms",
+        help="include Zhu's three per-star velocity likelihood terms for r>=8 kpc",
     )
     parser.add_argument(
         "--plot",
@@ -180,13 +174,75 @@ def _paper_best_optimizer_point() -> list[float]:
     ]
 
 
+def _catalogue_weight_audit(initial, weights, grid) -> dict[str, np.ndarray]:
+    """Summarize fixed catalogue weights globally and on the density grid."""
+
+    radius = np.hypot(initial[:, 0], initial[:, 1])
+    z = initial[:, 2]
+    phi = np.arctan2(initial[:, 1], initial[:, 0])
+    seed_counts = grid.histogram(radius, z, phi)
+    cell_weight_sum = grid.histogram(radius, z, phi, weights=weights)
+    cell_weight_sq_sum = grid.histogram(radius, z, phi, weights=weights**2)
+    initial_density = np.divide(
+        cell_weight_sum,
+        grid.volumes,
+        out=np.zeros_like(cell_weight_sum),
+        where=grid.volumes > 0,
+    )
+
+    ir, iz, iphi, in_grid = grid.bin_indices(radius, z, phi)
+    cell_max_weight = np.zeros(grid.shape, dtype=float)
+    np.maximum.at(
+        cell_max_weight,
+        (ir[in_grid], iz[in_grid], iphi[in_grid]),
+        weights[in_grid],
+    )
+    cell_effective_seed_count = np.divide(
+        cell_weight_sum**2,
+        cell_weight_sq_sum,
+        out=np.zeros_like(cell_weight_sum),
+        where=cell_weight_sq_sum > 0,
+    )
+    cell_max_weight_fraction = np.divide(
+        cell_max_weight,
+        cell_weight_sum,
+        out=np.zeros_like(cell_weight_sum),
+        where=cell_weight_sum > 0,
+    )
+
+    total_weight = float(np.sum(weights))
+    weight_sq_sum = float(np.sum(weights**2))
+    quantile_levels = np.array([0, 0.01, 0.1, 0.5, 0.9, 0.99, 1.0])
+    return {
+        "weights": weights,
+        "seed_counts": seed_counts,
+        "cell_weight_sum": cell_weight_sum,
+        "cell_weight_sq_sum": cell_weight_sq_sum,
+        "cell_effective_seed_count": cell_effective_seed_count,
+        "cell_max_weight": cell_max_weight,
+        "cell_max_weight_fraction": cell_max_weight_fraction,
+        "initial_catalog_density": initial_density,
+        "quantile_levels": quantile_levels,
+        "weight_quantiles": np.quantile(weights, quantile_levels),
+        "positive_seed_count": np.asarray(np.count_nonzero(weights > 0)),
+        "in_grid_seed_count": np.asarray(np.count_nonzero(in_grid)),
+        "total_weight": np.asarray(total_weight),
+        "in_grid_weight": np.asarray(float(np.sum(weights[in_grid]))),
+        "effective_seed_count": np.asarray(
+            total_weight**2 / weight_sq_sum if weight_sq_sum > 0 else 0.0
+        ),
+        "max_weight_fraction": np.asarray(
+            float(np.max(weights)) / total_weight if total_weight > 0 else 0.0
+        ),
+    }
+
+
 def main(argv=None) -> int:
     args = build_parser().parse_args(argv)
     if min(
         args.nphi,
         args.n_rz,
         args.orbit_samples,
-        args.minimum_seed_count,
         args.iterations,
         args.velocity_plot_bin_factor,
     ) < 1:
@@ -243,7 +299,6 @@ def main(argv=None) -> int:
         rz_max=args.rz_max,
         orbit_samples_per_orbit=args.orbit_samples,
         include_velocity=args.include_velocity,
-        minimum_seed_count=args.minimum_seed_count,
     )
     output_dir = base / args.model
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -299,7 +354,7 @@ def main(argv=None) -> int:
             )
 
     run_config = {
-        "schema_version": 1,
+        "schema_version": 2,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         **_source_provenance(),
         "paths": {
@@ -313,7 +368,12 @@ def main(argv=None) -> int:
             "n_rz": args.n_rz,
             "rz_max": args.rz_max,
             "orbit_samples_per_orbit": args.orbit_samples,
-            "minimum_seed_count": args.minimum_seed_count,
+            "velocity_fit_min_radius": config.velocity_fit_min_radius,
+        },
+        "orbit_weights": {
+            "source": "catalogue_column",
+            "column": "w",
+            "fixed_across_trial_potentials": True,
         },
         "optimizer": {
             "iterations": args.iterations,
@@ -346,29 +406,32 @@ def main(argv=None) -> int:
         observed_density_file=density,
         comparison_config=config,
     )
-    fixed = prepared.representative_weights
+    weight_audit = _catalogue_weight_audit(
+        prepared.initial_conditions,
+        prepared.seed_weights,
+        config.density_grid,
+    )
     np.savez_compressed(
-        output_dir / "fixed_weights_rzphi.npz",
-        weights=fixed.weights,
-        seed_counts=fixed.seed_counts,
-        cell_weight=fixed.cell_weight,
-        supported_cells=fixed.supported_cells,
+        output_dir / "fixed_seed_weights.npz",
+        **weight_audit,
         target_density=prepared.target_density,
         target_error=prepared.target_error,
-        assigned_mass=np.asarray(fixed.assigned_mass),
-        positive_target_mass=np.asarray(fixed.positive_target_mass),
-        unsupported_positive_mass=np.asarray(fixed.unsupported_positive_mass),
-        supported_mass_fraction=np.asarray(fixed.supported_mass_fraction),
         r_edges=config.density_grid.r_edges,
         z_edges=config.density_grid.z_edges,
         phi_edges=config.density_grid.phi_edges,
+        weight_source=np.asarray("catalogue_column"),
+        weight_column=np.asarray("w"),
         catalog_path=np.asarray(str(prepared.catalog_path)),
         density_path=np.asarray(str(prepared.density_path)),
     )
+    max_cell_fraction = float(np.max(weight_audit["cell_max_weight_fraction"]))
     print(
-        "fixed R-z-phi weights: "
-        f"{fixed.weighted_seed_count}/{fixed.in_grid_seed_count} in-grid seeds weighted, "
-        f"supported target mass={fixed.supported_mass_fraction:.4f}"
+        "fixed catalogue weights: "
+        f"{weight_audit['positive_seed_count'].item()}/"
+        f"{prepared.seed_weights.size} positive, "
+        f"effective N={weight_audit['effective_seed_count'].item():.1f}, "
+        f"global max fraction={weight_audit['max_weight_fraction'].item():.4f}, "
+        f"max cell fraction={max_cell_fraction:.4f}"
     )
 
     best_objective = np.inf

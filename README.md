@@ -5,15 +5,15 @@
 
 当前主流程为：
 
-1. 在目标密度 `nu_target(R,z,phi)` 的每个空间格中统计 6D 种子星；
-2. 一次性计算固定代表性权重
-   `w_i = nu_target[j] V[j] / N_seed[j]`；
-3. 以观测到的 6D 恒星为轨道种子；
+1. 从 `halo_clean_N.txt` 读取每颗 6D 种子星及其选择函数校正权重 `w`；
+2. 在整个势参数优化期间固定这些逐星权重；
+3. 单独读取 `nu_target(R,z,phi)` 及其误差作为密度检验目标；
 4. 在每个候选银河系势中用 AGAMA 积分，并等时间采样；
 5. 每个轨道点继承预先固定的种子轨道权重；
 6. 将轨道点放入相同的 `(R, z, phi)` 网格，以精确柱坐标体积换算密度；
 7. 在全部 phi bin 上只拟合一个共同的模型幅度；
-8. 逐 phi 计算 target/model 残差和 chi-square；可选地加入三个速度分量的逐星似然。
+8. 逐 phi 计算 target/model 残差和 chi-square；可选地在
+   `r>=8 kpc` 加入三个速度分量的逐星似然。
 
 核心实现位于 `halo_mw_lmc/`。原来的函数名
 `calculate_RzSB_4phi`、`Read_obsSB_4phi` 和 `int_one_model`
@@ -49,9 +49,15 @@ python run_skopt_lamost_4phi.py \
 完整图组不会为所有 trial 无条件输出；未改善当前最优目标值的 trial
 只参与优化和写入 `sample.dat`，避免大规模扫描产生过量 PDF。
 
-运行开始时会把固定权重、每格种子数、target density 和网格边界写入
-`model_skopt/fixed_weights_rzphi.npz`。这些权重在整个势参数优化过程中
-保持不变。
+运行开始时会把来自星表 `w` 列的逐星固定权重、每格种子数、每格权重和、
+有效样本数与最大权重占比、target density 和网格边界写入
+`model_skopt/fixed_seed_weights.npz`。这些权重在整个势参数优化过程中保持不变；
+target density 只参与最终密度比较，不用于反推轨道权重。
+
+旧版本生成的 `sample.dat` 使用了 target-derived 权重，不能与新权重语义视为
+同一次拟合。`plot_best_fit.py` 在发现旧 `run_config.json` 时会明确警告：其
+重新评价结果使用当前星表 `w`，只能作为新语义下的事后诊断，不是旧目标函数的
+精确重放。
 
 算法约定和旧代码差异见
 [`docs/zhu_phi_binning.md`](docs/zhu_phi_binning.md)。

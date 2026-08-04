@@ -29,10 +29,7 @@ from halo_mw_lmc.velocity import (
     multinomial_histogram_uncertainty,
     velocity_log_likelihood,
 )
-from halo_mw_lmc.weights import (
-    RepresentativeWeightResult,
-    representative_weights_from_target,
-)
+from halo_mw_lmc.weights import catalogue_seed_weights
 
 
 @dataclass(frozen=True)
@@ -43,7 +40,7 @@ class PreparedFixedWeightData:
     initial_conditions: np.ndarray
     target_density: np.ndarray
     target_error: np.ndarray
-    representative_weights: RepresentativeWeightResult
+    seed_weights: np.ndarray
     config: ZhuComparisonConfig
     catalog_path: Path
     density_path: Path
@@ -64,7 +61,7 @@ class ModelEvaluation:
     velocity_stars_by_phi: Mapping[str, np.ndarray]
     velocity_distributions: Mapping[str, VelocityDistributionComparison]
     successful_orbits: int
-    representative_weights: RepresentativeWeightResult
+    seed_weights: np.ndarray
 
     @property
     def log_likelihood(self) -> float:
@@ -175,7 +172,7 @@ def prepare_fixed_weight_data(
     observed_density_file=None,
     comparison_config: ZhuComparisonConfig | None = None,
 ) -> PreparedFixedWeightData:
-    """Read inputs and compute one fixed ``(R,z,phi)`` weight per seed orbit."""
+    """Read the density target and fixed per-star catalogue weights."""
 
     config = comparison_config or ZhuComparisonConfig.legacy_4phi()
     base = Path(base_path).expanduser().resolve()
@@ -190,6 +187,8 @@ def prepare_fixed_weight_data(
 
     data = table.Table.read(catalog_path, format="ascii")
     initial = _initial_conditions(data)
+    _require_columns(data, ("w",))
+    seed_weights = catalogue_seed_weights(data["w"])
     catalog_phase_space = _phase_space_from_initial(initial)
     observed_velocity_histograms = (
         _observed_velocity_histograms(catalog_phase_space, config)
@@ -197,25 +196,12 @@ def prepare_fixed_weight_data(
         else {}
     )
     target_density, target_error = _read_density(density_path, config)
-    fixed_weights = representative_weights_from_target(
-        initial[:, 0],
-        initial[:, 1],
-        initial[:, 2],
-        target_density,
-        config.density_grid,
-        minimum_seed_count=config.minimum_seed_count,
-    )
-    if fixed_weights.weighted_seed_count == 0:
-        raise ValueError(
-            "the target density and seed catalogue have no positively weighted "
-            "cells in common"
-        )
     return PreparedFixedWeightData(
         catalog=data,
         initial_conditions=initial,
         target_density=target_density,
         target_error=target_error,
-        representative_weights=fixed_weights,
+        seed_weights=seed_weights,
         config=config,
         catalog_path=catalog_path,
         density_path=density_path,
@@ -279,6 +265,7 @@ def _score_velocities(
             np.asarray(data[error_columns[name]], dtype=float),
             model_probability,
             config.velocity_grid,
+            minimum_radius=config.velocity_fit_min_radius,
         )
         total[name] = loglike
         by_phi[name] = component_by_phi
@@ -331,7 +318,7 @@ def evaluate_prepared_model(
         periods=10,
         samples_per_orbit=config.orbit_samples_per_orbit,
     )
-    orbit_weights = prepared.representative_weights.weights[library.seed_index]
+    orbit_weights = prepared.seed_weights[library.seed_index]
     model_density = orbit_density(
         library.x,
         library.y,
@@ -385,7 +372,7 @@ def evaluate_prepared_model(
         velocity_stars_by_phi=velocity_stars,
         velocity_distributions=velocity_distributions,
         successful_orbits=library.successful_seed_index.size,
-        representative_weights=prepared.representative_weights,
+        seed_weights=prepared.seed_weights,
     )
     if plot:
         tag = (
@@ -416,7 +403,7 @@ def evaluate_one_model(
     comparison_config: ZhuComparisonConfig | None = None,
     plot=False,
 ) -> ModelEvaluation:
-    """Compatibility wrapper that prepares fixed weights and evaluates a model."""
+    """Compatibility wrapper using fixed catalogue weights for model evaluation."""
 
     prepared = prepare_fixed_weight_data(
         base_path,

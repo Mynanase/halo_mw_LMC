@@ -77,6 +77,16 @@ environments or installing packages.
   smoothing. Diagnostic velocity plots aggregate three adjacent fitting bins
   by default (about 24 km/s per plotted bin); changing the plotting factor must
   not change the fitted likelihood.
+- Use the fixed per-star `w` column from `halo_clean_N.txt` for every orbit
+  sample in both density and velocity histograms. The three-dimensional
+  `w4_SB_Rz_254phi_err.txt` product supplies only the target density and its
+  uncertainty; do not derive production orbit weights from it.
+- Exclude `r < 8 kpc` from the velocity likelihood because the empirical orbit
+  library is incomplete there. The inner velocity histograms may remain
+  available for diagnostics, but must not affect the optimizer objective.
+- Keep target-derived `(R,z,phi)` representative weights experimental and out
+  of the production optimizer until their selection-function and sparse-phi
+  behavior has been validated explicitly.
 - The active potential is the static, constant-shape fiducial model from Zhu
   et al. (2026), equations 6--8: Ferrers barred bulge, thin and thick AGAMA
   `Disk` components, and a generalized-NFW triaxial `Spheroid` halo. Its

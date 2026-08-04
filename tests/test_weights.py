@@ -3,7 +3,10 @@ import unittest
 import numpy as np
 
 from halo_mw_lmc.grids import CylindricalGrid
-from halo_mw_lmc.weights import representative_weights_from_target
+from halo_mw_lmc.weights import (
+    catalogue_seed_weights,
+    representative_weights_from_target,
+)
 
 
 class RepresentativeWeightTests(unittest.TestCase):
@@ -62,6 +65,22 @@ class RepresentativeWeightTests(unittest.TestCase):
                 np.ones((1, 1)),
                 self.grid,
             )
+
+    def test_catalogue_weights_are_validated_and_copied(self):
+        source = np.array([0.0, 1.0, 3.0])
+        weights = catalogue_seed_weights(source)
+        np.testing.assert_array_equal(weights, source)
+        self.assertIsNot(weights, source)
+
+        for invalid in (
+            np.array([]),
+            np.array([0.0, 0.0]),
+            np.array([1.0, -1.0]),
+            np.array([1.0, np.nan]),
+        ):
+            with self.subTest(invalid=invalid):
+                with self.assertRaises(ValueError):
+                    catalogue_seed_weights(invalid)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,4 @@
-"""Fixed Zhu representative weights on an ``(R,z,phi)`` target grid."""
+"""Fixed catalogue weights and experimental target-derived weights."""
 
 from __future__ import annotations
 
@@ -11,6 +11,21 @@ from .grids import CylindricalGrid
 
 
 FloatArray = NDArray[np.float64]
+
+
+def catalogue_seed_weights(values: ArrayLike) -> FloatArray:
+    """Validate and copy the fixed per-star weights supplied by the catalogue."""
+
+    weights = np.asarray(values, dtype=float)
+    if weights.ndim != 1 or weights.size == 0:
+        raise ValueError("catalogue weights must be a non-empty one-dimensional array")
+    if not np.all(np.isfinite(weights)):
+        raise ValueError("catalogue weights must all be finite")
+    if np.any(weights < 0):
+        raise ValueError("catalogue weights must be non-negative")
+    if not np.any(weights > 0):
+        raise ValueError("catalogue weights must contain at least one positive value")
+    return weights.copy()
 
 
 @dataclass(frozen=True)
@@ -44,7 +59,10 @@ def representative_weights_from_target(
     *,
     minimum_seed_count: int = 1,
 ) -> RepresentativeWeightResult:
-    """Assign fixed orbit weights from a three-dimensional target density.
+    """Assign experimental orbit weights from a three-dimensional target density.
+
+    The production pipeline does not use this function. It is retained for
+    isolated comparisons of target-derived and catalogue-supplied weights.
 
     For a spatial cell ``j=(R,z,phi)`` containing ``N_j`` seed stars,
 

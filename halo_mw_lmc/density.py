@@ -44,7 +44,7 @@ def orbit_density(
 ) -> FloatArray:
     """Convert equal-time orbit samples into a cylindrical number density.
 
-    Each sample carries its parent orbit's representative weight.  The caller
+    Each sample carries its parent orbit's fixed catalogue weight. The caller
     supplies the divisor used to distribute that weight over samples in the
     analysed domain.
     """
@@ -58,7 +58,7 @@ def orbit_density(
         np.asarray(weights, dtype=float),
     )
     if np.any(np.isfinite(weight_values) & (weight_values < 0)):
-        raise ValueError("orbit representative weights must be non-negative")
+        raise ValueError("orbit weights must be non-negative")
     radius = np.hypot(x_values, y_values)
     phi = np.arctan2(y_values, x_values)
     mass = grid.histogram(

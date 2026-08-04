@@ -1,10 +1,17 @@
 import unittest
 
+import numpy as np
+
+from halo_mw_lmc.grids import CylindricalGrid
 from halo_mw_lmc.potentials import (
     ZHU_2026_BEST_FIT,
     ZHU_2026_LOCAL_SEARCH_BOUNDS,
 )
-from run_skopt_lamost_4phi import _paper_best_optimizer_point, build_parser
+from run_skopt_lamost_4phi import (
+    _catalogue_weight_audit,
+    _paper_best_optimizer_point,
+    build_parser,
+)
 
 
 class OptimizerCliTests(unittest.TestCase):
@@ -45,6 +52,23 @@ class OptimizerCliTests(unittest.TestCase):
                 best["gamma"],
             ],
         )
+
+    def test_catalogue_weight_audit_reports_orbit_dominance(self):
+        grid = CylindricalGrid.uniform(
+            n_r=1,
+            r_range=(0.0, 2.0),
+            n_z=1,
+            z_range=(0.0, 1.0),
+            n_phi=1,
+        )
+        initial = np.array(
+            [[0.5, 0.0, 0.5, 0, 0, 0], [1.5, 0.0, 0.5, 0, 0, 0]],
+            dtype=float,
+        )
+        audit = _catalogue_weight_audit(initial, np.array([1.0, 3.0]), grid)
+        self.assertAlmostEqual(float(audit["effective_seed_count"]), 1.6)
+        self.assertAlmostEqual(float(audit["max_weight_fraction"]), 0.75)
+        self.assertAlmostEqual(float(audit["cell_max_weight_fraction"][0, 0, 0]), 0.75)
 
 
 if __name__ == "__main__":

@@ -8,7 +8,6 @@ import numpy as np
 from halo_mw_lmc.config import DensityFitSettings, ZhuComparisonConfig
 from halo_mw_lmc.grids import CylindricalGrid
 from halo_mw_lmc.orbits import OrbitLibrary
-from halo_mw_lmc.weights import representative_weights_from_target
 from skopt_oint_lamost_4phi import (
     PreparedFixedWeightData,
     evaluate_prepared_model,
@@ -16,7 +15,7 @@ from skopt_oint_lamost_4phi import (
 
 
 class FixedWeightPipelineTests(unittest.TestCase):
-    def test_same_r_z_phi_target_drives_weights_and_validation(self):
+    def test_catalogue_weights_drive_orbit_model_independently_of_target(self):
         grid = CylindricalGrid.uniform(
             n_r=1,
             r_range=(0.0, 1.0),
@@ -43,20 +42,20 @@ class FixedWeightPipelineTests(unittest.TestCase):
             ],
             dtype=float,
         )
-        target = np.array([[[2.0, 4.0]]])
-        fixed = representative_weights_from_target(
-            initial[:, 0],
-            initial[:, 1],
+        seed_weights = np.array([1.0, 2.0, 4.0])
+        seed_mass = grid.histogram(
+            np.hypot(initial[:, 0], initial[:, 1]),
             initial[:, 2],
-            target,
-            grid,
+            np.arctan2(initial[:, 1], initial[:, 0]),
+            weights=seed_weights,
         )
+        target = seed_mass / grid.volumes
         prepared = PreparedFixedWeightData(
             catalog=object(),
             initial_conditions=initial,
             target_density=target,
             target_error=np.ones_like(target),
-            representative_weights=fixed,
+            seed_weights=seed_weights,
             config=config,
             catalog_path=Path("synthetic-catalog"),
             density_path=Path("synthetic-target"),
@@ -96,6 +95,7 @@ class FixedWeightPipelineTests(unittest.TestCase):
         self.assertAlmostEqual(result.density.chi2, 0.0)
         self.assertAlmostEqual(result.log_likelihood, 0.0)
         self.assertEqual(result.successful_orbits, 3)
+        np.testing.assert_array_equal(result.seed_weights, seed_weights)
         plot_diagnostics.assert_called_once()
         self.assertEqual(plot_diagnostics.call_args.args[1], {})
 

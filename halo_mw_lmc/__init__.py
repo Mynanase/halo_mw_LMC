@@ -3,7 +3,11 @@
 from .config import DensityFitSettings, ZhuComparisonConfig
 from .density import DensityComparison, compare_density, orbit_density
 from .grids import CylindricalGrid
-from .weights import RepresentativeWeightResult, representative_weights_from_target
+from .weights import (
+    RepresentativeWeightResult,
+    catalogue_seed_weights,
+    representative_weights_from_target,
+)
 
 __all__ = [
     "CylindricalGrid",
@@ -11,6 +15,7 @@ __all__ = [
     "DensityFitSettings",
     "RepresentativeWeightResult",
     "ZhuComparisonConfig",
+    "catalogue_seed_weights",
     "compare_density",
     "orbit_density",
     "representative_weights_from_target",

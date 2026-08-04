@@ -9,6 +9,8 @@ velocity plot set, and draws a standalone convergence-trajectory figure.
 from __future__ import annotations
 
 import argparse
+import json
+import warnings
 from pathlib import Path
 
 import numpy as np
@@ -20,6 +22,31 @@ from skopt_oint_lamost_4phi import (
     evaluate_prepared_model,
     prepare_fixed_weight_data,
 )
+
+
+def _warn_if_weight_source_mismatch(output_dir: Path) -> None:
+    """Flag diagnostics that cannot exactly replay an older optimizer run."""
+
+    config_path = output_dir / "run_config.json"
+    if not config_path.exists():
+        warnings.warn(
+            "run_config.json is missing; cannot verify the optimizer's orbit-weight source",
+            stacklevel=2,
+        )
+        return
+    try:
+        run_config = json.loads(config_path.read_text())
+    except (OSError, json.JSONDecodeError) as exc:
+        warnings.warn(f"cannot read {config_path}: {exc}", stacklevel=2)
+        return
+    orbit_weights = run_config.get("orbit_weights", {})
+    if orbit_weights.get("source") != "catalogue_column":
+        warnings.warn(
+            "this run predates catalogue-supplied orbit weights; the saved objective "
+            "used target-derived weights, while this diagnostic re-evaluation uses "
+            "halo_clean_N.txt['w'] and is therefore not an exact replay",
+            stacklevel=2,
+        )
 
 
 def _best_row(data: np.ndarray, nphi: int) -> dict:
@@ -101,9 +128,6 @@ def main(argv=None) -> int:
     parser.add_argument("--orbit-samples", type=int, default=1000)
     parser.add_argument("--include-velocity", action="store_true")
     parser.add_argument(
-        "--minimum-seed-count", type=int, default=1,
-    )
-    parser.add_argument(
         "--velocity-plot-bin-factor",
         type=int,
         default=3,
@@ -117,7 +141,6 @@ def main(argv=None) -> int:
         args.nphi,
         args.n_rz,
         args.orbit_samples,
-        args.minimum_seed_count,
         args.velocity_plot_bin_factor,
     ) < 1:
         raise SystemExit(
@@ -135,6 +158,7 @@ def main(argv=None) -> int:
     sample_file = output_dir / "sample.dat"
     if not sample_file.exists():
         raise SystemExit(f"no sample file found at {sample_file}")
+    _warn_if_weight_source_mismatch(output_dir)
 
     required_columns = (
         "iteration",
@@ -173,7 +197,6 @@ def main(argv=None) -> int:
         rz_max=args.rz_max,
         orbit_samples_per_orbit=args.orbit_samples,
         include_velocity=args.include_velocity,
-        minimum_seed_count=args.minimum_seed_count,
     )
     catalog = (
         args.catalog.expanduser().resolve()
