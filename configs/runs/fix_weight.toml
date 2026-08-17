@@ -1,0 +1,28 @@
+# 日常运行通常只需复制并修改这个文件；科学网格与似然定义在 recipe 中。
+schema_version = 1
+recipe = "../recipes/zhu_2026_fixed_weight.toml"
+
+[run]
+# 每次 cold-start 使用新的 id 和尚不存在的 output_dir。
+id = "fix-weight"
+output_dir = "../../runs/fix-weight"
+
+[data]
+# 路径相对于本 TOML 文件，而不是执行命令时的当前目录。
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/w4_SB_Rz_254phi_err.txt"
+
+[optimizer]
+iterations = 1000
+random_seed = 0
+
+[report]
+# 只影响展示，不改变 201-bin 速度似然。
+velocity_bin_factor = 3
+
+[coverage]
+# coverage 是独立诊断，不写入 cold-start run 目录；输出目录也必须是新的。
+output_dir = "../../data_coverage"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0

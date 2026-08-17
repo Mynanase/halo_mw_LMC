@@ -2,8 +2,8 @@ import unittest
 
 import numpy as np
 
-from halo_mw_lmc.phase_space import cartesian_to_spherical_phase_space
-from halo_mw_lmc.velocity import (
+from halo_mw_lmc.core.phase_space import cartesian_to_spherical_phase_space
+from halo_mw_lmc.core.velocity import (
     SphericalVelocityGrid,
     conditional_velocity_histogram,
     multinomial_histogram_uncertainty,

@@ -101,6 +101,33 @@ def _base_validity(
     return valid
 
 
+def density_fit_mask(
+    data_density: ArrayLike,
+    data_error: ArrayLike,
+    grid: CylindricalGrid,
+    settings: DensityFitSettings | None = None,
+) -> BoolArray:
+    """Return the data-defined density constraint mask without a trial model."""
+
+    settings = settings or DensityFitSettings()
+    data = _shape_checked(data_density, grid, "data_density")
+    error = _shape_checked(data_error, grid, "data_error")
+    radius, z, _ = grid.center_mesh
+    spherical_radius = np.hypot(radius, z)
+    valid = np.isfinite(data) & np.isfinite(error) & (error > 0)
+    if settings.require_positive_data:
+        valid &= data > 0
+    result = (
+        valid
+        & (np.abs(z) >= settings.min_abs_z)
+        & (spherical_radius >= settings.min_spherical_radius)
+        & (spherical_radius < settings.max_spherical_radius)
+    )
+    if not np.any(result):
+        raise ValueError("no valid density bins remain after applying the fit mask")
+    return np.asarray(result, dtype=bool)
+
+
 def compare_density(
     data_density: ArrayLike,
     data_error: ArrayLike,
@@ -108,10 +135,11 @@ def compare_density(
     grid: CylindricalGrid,
     settings: DensityFitSettings | None = None,
 ) -> DensityComparison:
-    """Fit one model amplitude and compute the Zhu density chi-square.
+    """Normalize as configured and compute the Zhu density chi-square.
 
-    The scale is global across phi.  Therefore relative over/under-density
-    between azimuth bins remains part of the likelihood.
+    When a scale is fitted it is global across phi, so relative over/under-
+    density between azimuth bins remains part of the likelihood. Density-solved
+    orbit weights use ``normalization='none'`` and therefore keep scale one.
     """
 
     settings = settings or DensityFitSettings()

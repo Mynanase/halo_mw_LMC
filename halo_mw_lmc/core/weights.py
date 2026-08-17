@@ -28,6 +28,82 @@ def catalogue_seed_weights(values: ArrayLike) -> FloatArray:
     return weights.copy()
 
 
+def catalogue_weight_audit(
+    initial_conditions: ArrayLike,
+    weights: ArrayLike,
+    grid: CylindricalGrid,
+) -> dict[str, np.ndarray]:
+    """Summarize fixed catalogue weights globally and per density cell."""
+
+    initial = np.asarray(initial_conditions, dtype=float)
+    weight_values = catalogue_seed_weights(weights)
+    if initial.ndim != 2 or initial.shape != (weight_values.size, 6):
+        raise ValueError("initial_conditions must have shape (N, 6) matching weights")
+    radius = np.hypot(initial[:, 0], initial[:, 1])
+    z = initial[:, 2]
+    phi = np.arctan2(initial[:, 1], initial[:, 0])
+    seed_counts = grid.histogram(radius, z, phi)
+    cell_weight_sum = grid.histogram(radius, z, phi, weights=weight_values)
+    cell_weight_sq_sum = grid.histogram(
+        radius,
+        z,
+        phi,
+        weights=weight_values**2,
+    )
+    initial_density = np.divide(
+        cell_weight_sum,
+        grid.volumes,
+        out=np.zeros_like(cell_weight_sum),
+        where=grid.volumes > 0,
+    )
+
+    ir, iz, iphi, in_grid = grid.bin_indices(radius, z, phi)
+    cell_max_weight = np.zeros(grid.shape, dtype=float)
+    np.maximum.at(
+        cell_max_weight,
+        (ir[in_grid], iz[in_grid], iphi[in_grid]),
+        weight_values[in_grid],
+    )
+    cell_effective_seed_count = np.divide(
+        cell_weight_sum**2,
+        cell_weight_sq_sum,
+        out=np.zeros_like(cell_weight_sum),
+        where=cell_weight_sq_sum > 0,
+    )
+    cell_max_weight_fraction = np.divide(
+        cell_max_weight,
+        cell_weight_sum,
+        out=np.zeros_like(cell_weight_sum),
+        where=cell_weight_sum > 0,
+    )
+
+    total_weight = float(np.sum(weight_values))
+    weight_sq_sum = float(np.sum(weight_values**2))
+    quantile_levels = np.array([0, 0.01, 0.1, 0.5, 0.9, 0.99, 1.0])
+    return {
+        "weights": weight_values,
+        "seed_counts": seed_counts,
+        "cell_weight_sum": cell_weight_sum,
+        "cell_weight_sq_sum": cell_weight_sq_sum,
+        "cell_effective_seed_count": cell_effective_seed_count,
+        "cell_max_weight": cell_max_weight,
+        "cell_max_weight_fraction": cell_max_weight_fraction,
+        "initial_catalog_density": initial_density,
+        "quantile_levels": quantile_levels,
+        "weight_quantiles": np.quantile(weight_values, quantile_levels),
+        "positive_seed_count": np.asarray(np.count_nonzero(weight_values > 0)),
+        "in_grid_seed_count": np.asarray(np.count_nonzero(in_grid)),
+        "total_weight": np.asarray(total_weight),
+        "in_grid_weight": np.asarray(float(np.sum(weight_values[in_grid]))),
+        "effective_seed_count": np.asarray(
+            total_weight**2 / weight_sq_sum if weight_sq_sum > 0 else 0.0
+        ),
+        "max_weight_fraction": np.asarray(
+            float(np.max(weight_values)) / total_weight if total_weight > 0 else 0.0
+        ),
+    }
+
+
 @dataclass(frozen=True)
 class RepresentativeWeightResult:
     """Fixed seed-orbit weights and their spatial support diagnostics."""

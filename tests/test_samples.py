@@ -2,12 +2,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from halo_mw_lmc.samples import (
+from halo_mw_lmc.artifacts import (
     SampleFileError,
     best_sample,
     load_sample_table,
 )
-from plot_best_fit import _best_row
 
 
 HEADER = (
@@ -43,7 +42,7 @@ class SampleFileTests(unittest.TestCase):
             with self.assertRaisesRegex(SampleFileError, "missing required"):
                 load_sample_table(path, required_columns=("not_a_column",))
 
-    def test_best_row_uses_requested_phi_count(self):
+    def test_best_row_retains_phi_columns(self):
         with tempfile.TemporaryDirectory() as directory:
             path = self._write_sample(
                 directory,
@@ -51,8 +50,11 @@ class SampleFileTests(unittest.TestCase):
             )
             data = load_sample_table(path)
 
-        best = _best_row(data, nphi=3)
-        self.assertEqual(best["chi2_by_phi"], [1.0, 2.0, 3.0])
+        best = best_sample(data)
+        self.assertEqual(
+            [float(best[f"chi2_phi{index}"]) for index in range(3)],
+            [1.0, 2.0, 3.0],
+        )
 
 
 if __name__ == "__main__":

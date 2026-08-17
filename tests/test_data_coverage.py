@@ -4,9 +4,9 @@ from tempfile import TemporaryDirectory
 
 import numpy as np
 
-from halo_mw_lmc.data_coverage import build_data_coverage
-from halo_mw_lmc.grids import CylindricalGrid
-from plot_data_coverage import _read_initial_conditions, build_parser
+from halo_mw_lmc.core.coverage import build_data_coverage
+from halo_mw_lmc.core.grids import CylindricalGrid
+from halo_mw_lmc.data.catalogue import read_phase_space_catalogue
 
 
 class DataCoverageTests(unittest.TestCase):
@@ -93,14 +93,6 @@ class DataCoverageTests(unittest.TestCase):
                 rzphi_grid=self.grid,
             )
 
-    def test_cli_defaults_match_the_active_spatial_grid(self):
-        args = build_parser().parse_args([])
-        self.assertEqual(args.nphi, 4)
-        self.assertEqual(args.n_rz, 25)
-        self.assertEqual(args.rz_max, 50.0)
-        self.assertEqual(args.z_min, 0.0)
-        self.assertEqual(args.z_max, 50.0)
-
     def test_ascii_catalogue_can_be_read_without_pipeline_setup(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "catalog.txt"
@@ -109,7 +101,7 @@ class DataCoverageTests(unittest.TestCase):
                 "1 2 3 4 5 6\n"
                 "7 8 9 10 11 12\n"
             )
-            initial = _read_initial_conditions(path)
+            initial = read_phase_space_catalogue(path)
 
         np.testing.assert_allclose(
             initial,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from dataclasses import dataclass
 from typing import Any
 
 
@@ -29,6 +30,32 @@ ZHU_2026_LOCAL_SEARCH_BOUNDS = {
     "rho0_plus_2logrs": (9.50, 10.30),
     "gamma": (0.50, 1.80),
 }
+
+
+@dataclass(frozen=True)
+class ZhuHaloParameters:
+    """The five fitted halo parameters after optimizer-coordinate decoding."""
+
+    rho0: float
+    log_rs: float
+    phalo: float
+    qhalo: float
+    gamma: float
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "rho0": self.rho0,
+            "log_rs": self.log_rs,
+            "phalo": self.phalo,
+            "qhalo": self.qhalo,
+            "gamma": self.gamma,
+        }
+
+
+def build_potential_from_parameters(parameters: ZhuHaloParameters):
+    """Construct the fiducial potential from a typed parameter object."""
+
+    return build_zhu_2026_potential(**parameters.as_dict())
 
 
 def _require_finite(**values: float) -> None:

@@ -1,37 +1,51 @@
 import unittest
+from pathlib import Path
 
 import numpy as np
 
-from halo_mw_lmc.grids import CylindricalGrid
-from halo_mw_lmc.potentials import (
+from halo_mw_lmc.cli import build_parser
+from halo_mw_lmc.configuration import load_run_configuration
+from halo_mw_lmc.core.grids import CylindricalGrid
+from halo_mw_lmc.core.potentials import (
     ZHU_2026_BEST_FIT,
     ZHU_2026_LOCAL_SEARCH_BOUNDS,
 )
-from run_skopt_lamost_4phi import (
-    _catalogue_weight_audit,
-    _paper_best_optimizer_point,
-    build_parser,
+from halo_mw_lmc.core.weights import catalogue_weight_audit
+from halo_mw_lmc.workflows.optimization import (
+    paper_best_optimizer_point,
+    rounded_trial,
+    sample_header,
 )
 
 
+RUN_CONFIG = Path(__file__).resolve().parents[1] / "configs/runs/fix_weight.toml"
+
+
 class OptimizerCliTests(unittest.TestCase):
-    def test_cold_start_has_reproducible_default_seed(self):
-        args = build_parser().parse_args([])
-        self.assertEqual(args.random_state, 0)
-        self.assertEqual(args.velocity_plot_bin_factor, 3)
+    def test_cli_defaults_to_full_run_with_only_a_config(self):
+        args = build_parser().parse_args([str(RUN_CONFIG)])
+        self.assertEqual(args.mode, "run")
+        self.assertEqual(args.config, RUN_CONFIG)
+
+    def test_cli_short_flags_select_isolated_modes(self):
+        cases = (("-v", "validate"), ("-c", "coverage"), ("-o", "optimize"))
+        for flag, expected in cases:
+            with self.subTest(flag=flag):
+                args = build_parser().parse_args([flag, str(RUN_CONFIG)])
+                self.assertEqual(args.mode, expected)
+                self.assertEqual(args.config, RUN_CONFIG)
+
+    def test_cli_modes_are_mutually_exclusive(self):
+        with self.assertRaises(SystemExit):
+            build_parser().parse_args(["-v", "-c", str(RUN_CONFIG)])
+
+    def test_cold_start_has_reproducible_config_seed(self):
+        configuration = load_run_configuration(RUN_CONFIG)
+        self.assertEqual(configuration.random_seed, 0)
+        self.assertEqual(configuration.report.velocity_bin_factor, 3)
 
     def test_default_bounds_are_paper_centered_and_contain_best_fit(self):
-        args = build_parser().parse_args([])
-        actual = {
-            "qhalo": (args.qhalo_min, args.qhalo_max),
-            "phalo": (args.phalo_min, args.phalo_max),
-            "rho0": (args.rho0_min, args.rho0_max),
-            "rho0_plus_2logrs": (
-                args.rho0_plus_2logrs_min,
-                args.rho0_plus_2logrs_max,
-            ),
-            "gamma": (args.gamma_min, args.gamma_max),
-        }
+        actual = load_run_configuration(RUN_CONFIG).search_bounds
         self.assertEqual(actual, ZHU_2026_LOCAL_SEARCH_BOUNDS)
 
         best = dict(ZHU_2026_BEST_FIT)
@@ -43,7 +57,7 @@ class OptimizerCliTests(unittest.TestCase):
     def test_first_optimizer_point_is_the_paper_best_fit(self):
         best = ZHU_2026_BEST_FIT
         self.assertEqual(
-            _paper_best_optimizer_point(),
+            paper_best_optimizer_point(),
             [
                 best["qhalo"],
                 best["phalo"],
@@ -65,10 +79,41 @@ class OptimizerCliTests(unittest.TestCase):
             [[0.5, 0.0, 0.5, 0, 0, 0], [1.5, 0.0, 0.5, 0, 0, 0]],
             dtype=float,
         )
-        audit = _catalogue_weight_audit(initial, np.array([1.0, 3.0]), grid)
+        audit = catalogue_weight_audit(initial, np.array([1.0, 3.0]), grid)
         self.assertAlmostEqual(float(audit["effective_seed_count"]), 1.6)
         self.assertAlmostEqual(float(audit["max_weight_fraction"]), 0.75)
         self.assertAlmostEqual(float(audit["cell_max_weight_fraction"][0, 0, 0]), 0.75)
+
+    def test_rounded_coordinates_define_evaluation_and_optimizer_point(self):
+        point, parameters = rounded_trial(
+            [0.9234, 0.8126, 6.2341, 9.9231, 1.0129],
+            decimals=3,
+        )
+        self.assertEqual(point, [0.923, 0.813, 6.234, 9.923, 1.013])
+        self.assertEqual(parameters.log_rs, 1.8445)
+        self.assertEqual(
+            parameters.rho0 + 2 * parameters.log_rs,
+            point[3],
+        )
+
+    def test_sample_schema_records_both_objectives_and_weight_diagnostics(self):
+        header = sample_header(4, include_velocity=True)
+
+        for column in (
+            "objective_velocity",
+            "objective_density_velocity",
+            "density_chi2_per_bin",
+            "regularization_penalty",
+            "effective_orbit_count",
+            "max_weight_fraction",
+            "active_orbit_count",
+            "weight_solver_converged",
+            "weight_solver_status",
+            "successful_orbits",
+            "failed_orbits",
+            "weight_sum",
+        ):
+            self.assertIn(column, header.split())
 
 
 if __name__ == "__main__":

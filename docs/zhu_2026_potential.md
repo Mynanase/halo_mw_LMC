@@ -28,7 +28,7 @@ fiducial fit, so the abandoned backward/forward LMC integration is not part of
 the active implementation.
 
 The source-of-truth implementation is
-`halo_mw_lmc.potentials.zhu_2026_component_parameters`; all AGAMA component
+`halo_mw_lmc.core.potentials.zhu_2026_component_parameters`; all AGAMA component
 dictionaries are supplied in one `agama.Potential(...)` call so AGAMA may group
 compatible density components efficiently.
 

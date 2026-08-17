@@ -1,9 +1,19 @@
 """Tools for Zhu-style empirical orbit-superposition modelling."""
 
-from .config import DensityFitSettings, ZhuComparisonConfig
-from .density import DensityComparison, compare_density, orbit_density
-from .grids import CylindricalGrid
-from .weights import (
+from .core.config import (
+    DensityFitSettings,
+    ObjectiveSettings,
+    WeightModelSettings,
+    ZhuComparisonConfig,
+)
+from .core.density import DensityComparison, compare_density, orbit_density
+from .core.grids import CylindricalGrid
+from .core.tracer_density import (
+    DESI_YEAR1_KGIANTS_DENSITY,
+    DesiKGiantsDensityModel,
+    cell_average_cylindrical_density,
+)
+from .core.weights import (
     RepresentativeWeightResult,
     catalogue_seed_weights,
     representative_weights_from_target,
@@ -11,14 +21,19 @@ from .weights import (
 
 __all__ = [
     "CylindricalGrid",
+    "DESI_YEAR1_KGIANTS_DENSITY",
+    "DesiKGiantsDensityModel",
     "DensityComparison",
     "DensityFitSettings",
+    "ObjectiveSettings",
     "RepresentativeWeightResult",
+    "WeightModelSettings",
     "ZhuComparisonConfig",
     "catalogue_seed_weights",
+    "cell_average_cylindrical_density",
     "compare_density",
     "orbit_density",
     "representative_weights_from_target",
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

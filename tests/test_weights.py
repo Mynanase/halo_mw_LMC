@@ -2,8 +2,8 @@ import unittest
 
 import numpy as np
 
-from halo_mw_lmc.grids import CylindricalGrid
-from halo_mw_lmc.weights import (
+from halo_mw_lmc.core.grids import CylindricalGrid
+from halo_mw_lmc.core.weights import (
     catalogue_seed_weights,
     representative_weights_from_target,
 )
