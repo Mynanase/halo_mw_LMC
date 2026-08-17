@@ -1,87 +1,178 @@
 # halo_mw_LMC
 
-这条分支实现 Zhu 等人的经验轨道叠加方法，并把原来的轴对称
-`(R, z)` 数据—模型比较扩展为显式的 `(R, z, phi)` 比较。
+本仓库实现 Zhu 等人的经验轨道叠加模型，并在显式
+`(R,z,phi)` 网格上比较银河系恒星晕的密度和可选速度分布。
 
-当前主流程为：
+同一条执行管线支持两种权重模型：稳定基线使用星表 `halo_clean_N.txt` 中的
+逐星 `w`；实验性 No-Fixed 模式在每一组候选势中，用三维目标密度反解非负
+轨道权重，再以同一组权重计算速度似然。两种模式都由 AGAMA 积分轨道，速度
+似然只使用 `r>=8 kpc` 的恒星。
 
-1. 从 `halo_clean_N.txt` 读取每颗 6D 种子星及其选择函数校正权重 `w`；
-2. 在整个势参数优化期间固定这些逐星权重；
-3. 单独读取 `nu_target(R,z,phi)` 及其误差作为密度检验目标；
-4. 在每个候选银河系势中用 AGAMA 积分，并等时间采样；
-5. 每个轨道点继承预先固定的种子轨道权重；
-6. 将轨道点放入相同的 `(R, z, phi)` 网格，以精确柱坐标体积换算密度；
-7. 在全部 phi bin 上只拟合一个共同的模型幅度；
-8. 逐 phi 计算 target/model 残差和 chi-square；可选地在
-   `r>=8 kpc` 加入三个速度分量的逐星似然。
+## 目录结构
 
-核心实现位于 `halo_mw_lmc/`。原来的函数名
-`calculate_RzSB_4phi`、`Read_obsSB_4phi` 和 `int_one_model`
-保留为兼容入口。
+```text
+halo_mw_lmc/
+  core/             数值核心：网格、势、轨道、权重、密度、速度
+  data/             星表和目标密度的文件格式适配
+  workflows/        数据准备、优化、coverage 和报告工作流
+  visualization/    Matplotlib 图形构建与批量输出
+  configuration.py  严格 TOML 解析与类型化配置
+  artifacts.py      可移植运行产物的读写与校验
+  cli.py             默认完整运行，短参数选择单独工作流
+configs/
+  recipes/          可复用科学模型配置
+  runs/             数据路径、输出、随机种子和运行设置
+apps/results.py     只读 Marimo 结果应用
+archive/            重构前代码快照，不属于当前生产路径
+```
+
+依赖方向和核心数组契约见
+[`docs/architecture.md`](docs/architecture.md)。
+
+## 配置
+
+科学模型与单次运行分成两个文件：
+
+- [`configs/recipes/zhu_2026_fixed_weight.toml`](configs/recipes/zhu_2026_fixed_weight.toml)：
+  网格、拟合掩膜、速度项、轨道采样、参数边界；
+- [`configs/recipes/zhu_2026_density_solved.toml`](configs/recipes/zhu_2026_density_solved.toml)：
+  No-Fixed 的非负权重求解器、正则化和外层 objective；
+- [`configs/runs/fix_weight.toml`](configs/runs/fix_weight.toml)：
+  数据路径、run id、输出目录、迭代数、随机种子和报告设置。
+
+所有相对路径都相对于声明它们的 TOML 文件解析，不依赖执行命令时所在的
+shell 目录。未知或拼错的字段会直接报错。
+
+No-Fixed 示例只需换一份 run 配置，命令不变：
+
+```bash
+python -m halo_mw_lmc configs/runs/density_solved.toml
+```
+
+该 recipe 使用 `unit_mass` 目标归一化、`lsq_linear` 非负最小二乘和 L2
+正则化。它强制 `density_fit.normalization = "none"`，因为轨道权重已经决定
+模型密度振幅，不能再引入第二个全局 density scale。详细统计定义见
+[`docs/density_solved_weights.md`](docs/density_solved_weights.md)。
+
+正式扫描前先在生产服务器执行一次完整星表、单势的 paper-best benchmark：
+
+```bash
+python -m halo_mw_lmc configs/runs/density_solved_benchmark.toml
+```
+
+该配置只执行一个 trial，并写入独立输出目录，不会修改 1000-trial 配置。数据
+部署、依赖预检、计时和验收步骤见
+[`docs/no_fixed_benchmark.md`](docs/no_fixed_benchmark.md)。
+
+### 从 DESI 解析模型生成 density target
+
+当前 No-Fixed run 使用 DESI year-1 K-giant 三轴分段幂律模型生成的相对密度：
+
+```bash
+python -m halo_mw_lmc.generate_density \
+  configs/synthetic_density/desi_year1_kgiants.toml
+```
+
+生成网格由引用的 No-Fixed recipe 定义，不通过长命令行参数传入。每个 cell
+保存的是包含柱坐标 Jacobian 的体积平均，而不是中心点取值；目标 NPZ 同时携带
+grid edges、模型参数、源文件 SHA-256、积分误差和明确的 synthetic fractional
+error。生成文件位于 `data_for_model/synthetic/`，属于忽略的本地研究数据，且
+不会覆盖已有文件。模型方程、未使用的拟合参数和坐标假设见
+[`docs/desi_density_model.md`](docs/desi_density_model.md)。
+
+历史 ASCII target 没有网格元数据，因此只允许用于原始的 `25×25×4`、
+`R,z=0..50 kpc` 网格。修改网格时，`target_density` 必须指向包含
+`target_density`、`target_error`、`r_edges`、`z_edges` 和 `phi_edges` 的
+NPZ；边界不一致会在积分前报错。
 
 ## 运行
 
-需要在环境中安装 NumPy、Astropy、Matplotlib、scikit-optimize 和
-[AGAMA](https://github.com/GalacticDynamics-Oxford/Agama)。然后执行：
+默认命令执行一次新的 cold-start 优化，并直接从保存的 best snapshot 生成
+静态报告：
 
 ```bash
-python run_skopt_lamost_4phi.py \
-  --base-path /path/to/halo_mw_LMC \
-  --nphi 4 \
-  --iterations 1000
+python -m halo_mw_lmc configs/runs/fix_weight.toml
 ```
 
-若改变 `--nphi`、`--n-rz` 或 `--rz-max`，必须通过 `--density`
-给出使用完全相同边界生成的 `nu_target(R,z,phi)` 文件。加入 Zhu 的速度项可使用
-`--include-velocity`。使用 `--plot` 会在每次刷新当前最优值时，于
-`model_skopt/diagnostics/<parameter-tag>/` 中生成：
+配置路径是唯一的位置参数，所有科学选择仍然来自 TOML。以下短参数仅在需要
+单独执行某个阶段时使用。
 
-- `density_overview.pdf`：target、model、target 相对误差和标准化残差；
-  第一列保留论文式 `phi` 平均基准，后续每个 `phi` bin 一列；
-- `density_phiXX.pdf`：每个 `phi` bin 单独一页的 Fig. 6 式密度比较；
-- `density_flattening.pdf`：由等密度轮廓主、次轴截距提取的
-  `q_star(R)`，不同 `phi` 分面展示；
-- `velocity_phi_average.pdf` 和 `velocity_phiXX.pdf`：开启
-  `--include-velocity` 后生成；前者是论文式 `phi` 平均基准，后者每个方位扇区
-  一页，在 `(r,theta)` 分箱中比较 `v_r`、`v_phi`、`v_theta` 的观测与模型
-  分布，形式对应论文 Fig. 7。
-
-完整图组不会为所有 trial 无条件输出；未改善当前最优目标值的 trial
-只参与优化和写入 `sample.dat`，避免大规模扫描产生过量 PDF。
-
-运行开始时会把来自星表 `w` 列的逐星固定权重、每格种子数、每格权重和、
-有效样本数与最大权重占比、target density 和网格边界写入
-`model_skopt/fixed_seed_weights.npz`。这些权重在整个势参数优化过程中保持不变；
-target density 只参与最终密度比较，不用于反推轨道权重。
-
-旧版本生成的 `sample.dat` 使用了 target-derived 权重，不能与新权重语义视为
-同一次拟合。`plot_best_fit.py` 在发现旧 `run_config.json` 时会明确警告：其
-重新评价结果使用当前星表 `w`，只能作为新语义下的事后诊断，不是旧目标函数的
-精确重放。
-
-算法约定和旧代码差异见
-[`docs/zhu_phi_binning.md`](docs/zhu_phi_binning.md)。
-
-## 检查观测数据覆盖
-
-在开始拟合前，可单独检查六维星表在不同方向和空间格中的覆盖情况：
+只检查配置，不读取观测数据或可选科学依赖：
 
 ```bash
-python plot_data_coverage.py \
-  --base-path /path/to/halo_mw_LMC \
-  --nphi 4 \
-  --n-rz 25 \
-  --rz-max 50
+python -m halo_mw_lmc -v configs/runs/fix_weight.toml
 ```
 
-默认写入 `data_coverage/`，包括位置和速度投影、逐 `phi` 的
-`(R,z)` 与 `(r,theta)` 原始占据数/采样数密度、边缘剖面、
-空格与低样本格摘要，以及可供后续分析使用的
-`coverage_summary.json` 和 `coverage_counts.npz`。这些图只描述实际样本
-覆盖，不进行对称化、插值或选择函数校正，零计数空间格会被明确保留。
+只生成拟合前的数据覆盖诊断：
+
+```bash
+python -m halo_mw_lmc -c configs/runs/fix_weight.toml
+```
+
+只执行优化，不生成静态 PDF：
+
+```bash
+python -m halo_mw_lmc -o configs/runs/fix_weight.toml
+```
+
+默认命令已经包含配置验证、优化和静态报告；coverage 是更换数据或网格时才
+需要的独立诊断，因此不会在每次默认运行中重复执行。默认运行和 `-o` 都要求
+配置中的运行输出目录尚不存在，不会续写、恢复或注入旧采样点。Coverage 输出
+目录也必须尚不存在，重新生成时请在 run TOML 中换一个目录名。
+
+安装项目后，也可以把 `python -m halo_mw_lmc` 替换为 `halo-mw-lmc`。
+
+运行优化需要 NumPy、scikit-optimize 和单独安装的 AGAMA；No-Fixed 权重求解
+还需要 SciPy；绘图需要 Matplotlib。Astropy 可提供更宽容的 ASCII 读取，但简单命名列文件有 NumPy
+fallback。项目的可选依赖组定义在 `pyproject.toml`。不要在共享科研环境中
+未经确认自行升级或安装依赖。
+
+## 运行产物
+
+默认 run 写入 `runs/fix-weight/`：
+
+```text
+resolved_config.json       完整展开的配置、网格、路径和 Git provenance
+fixed_seed_weights.npz     固定权重、格点审计、target 与网格边界
+weight_model_inputs.npz    No-Fixed 输入 target 与网格边界（替代上一项）
+sample.dat                 每个 trial 的参数和标量评分
+best/metadata.json         当前 best 的参数、iteration 和 objective
+best/evaluation.npz        当前 best 的密度、速度和完整轨道权重快照
+figures/                   独立 report 命令生成的图
+```
+
+优化工作流只保存数值产物，不调用绘图。默认组合工作流在优化完成后再由独立
+报告层读取这些产物；`best/evaluation.npz` 在出现新 best 时原子替换，因此
+报告和交互分析无需再次调用 AGAMA。
+
+## Marimo 结果展示
+
+[`apps/results.py`](apps/results.py) 只读取运行目录中的配置、样本、权重审计和
+best snapshot：
+
+```bash
+marimo run apps/results.py
+```
+
+应用提供运行选择、收敛轨迹、逐 `phi` 密度比较、内层求解状态和权重集中度。缺少 snapshot
+时只显示说明，不会自动补算。Marimo 是 `analysis` 可选依赖，本仓库不会在导入
+核心包时加载它。`apps/` 和 `configs/` 是源码 checkout 中的研究工作区，不作为
+wheel package data 分发；安装后的 CLI 可以读取用户自行保存的 TOML。
+
+## 历史代码
+
+重构前的顶层入口、轴对称/LMC/GPRy 实验、预处理脚本、`back/` 和 `funcs/`
+完整保存在 [`archive/legacy_workflows/`](archive/legacy_workflows/)。归档保持旧
+相对布局并记录已知缺失依赖和语法问题，但不承诺可直接运行，也不允许当前生产
+路径反向导入。
 
 ## 测试
 
 ```bash
 python -m unittest discover -s tests -v
+python -m compileall -q halo_mw_lmc apps/results.py
 ```
+
+测试包括核心科学行为、旧密度轴序适配、TOML 严格校验、artifact 往返、固定
+权重语义、稀疏轨道响应、非负密度权重求解、解析 tracer density 的柱坐标
+体积积分、Marimo 只读边界和核心依赖方向。

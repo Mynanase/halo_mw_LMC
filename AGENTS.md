@@ -15,15 +15,18 @@ without explicit user permission.
 
 This repository implements a Zhu-style empirical orbit-superposition model for
 the Milky Way stellar halo, with explicit `(R, z, phi)` density comparison and
-optional velocity likelihood terms. The primary entry point is
-`run_skopt_lamost_4phi.py`; the main model evaluation is in
-`skopt_oint_lamost_4phi.py`, and reusable code lives under `halo_mw_lmc/`.
+optional velocity likelihood terms. The supported entry point is
+`python -m halo_mw_lmc configs/runs/fix_weight.toml`; use `-v`, `-c`, or `-o`
+for validation-only, coverage-only, or optimization-only execution. Numerical code
+lives under `halo_mw_lmc/core/`, file adapters under `halo_mw_lmc/data/`, and
+expensive execution under `halo_mw_lmc/workflows/`.
 
 Observational inputs, generated model directories, PDFs, and most research data
 are intentionally excluded from Git. Do not assume that ignored data are absent
 merely because `git status` does not show them.
 
-Use `plot_data_coverage.py` for data-only coverage diagnostics before changing
+Use `python -m halo_mw_lmc -c configs/runs/fix_weight.toml` for data-only
+coverage diagnostics before changing
 the statistical treatment of sparse or empty 6D regions. Its sampling-density
 plots are raw catalogue number densities, not selection-function-corrected
 physical stellar densities.
@@ -54,8 +57,7 @@ Use the preferred Conda environment when its dependencies are sufficient:
 
 ```bash
 conda run -n dp-jax python -m unittest discover -s tests -v
-conda run -n dp-jax python -m py_compile \
-  run_skopt_lamost_4phi.py plot_best_fit.py skopt_oint_lamost_4phi.py
+conda run -n dp-jax python -m compileall -q halo_mw_lmc apps/results.py
 ```
 
 If a check needs Astropy, scikit-optimize, or AGAMA, first probe the selected
@@ -77,20 +79,31 @@ environments or installing packages.
   smoothing. Diagnostic velocity plots aggregate three adjacent fitting bins
   by default (about 24 km/s per plotted bin); changing the plotting factor must
   not change the fitted likelihood.
-- Use the fixed per-star `w` column from `halo_clean_N.txt` for every orbit
-  sample in both density and velocity histograms. The three-dimensional
-  `w4_SB_Rz_254phi_err.txt` product supplies only the target density and its
-  uncertainty; do not derive production orbit weights from it.
+- The default fixed-weight recipe uses the per-star `w` column from
+  `halo_clean_N.txt` for every orbit sample in both density and velocity
+  histograms. The explicit experimental `density_solved` recipe instead
+  profiles non-negative orbit weights from the three-dimensional target for
+  every trial potential; do not mix these two weight semantics within a run.
+- In `density_solved` mode, use the sparse equal-time `(R,z,phi)` response,
+  normalize each orbit by its actual finite sample count, force density scale
+  to one, and use the same solved trial weights for the velocity likelihood.
+  Persist both velocity-only and density+velocity objectives; velocity-only
+  runs must enforce the configured density chi2-per-bin gate.
 - Exclude `r < 8 kpc` from the velocity likelihood because the empirical orbit
   library is incomplete there. The inner velocity histograms may remain
   available for diagnostics, but must not affect the optimizer objective.
-- Keep target-derived `(R,z,phi)` representative weights experimental and out
-  of the production optimizer until their selection-function and sparse-phi
-  behavior has been validated explicitly.
+- Keep initial-cell target-derived representative weights experimental and out
+  of the optimizer. They are distinct from the trial-specific orbit-response
+  solve documented in `docs/density_solved_weights.md`.
+- The experimental No-Fixed target is generated from the local DESI year-1
+  K-giant analytic model through `configs/synthetic_density/`. Treat it as a
+  relative tracer-density shape with a configured synthetic error, not an
+  absolute density measurement or posterior uncertainty. Preserve cell-volume
+  averaging and the provenance described in `docs/desi_density_model.md`.
 - The active potential is the static, constant-shape fiducial model from Zhu
   et al. (2026), equations 6--8: Ferrers barred bulge, thin and thick AGAMA
   `Disk` components, and a generalized-NFW triaxial `Spheroid` halo. Its
-  source-of-truth implementation is `halo_mw_lmc/potentials.py`; see
+  source-of-truth implementation is `halo_mw_lmc/core/potentials.py`; see
   `docs/zhu_2026_potential.md`.
 - Do not restore the abandoned time-dependent LMC backward/forward integration
   to this model. The paper's fiducial fit instead removes the mean LMC-induced
@@ -100,6 +113,10 @@ environments or installing packages.
   `docs/zhu_2026_potential.md`. Re-run a full-catalogue benchmark in the
   production environment before a large optimization scan or after changing
   the component representation.
+- Use `configs/runs/density_solved_benchmark.toml` for the one-trial,
+  paper-best No-Fixed production benchmark. Treat it as engineering validation,
+  not a production inference, and review `docs/no_fixed_benchmark.md` before
+  advancing to a multi-trial scan.
 
 ## Local research material
 
@@ -117,6 +134,10 @@ notes unless the user explicitly requests and authorizes it.
 ## Repository hygiene
 
 - Preserve unrelated user changes and untracked files.
+- Keep `archive/` out of the active import graph. It preserves historical source
+  layout and known failures; do not repair or use it as a compatibility layer.
+- Keep optimization free of plotting imports. Reports and Marimo must read
+  persisted artifacts and must not re-run missing orbit integrations.
 - Do not commit generated data, model outputs, local environments, or
   `.agent-local/`.
 - Add reusable scientific decisions to this file or tracked documentation;
