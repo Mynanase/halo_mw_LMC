@@ -68,7 +68,10 @@ The trial log and `sample.dat` must report:
 - finite selected, velocity-only, and density+velocity objectives;
 - finite density chi-square and `density_chi2_per_bin <= 2.0`;
 - successful and failed orbit counts;
-- unit weight sum to numerical precision;
+- a positive finite total weight (no `sum(w) = 1` constraint is imposed; the
+  unit-mass target sets the scale);
+- solver diagnostics: `max_iter` used, `weight_solver_iterations` (`nit`),
+  `weight_solver_optimality`, and `weight_solver_cost` finite;
 - effective orbit count, active orbit count, and maximum weight fraction.
 
 The run is not accepted if the selected objective uses the `1e30` invalid-trial

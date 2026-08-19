@@ -286,6 +286,18 @@ def _evaluation_arrays(
             evaluation.weight_solution.status,
             dtype=np.int64,
         ),
+        "weight_iterations": np.asarray(
+            evaluation.weight_solution.iterations,
+            dtype=np.int64,
+        ),
+        "weight_optimality": np.asarray(
+            evaluation.weight_solution.optimality,
+            dtype=float,
+        ),
+        "weight_solver_cost": np.asarray(
+            evaluation.weight_solution.solver_cost,
+            dtype=float,
+        ),
     }
     components = tuple(evaluation.velocity_distributions)
     arrays["velocity_components"] = np.asarray(components, dtype="U16")
@@ -387,6 +399,13 @@ def save_best_evaluation(
         "include_velocity": bool(evaluation.velocity_distributions),
         "weight_mode": evaluation.weight_mode,
         "weight_solver_message": evaluation.weight_solution.message,
+        "weight_solver_iterations": int(
+            evaluation.weight_solution.iterations
+        ),
+        "weight_solver_optimality": float(
+            evaluation.weight_solution.optimality
+        ),
+        "weight_solver_cost": float(evaluation.weight_solution.solver_cost),
         "objective_mode": evaluation.objective_mode,
         "objective_velocity": float(evaluation.objective_velocity),
         "objective_density_velocity": float(
@@ -526,6 +545,9 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
                 converged=bool(archive["weight_converged"]),
                 status=int(archive["weight_status"]),
                 message=str(metadata.get("weight_solver_message", "")),
+                iterations=int(archive.get("weight_iterations", 0)),
+                optimality=float(archive.get("weight_optimality", np.inf)),
+                solver_cost=float(archive.get("weight_solver_cost", np.inf)),
             )
             n_phi = grid.shape[-1]
             for name in ("density_chi2_by_phi", "density_valid_bins_by_phi"):

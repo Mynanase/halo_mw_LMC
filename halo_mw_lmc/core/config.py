@@ -28,6 +28,13 @@ class WeightModelSettings:
     target_normalization: str | None = None
     regularization: str | None = None
     regularization_strength: float = 0.0
+    max_iter: int = 20000
+    # Inner LSMR tolerance of the TRF least-squares solver. A tight fixed
+    # value makes each outer iteration accurate; scipy's "auto" rule keeps
+    # the inner solve coarse while the optimality residual is large, which
+    # stalls outer convergence for thousands of iterations. None keeps the
+    # scipy "auto" behaviour for backward compatibility.
+    lsmr_tol: float | None = 1e-6
 
     def __post_init__(self) -> None:
         if self.mode not in {"catalogue_fixed", "density_solved"}:
@@ -60,6 +67,12 @@ class WeightModelSettings:
             or self.regularization_strength < 0
         ):
             raise ValueError("regularization_strength must be finite and non-negative")
+        if self.max_iter < 1:
+            raise ValueError("max_iter must be a positive integer")
+        if self.lsmr_tol is not None and (
+            not np.isfinite(self.lsmr_tol) or self.lsmr_tol <= 0
+        ):
+            raise ValueError("lsmr_tol must be None or a positive finite number")
 
 
 @dataclass(frozen=True)

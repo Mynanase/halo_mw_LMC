@@ -34,10 +34,17 @@ velocity_bins = 201
 [weight_model]
 mode = "density_solved"
 solver = "lsq_linear"
-# 当前 target 作为密度形状使用；在 density fit mask 内归一化为单位质量。
+# 当前 target 作为密度形状使用；在 density fit mask 内归一化为单位质量，
+# 权重总量直接由最小二乘决定（不再施加 sum(w)=1，也不在求解后重归一化）。
 target_normalization = "unit_mass"
 regularization = "l2"
 regularization_strength = 1e-6
+# 显式外层迭代上限；拟合区内零响应的轨道列会在求解前被剔除。
+max_iter = 20000
+# 内层 LSMR 容差：固定小值使每个 TRF 外层迭代精确。
+# scipy 的 "auto" 规则在 optimality 残留较大时保持内层粗糙，
+# 会让外层收敛停滞数千次迭代，因此这里显式收紧到 1e-6。
+lsmr_tol = 1e-6
 
 [objective]
 # 密度决定 trial 内的 nuisance weights，外层先由速度似然排序。

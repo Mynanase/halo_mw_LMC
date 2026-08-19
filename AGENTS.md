@@ -33,31 +33,52 @@ physical stellar densities.
 
 ## Local Python environment
 
-- Preferred Conda environment: `dp-jax` (the name is lowercase).
-- Preferred invocation form:
+- Two Conda environments are used, depending on where the run happens:
+  - **Server / production runs**: `halo_lmc`. Always invoke it with
 
-  ```bash
-  conda run -n dp-jax python <command>
-  ```
+    ```bash
+    conda run -n halo_lmc python <command>
+    ```
 
-- Last verified environment facts:
-  - Python 3.11.15
-  - NumPy, SciPy, Matplotlib, and pytest are available.
-  - Astropy, scikit-optimize, and AGAMA were not importable when this file was
-    created. Re-check before assuming they are still missing.
-- The repository-local `.venv` is not the preferred scientific runtime unless
-  the user explicitly changes this convention.
-- Do not install or upgrade packages in `dp-jax` without user approval. For
-  disposable build experiments, use a temporary directory or temporary
-  environment.
+  - **Local debugging**: `dp_jax` (the name has an underscore, not a dash).
+    Use the same `conda run -n dp_jax python <command>` form. `dp_jax` is
+    only present on the developer's local machine; do not assume it exists
+    on the server.
+- Do not silently switch between `halo_lmc` and `dp_jax`. If a command is
+  requested in one environment and the dependency probe shows it is
+  missing there, report the missing dependency instead of falling back to
+  the other environment without asking.
+- Last verified environment facts (`halo_lmc` on the server, 2026-08-04):
+  - Python 3.12.13
+  - NumPy, SciPy, Matplotlib, scikit-optimize (0.10.2), and astropy (8.0.1)
+    are available.
+  - AGAMA is vendored in the repository at `Agama-master/` (exact casing)
+    and is **not** managed by pip/conda. It is a compiled AGAMA checkout;
+    `agama.so` and the Python interface live in that directory. From
+    `halo_lmc`, import it by putting the directory on `PYTHONPATH`:
+
+    ```bash
+    PYTHONPATH=/path/to/halo_mw_LMC/Agama-master \
+      conda run -n halo_lmc python -c "import agama"
+    ```
+
+    Do not install or upgrade AGAMA through conda/pip. If the compiled
+    extension no longer matches the current Python/NumPy ABI, rebuild it
+    with the project's own Makefile. Last verified import: AGAMA 1.0,
+    compiled 2026-07-24, on the server.
+- The repository-local `.venv` is not the preferred scientific runtime
+  unless the user explicitly changes this convention.
+- Do not install or upgrade packages in `halo_lmc` or `dp_jax` without
+  user approval. For disposable build experiments, use a temporary
+  directory or temporary environment.
 
 ## Standard checks
 
 Use the preferred Conda environment when its dependencies are sufficient:
 
 ```bash
-conda run -n dp-jax python -m unittest discover -s tests -v
-conda run -n dp-jax python -m compileall -q halo_mw_lmc apps/results.py
+conda run -n halo_lmc python -m unittest discover -s tests -v
+conda run -n halo_lmc python -m compileall -q halo_mw_lmc apps/results.py
 ```
 
 If a check needs Astropy, scikit-optimize, or AGAMA, first probe the selected
@@ -87,8 +108,21 @@ environments or installing packages.
 - In `density_solved` mode, use the sparse equal-time `(R,z,phi)` response,
   normalize each orbit by its actual finite sample count, force density scale
   to one, and use the same solved trial weights for the velocity likelihood.
+  The target is normalized to unit mass inside the fit mask; the inverse-error
+  least-squares solve sets the total weight scale directly, so do not impose
+  `sum(w) = 1` or renormalize weights afterwards. Drop orbits with strictly
+  zero fit-region response from the solve and restore zero weight in the full
+  array. Use a tight fixed inner `lsmr_tol` (default `1e-6`) for the TRF outer
+  solve: SciPy's `"auto"` rule keeps the inner LSMR solve coarse while the
+  optimality residual is large and stalled outer convergence for tens of
+  thousands of iterations, whereas the fixed value converges in a few hundred.
   Persist both velocity-only and density+velocity objectives; velocity-only
   runs must enforce the configured density chi2-per-bin gate.
+- The density fit mask covers `15 <= r < 40 kpc` while the velocity likelihood
+  still starts at `r = 8 kpc`; orbits outside the density mask have no density
+  evidence and get weight only through the L2 penalty and solver scale. Aligning
+  these boundaries (velocity floor to 15 kpc, or density coverage down to 8 kpc)
+  is an open decision; do not assume it is resolved without asking.
 - Exclude `r < 8 kpc` from the velocity likelihood because the empirical orbit
   library is incomplete there. The inner velocity histograms may remain
   available for diagnostics, but must not affect the optimizer objective.

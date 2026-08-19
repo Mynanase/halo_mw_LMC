@@ -23,9 +23,21 @@ For each trial potential parameter vector `theta`:
    w_hat(theta) = argmin(w >= 0) [chi2_density(theta,w) + lambda * ||w||2]
    ```
 
-   with SciPy `lsq_linear`. Failed seed integrations receive zero weight in the
-   full `(N_seed,)` result.
+   with SciPy `lsq_linear` (TRF/LSMR, explicit `max_iter` and a configured
+   fixed inner `lsmr_tol`). Seed orbits whose
+   response is strictly zero inside the fit mask are dropped from the solve and
+   restored as zero weight afterwards. Failed seed integrations also receive
+   zero weight in the full `(N_seed,)` result.
+
+The default `lsmr_tol = 1e-6` replaces SciPy's `"auto"` rule, which kept the
+inner LSMR solve coarse while the optimality residual was large and stalled
+outer convergence for tens of thousands of iterations. With the tight fixed
+tolerance the TRF outer loop reaches the same accuracy in a few hundred
+iterations. Setting `lsmr_tol = null` restores the old `"auto"` behaviour.
 4. Reconstruct `rho_model = A @ w_hat`. No additional density amplitude is fit.
+   The target is normalized to unit mass inside the fit mask, so the
+   least-squares solution itself sets the total weight scale; the solver does
+   **not** impose `sum(w) = 1` and no post-solve renormalization is applied.
 5. Give every finite sample from orbit `i` the histogram weight `w_hat[i] / N_i`,
    then calculate the existing conditional velocity likelihood for `r >= 8 kpc`.
 
@@ -55,9 +67,13 @@ statistical objective.
 
 `absolute` treats the target density amplitude as physical and lets it determine
 the total orbit weight. `unit_mass` divides target density and uncertainty by
-the target mass inside the density fit mask and explicitly enforces
-`sum(w) = 1`. The checked-in experimental recipe uses `unit_mass`; this makes
-the target a shape constraint and gives the solved weights a consistent scale.
+the target mass inside the density fit mask. The check-in experimental recipe
+uses `unit_mass`, so the target is a fixed-amplitude shape constraint. The
+inverse-error weighted least-squares problem then determines the total orbit
+weight from that fixed amplitude directly; no `sum(w) = 1` constraint and no
+post-solve renormalization are used, because a uniform rescaling of all weights
+would leave the conditional velocity likelihood unchanged and a hard unit-mass
+constraint was found to force the wrong total scale against the shape fit.
 
 No-Fixed recipes must set `density_fit.normalization = "none"`. Allowing a
 second fitted density scale would introduce the degeneracy `w -> c*w` and
@@ -68,6 +84,21 @@ second fitted density scale would introduce the degeneracy `w -> c*w` and
 Every row in `sample.dat` records density chi-square and chi-square per fitted
 bin, velocity-only and joint objectives, regularization penalty, inner solver
 objective, effective orbit count, maximum weight fraction, active orbit count,
-and solver convergence/status. The complete `(N_seed,)` weights are stored only
+and solver convergence/status plus the explicit solver `max_iter` limit used.
+The complete `(N_seed,)` weights are stored only
 for the current best trial in `best/evaluation.npz`, together with the density
-and velocity arrays needed by reports and Marimo.
+and velocity arrays needed by reports and Marimo. For the best trial, the
+inner-solve iteration count (`nit`), first-order optimality, and solver cost
+are persisted as `weight_iterations`, `weight_optimality`, and
+`weight_solver_cost`; the configured `lsmr_tol` appears in the persisted
+resolved configuration.
+
+## Open boundary: velocity floor vs density coverage
+
+The density fit mask currently constrains only `15 < r < 40 kpc`, while the
+velocity likelihood starts at `r >= 8 kpc`. Orbits that never enter the density
+fit region therefore get weight only through the numerical L2 regularization and
+the least-squares scale, with no density evidence. The intended resolution is to
+align these boundaries: either raise the velocity floor to the density-start
+radius, or extend the trustworthy density constraint down to the velocity floor.
+This is an open decision and has not been applied to the production recipe.

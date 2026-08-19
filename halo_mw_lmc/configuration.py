@@ -577,6 +577,8 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
                 "target_normalization",
                 "regularization",
                 "regularization_strength",
+                "max_iter",
+                "lsmr_tol",
             },
             "recipe.weight_model",
         )
@@ -597,6 +599,15 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
                 regularization_strength=_number(
                     weight_table["regularization_strength"],
                     "recipe.weight_model.regularization_strength",
+                ),
+                max_iter=_integer(
+                    weight_table["max_iter"],
+                    "recipe.weight_model.max_iter",
+                    minimum=1,
+                ),
+                lsmr_tol=_positive_number(
+                    weight_table["lsmr_tol"],
+                    "recipe.weight_model.lsmr_tol",
                 ),
             )
         except ValueError as exc:

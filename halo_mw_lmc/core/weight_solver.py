@@ -31,6 +31,9 @@ class WeightSolution:
     converged: bool
     status: int
     message: str
+    iterations: int = 0
+    optimality: float = np.inf
+    solver_cost: float = np.inf
 
 
 def _normalized_target(
@@ -88,67 +91,50 @@ def solve_density_weights(
     )
 
     row_mask = fit_mask.reshape(-1)
+    full_design = response.matrix[row_mask]
+    # Orbits that never visit a fitted cell cannot constrain the target.
+    # Drop those columns from the solve and restore zero weight afterwards;
+    # keeping them only inflates the problem and slows the outer TRF steps.
+    active_columns = np.asarray(full_design.sum(axis=0) > 0).ravel()
+    successful_count = int(response.successful_seed_index.size)
+    if not np.any(active_columns):
+        raise ValueError("no orbit responds inside the density fit region")
     inverse_error = 1.0 / error.reshape(-1)[row_mask]
-    design = response.matrix[row_mask].multiply(inverse_error[:, None]).tocsr()
+    design = full_design[:, active_columns].multiply(
+        inverse_error[:, None]
+    ).tocsr()
     observed = target.reshape(-1)[row_mask] * inverse_error
     scoring_design = design
     scoring_observed = observed
     regularization = float(settings.regularization_strength)
+    n_active = int(active_columns.sum())
     if regularization > 0:
         design = vstack(
             [
                 design,
-                np.sqrt(regularization)
-                * eye(response.successful_seed_index.size, format="csr"),
+                np.sqrt(regularization) * eye(n_active, format="csr"),
             ],
             format="csr",
         )
         observed = np.concatenate(
-            [observed, np.zeros(response.successful_seed_index.size)]
+            [observed, np.zeros(n_active)]
         )
-    constrain_unit_mass = settings.target_normalization == "unit_mass"
-    if constrain_unit_mass:
-        # lsq_linear has bounds but no equality constraints. A strongly
-        # weighted mass row makes the bounded solution satisfy the simplex
-        # constraint to numerical precision; the final normalization below
-        # enforces sum(w)=1 exactly. The reported inner objective excludes this
-        # numerical constraint row.
-        design_scale = (
-            float(np.linalg.norm(scoring_design.data))
-            / np.sqrt(max(scoring_design.nnz, 1))
-        )
-        constraint_weight = 10.0 * max(
-            1.0,
-            design_scale,
-            float(np.linalg.norm(scoring_observed))
-            / np.sqrt(max(scoring_observed.size, 1)),
-        )
-        from scipy.sparse import csr_matrix
-
-        mass_row = csr_matrix(
-            np.full(
-                (1, response.successful_seed_index.size),
-                constraint_weight,
-                dtype=float,
-            )
-        )
-        design = vstack([design, mass_row], format="csr")
-        observed = np.concatenate([observed, [constraint_weight]])
-
     result = lsq_linear(
         design,
         observed,
         bounds=(0.0, np.inf),
         method="trf",
         lsq_solver="lsmr",
-        lsmr_tol="auto",
+        lsmr_tol=settings.lsmr_tol if settings.lsmr_tol is not None else "auto",
+        max_iter=int(settings.max_iter),
     )
-    successful_weights = np.asarray(result.x, dtype=float)
-    if constrain_unit_mass:
-        solved_mass = float(np.sum(successful_weights))
-        if not np.isfinite(solved_mass) or solved_mass <= 0:
-            raise ValueError("unit-mass weight solve returned no positive mass")
-        successful_weights = successful_weights / solved_mass
+    # No sum(w)=1 constraint: the target is already normalized to unit mass
+    # inside the fit mask, so the least-squares solution sets the total
+    # weight scale directly. A later renormalization would only re-introduce
+    # the scale conflict the constraint used to force.
+    active_weights = np.asarray(result.x, dtype=float)
+    successful_weights = np.zeros(successful_count, dtype=float)
+    successful_weights[active_columns] = active_weights
     seed_weights = np.zeros(response.seed_count, dtype=float)
     seed_weights[response.successful_seed_index] = successful_weights
     model_density = response.model_density(seed_weights)
@@ -159,7 +145,7 @@ def solve_density_weights(
     )
     tolerance = max(float(np.max(seed_weights)) * 1e-12, 0.0)
     regularization_penalty = regularization * squared
-    density_residual = scoring_design @ successful_weights - scoring_observed
+    density_residual = scoring_design @ active_weights - scoring_observed
     inner_objective = float(np.dot(density_residual, density_residual))
     inner_objective += regularization_penalty
     return WeightSolution(
@@ -175,4 +161,7 @@ def solve_density_weights(
         converged=bool(result.success) and np.all(np.isfinite(seed_weights)),
         status=int(result.status),
         message=str(result.message),
+        iterations=int(result.nit),
+        optimality=float(result.optimality),
+        solver_cost=float(result.cost),
     )

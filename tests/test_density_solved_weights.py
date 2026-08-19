@@ -137,7 +137,7 @@ class DensitySolvedWeightTests(unittest.TestCase):
             error / np.sum(original_weights),
         )
 
-    def test_unit_mass_explicitly_constrains_the_total_weight(self):
+    def test_unit_mass_does_not_constrain_the_total_weight(self):
         library = OrbitLibrary(
             seed_index=np.array([0, 0], dtype=np.int64),
             time=np.arange(2, dtype=float),
@@ -167,7 +167,14 @@ class DensitySolvedWeightTests(unittest.TestCase):
             ),
         )
 
-        self.assertAlmostEqual(float(np.sum(result.seed_weights)), 1.0, places=14)
+        # No sum(w)=1 constraint: the target's unit-mass amplitude sets the
+        # weight scale directly. The tightly measured cell dominates the fit,
+        # so the total weight lands near that cell's mass fraction (0.2)
+        # scaled by the response, not at 1.0.
+        self.assertNotAlmostEqual(float(np.sum(result.seed_weights)), 1.0, places=4)
+        self.assertAlmostEqual(float(np.sum(result.seed_weights)), 0.4, delta=1e-3)
+        model_mass = result.model_density * self.grid.volumes
+        self.assertAlmostEqual(model_mass[0, 0, 0], 0.2, delta=1e-3)
 
 
 if __name__ == "__main__":
