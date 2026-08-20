@@ -13,12 +13,17 @@ from halo_mw_lmc.core.potentials import (
 from halo_mw_lmc.core.weights import catalogue_weight_audit
 from halo_mw_lmc.workflows.optimization import (
     paper_best_optimizer_point,
+    resolved_configuration_document,
     rounded_trial,
     sample_header,
 )
 
 
 RUN_CONFIG = Path(__file__).resolve().parents[1] / "configs/runs/fix_weight.toml"
+R8_40_CONFIG = (
+    Path(__file__).resolve().parents[1]
+    / "configs/runs/density_solved_r8_40_benchmark.toml"
+)
 
 
 class OptimizerCliTests(unittest.TestCase):
@@ -97,7 +102,7 @@ class OptimizerCliTests(unittest.TestCase):
         )
 
     def test_sample_schema_records_both_objectives_and_weight_diagnostics(self):
-        header = sample_header(4, include_velocity=True)
+        header = sample_header(4, include_velocity=True, n_density_shells=2)
 
         for column in (
             "objective_velocity",
@@ -112,8 +117,28 @@ class OptimizerCliTests(unittest.TestCase):
             "successful_orbits",
             "failed_orbits",
             "weight_sum",
+            "density_shell_phi_gate_passed",
+            "density_worst_shell_phi_chi2_per_bin",
+            "density_chi2_per_bin_shell0",
+            "density_chi2_per_bin_shell1_phi3",
         ):
             self.assertIn(column, header.split())
+
+    def test_resolved_config_records_inner_solver_and_shell_gate(self):
+        document = resolved_configuration_document(
+            load_run_configuration(R8_40_CONFIG)
+        )
+
+        self.assertEqual(document["weight_model"]["max_iter"], 20000)
+        self.assertEqual(document["weight_model"]["lsmr_tol"], 1e-6)
+        self.assertEqual(
+            document["objective"]["density_shell_edges_kpc"],
+            [8.0, 10.0, 12.0, 15.0, 20.0, 30.0, 40.0],
+        )
+        self.assertEqual(
+            document["objective"]["density_shell_phi_max_chi2_per_bin"],
+            2.0,
+        )
 
 
 if __name__ == "__main__":

@@ -26,6 +26,19 @@ R8_50_BENCHMARK_RUN_FILE = (
     / "runs"
     / "density_solved_r8_50_benchmark.toml"
 )
+R8_40_BENCHMARK_RUN_FILE = (
+    REPOSITORY
+    / "configs"
+    / "runs"
+    / "density_solved_r8_40_benchmark.toml"
+)
+R8_40_CASES = {
+    "density_solved_r8_40_benchmark.toml": (1e-6, 1e-6),
+    "density_solved_r8_40_tol1e7_benchmark.toml": (1e-7, 1e-6),
+    "density_solved_r8_40_tol1e8_benchmark.toml": (1e-8, 1e-6),
+    "density_solved_r8_40_reg1e5_benchmark.toml": (1e-6, 1e-5),
+    "density_solved_r8_40_reg1e4_benchmark.toml": (1e-6, 1e-4),
+}
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -138,6 +151,61 @@ class ConfigurationTests(unittest.TestCase):
             REPOSITORY
             / "data_coverage-density-solved-r8-50-paper-best-benchmark",
         )
+
+    def test_r8_40_cases_are_one_factor_paper_best_benchmarks(self):
+        for filename, (expected_tol, expected_regularization) in R8_40_CASES.items():
+            with self.subTest(filename=filename):
+                configuration = load_run_configuration(
+                    REPOSITORY / "configs" / "runs" / filename
+                )
+                comparison = configuration.to_comparison_config()
+                self.assertEqual(configuration.iterations, 1)
+                self.assertEqual(configuration.random_seed, 0)
+                self.assertEqual(
+                    configuration.recipe.search.initial_point,
+                    "paper_best",
+                )
+                self.assertEqual(comparison.density_fit.min_spherical_radius, 8.0)
+                self.assertEqual(comparison.density_fit.max_spherical_radius, 40.0)
+                self.assertEqual(comparison.velocity_fit_min_radius, 8.0)
+                np.testing.assert_allclose(
+                    comparison.velocity_grid.radius_edges,
+                    [4, 6, 8, 10, 12, 15, 20, 30, 40],
+                )
+                np.testing.assert_allclose(
+                    comparison.objective.density_shell_edges,
+                    [8, 10, 12, 15, 20, 30, 40],
+                )
+                self.assertEqual(
+                    comparison.objective.density_shell_phi_max_chi2_per_bin,
+                    2.0,
+                )
+                self.assertEqual(comparison.weight_model.lsmr_tol, expected_tol)
+                self.assertEqual(
+                    comparison.weight_model.regularization_strength,
+                    expected_regularization,
+                )
+
+    def test_density_shell_gate_requires_matching_velocity_boundaries(self):
+        source = REPOSITORY / "configs/recipes/zhu_2026_density_solved_r8_40.toml"
+        cases = (
+            (
+                "density_shell_edges_kpc = [8.0, 10.0, 12.0, 15.0, 20.0, 30.0, 40.0]",
+                "density_shell_edges_kpc = [8.0, 11.0, 12.0, 15.0, 20.0, 30.0, 40.0]",
+                "velocity radius edges",
+            ),
+            (
+                "density_shell_phi_max_chi2_per_bin = 2.0",
+                "",
+                "configured together",
+            ),
+        )
+        for original, replacement, message in cases:
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as directory:
+                path = Path(directory) / "recipe.toml"
+                path.write_text(source.read_text().replace(original, replacement))
+                with self.assertRaisesRegex(ConfigurationError, message):
+                    load_recipe_configuration(path)
 
     def test_every_relative_path_is_resolved_from_its_declaring_file(self):
         with tempfile.TemporaryDirectory() as directory:

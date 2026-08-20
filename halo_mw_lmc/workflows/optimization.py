@@ -147,11 +147,21 @@ def resolved_configuration_document(
             "regularization_strength": (
                 comparison.weight_model.regularization_strength
             ),
+            "max_iter": comparison.weight_model.max_iter,
+            "lsmr_tol": comparison.weight_model.lsmr_tol,
         },
         "objective": {
             "mode": comparison.objective.mode,
             "density_max_chi2_per_bin": (
                 comparison.objective.density_max_chi2_per_bin
+            ),
+            "density_shell_edges_kpc": (
+                list(comparison.objective.density_shell_edges)
+                if comparison.objective.density_shell_edges is not None
+                else None
+            ),
+            "density_shell_phi_max_chi2_per_bin": (
+                comparison.objective.density_shell_phi_max_chi2_per_bin
             ),
             "invalid_trial_penalty": 1e30,
         },
@@ -201,8 +211,31 @@ def resolved_configuration_document(
     }
 
 
-def sample_header(n_phi: int, include_velocity: bool) -> str:
+def sample_header(
+    n_phi: int,
+    include_velocity: bool,
+    n_density_shells: int = 0,
+) -> str:
     phi_columns = " ".join(f"chi2_phi{index}" for index in range(n_phi))
+    shell_columns = ""
+    if n_density_shells:
+        shell_columns = " " + " ".join(
+            [
+                "density_shell_phi_gate_passed",
+                "density_worst_shell_phi_chi2_per_bin",
+                "density_worst_shell_index",
+                "density_worst_phi_index",
+            ]
+            + [
+                f"density_chi2_per_bin_shell{shell}"
+                for shell in range(n_density_shells)
+            ]
+            + [
+                f"density_chi2_per_bin_shell{shell}_phi{phi}"
+                for shell in range(n_density_shells)
+                for phi in range(n_phi)
+            ]
+        )
     velocity_columns = ""
     if include_velocity:
         velocity_columns = " " + " ".join(
@@ -220,7 +253,7 @@ def sample_header(n_phi: int, include_velocity: bool) -> str:
         "weight_solver_iterations weight_solver_optimality weight_solver_cost "
         "successful_orbits "
         "failed_orbits weight_sum "
-        f"{phi_columns}{velocity_columns}"
+        f"{phi_columns}{shell_columns}{velocity_columns}"
     )
 
 
@@ -243,6 +276,25 @@ def _append_sample(
     chi2_phi = " ".join(
         f"{value:.8e}" for value in evaluation.density.chi2_by_phi
     )
+    shell_values = ""
+    if evaluation.density_shells is not None:
+        worst_index = evaluation.density_worst_shell_phi_index
+        if worst_index is None:
+            worst_index = (-1, -1)
+        values_by_shell = evaluation.density_shells.chi2_per_bin_by_shell
+        values_by_shell_phi = (
+            evaluation.density_shells.chi2_per_bin_by_shell_phi
+        )
+        shell_values = " " + " ".join(
+            [
+                str(int(evaluation.density_shell_phi_gate_passed)),
+                f"{evaluation.density_worst_shell_phi_chi2_per_bin:.8e}",
+                str(worst_index[0]),
+                str(worst_index[1]),
+            ]
+            + [f"{value:.8e}" for value in values_by_shell]
+            + [f"{value:.8e}" for value in values_by_shell_phi.ravel()]
+        )
     velocity_phi = ""
     if include_velocity:
         velocity_phi = " " + " ".join(
@@ -271,7 +323,7 @@ def _append_sample(
             f"{evaluation.successful_orbits:d} "
             f"{evaluation.failed_orbits:d} "
             f"{evaluation.weight_sum:.16e} "
-            f"{chi2_phi}{velocity_phi}\n"
+            f"{chi2_phi}{shell_values}{velocity_phi}\n"
         )
 
 
@@ -368,7 +420,15 @@ def run_optimization(configuration: RunConfiguration) -> Path:
 
     sample_file = output_directory / "sample.dat"
     sample_file.write_text(
-        sample_header(comparison.density_grid.shape[-1], comparison.include_velocity)
+        sample_header(
+            comparison.density_grid.shape[-1],
+            comparison.include_velocity,
+            n_density_shells=(
+                len(comparison.objective.density_shell_edges) - 1
+                if comparison.objective.density_shell_edges is not None
+                else 0
+            ),
+        )
         + "\n"
     )
     best_objective = np.inf
@@ -407,6 +467,8 @@ def run_optimization(configuration: RunConfiguration) -> Path:
             f"weight_sum={evaluation.weight_sum:.16g} "
             f"successful_orbits={evaluation.successful_orbits} "
             f"failed_orbits={evaluation.failed_orbits} "
+            f"density_gate_passed={evaluation.density_gate_passed} "
+            f"worst_shell_phi={evaluation.density_worst_shell_phi_chi2_per_bin:.6g} "
             f"chi2_phi={evaluation.density.chi2_by_phi.tolist()}"
         )
     return output_directory

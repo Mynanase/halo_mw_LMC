@@ -3,7 +3,11 @@ import unittest
 import numpy as np
 
 from halo_mw_lmc.core.config import DensityFitSettings
-from halo_mw_lmc.core.density import compare_density, orbit_density
+from halo_mw_lmc.core.density import (
+    compare_density,
+    density_shell_diagnostics,
+    orbit_density,
+)
 from halo_mw_lmc.core.grids import CylindricalGrid
 
 
@@ -86,6 +90,47 @@ class DensityComparisonTests(unittest.TestCase):
         result = compare_density(data, error, model, self.grid, self.settings)
         self.assertAlmostEqual(result.scale, 3.5)
         self.assertAlmostEqual(result.chi2, 0.0)
+
+    def test_shell_diagnostics_use_left_closed_right_open_boundaries(self):
+        grid = CylindricalGrid(
+            r_edges=np.array([0.0, 2.0, 4.0]),
+            z_edges=np.array([-1.0, 1.0]),
+            phi_edges=np.array([-np.pi, 0.0, np.pi]),
+        )
+        data = np.ones(grid.shape)
+        model = np.array([[[0.0, 1.0]], [[1.0, 3.0]]])
+        comparison = compare_density(
+            data,
+            np.ones_like(data),
+            model,
+            grid,
+            DensityFitSettings(
+                min_abs_z=0.0,
+                min_spherical_radius=0.0,
+                max_spherical_radius=10.0,
+                normalization_min_radius=0.0,
+                normalization="none",
+            ),
+        )
+
+        diagnostics = density_shell_diagnostics(
+            comparison,
+            [0.0, 1.0, 2.0, 10.0],
+        )
+
+        np.testing.assert_allclose(
+            diagnostics.chi2_by_shell_phi,
+            [[0, 0], [1, 0], [0, 4]],
+        )
+        np.testing.assert_array_equal(
+            diagnostics.valid_bins_by_shell_phi,
+            [[0, 0], [1, 1], [1, 1]],
+        )
+        self.assertTrue(np.isinf(diagnostics.chi2_per_bin_by_shell[0]))
+        np.testing.assert_allclose(
+            diagnostics.chi2_per_bin_by_shell[1:],
+            [0.5, 2.0],
+        )
 
 
 if __name__ == "__main__":

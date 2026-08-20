@@ -9,7 +9,7 @@ from typing import Mapping
 import numpy as np
 from numpy.typing import NDArray
 
-from ..core.density import DensityComparison
+from ..core.density import DensityComparison, DensityShellDiagnostics
 from ..core.velocity import (
     VelocityDistributionComparison,
     multinomial_histogram_uncertainty,
@@ -21,11 +21,14 @@ FloatArray = NDArray[np.float64]
 
 @dataclass(frozen=True)
 class IsodensityShapeProfile:
-    """Major-axis radius and axis ratio inferred from density intercepts."""
+    """Major-axis radius and axis ratio inferred from masked contour arcs."""
 
     radius: FloatArray
     axis_ratio: FloatArray
     density_level: FloatArray
+    fit_rms: FloatArray
+    point_count: NDArray[np.int64]
+    rejected_level_count: int
 
 
 def _positive_log_limits(*arrays: np.ndarray) -> tuple[float, float]:
@@ -47,31 +50,47 @@ def _log_density(values: np.ndarray) -> np.ndarray:
     return result
 
 
-def _monotonic_intercept(
-    coordinates: np.ndarray,
-    density: np.ndarray,
-    level: float,
-) -> float:
-    valid = np.isfinite(coordinates) & np.isfinite(density) & (density > 0)
-    coordinates = np.asarray(coordinates[valid], dtype=float)
-    density = np.asarray(density[valid], dtype=float)
-    if coordinates.size < 2:
-        return np.nan
+def _fit_origin_centered_ellipse(
+    vertices: np.ndarray,
+    *,
+    minimum_r_span: float,
+    minimum_z_span: float,
+    maximum_condition: float = 1e4,
+    maximum_rms: float = 0.15,
+) -> tuple[float, float, float, int] | None:
+    """Fit ``u R² + v z² = 1`` to one connected contour arc."""
 
-    order = np.argsort(coordinates)
-    coordinates = coordinates[order]
-    density = np.minimum.accumulate(density[order])
-    if level > density[0] or level < density[-1]:
-        return np.nan
-
-    reversed_density = density[::-1]
-    reversed_coordinates = coordinates[::-1]
-    unique_density, unique_index = np.unique(reversed_density, return_index=True)
-    if unique_density.size < 2:
-        return np.nan
-    return float(
-        np.interp(level, unique_density, reversed_coordinates[unique_index])
+    points = np.asarray(vertices, dtype=float)
+    if points.ndim != 2 or points.shape[1] != 2:
+        return None
+    points = points[np.all(np.isfinite(points), axis=1)]
+    if points.shape[0] < 8:
+        return None
+    if np.ptp(points[:, 0]) < minimum_r_span:
+        return None
+    if np.ptp(points[:, 1]) < minimum_z_span:
+        return None
+    design = np.column_stack((points[:, 0] ** 2, points[:, 1] ** 2))
+    condition = float(np.linalg.cond(design))
+    if not np.isfinite(condition) or condition > maximum_condition:
+        return None
+    coefficients, _, _, _ = np.linalg.lstsq(
+        design,
+        np.ones(points.shape[0], dtype=float),
+        rcond=None,
     )
+    u, v = coefficients
+    if not np.isfinite(u) or not np.isfinite(v) or u <= 0 or v <= 0:
+        return None
+    residual = design @ coefficients - 1.0
+    rms = float(np.sqrt(np.mean(residual**2)))
+    if not np.isfinite(rms) or rms > maximum_rms:
+        return None
+    radius = float(1.0 / np.sqrt(u))
+    axis_ratio = float(np.sqrt(u / v))
+    if not np.isfinite(radius) or not np.isfinite(axis_ratio):
+        return None
+    return radius, axis_ratio, rms, int(points.shape[0])
 
 
 def isodensity_shape_profile(
@@ -81,13 +100,7 @@ def isodensity_shape_profile(
     *,
     n_levels: int = 7,
 ) -> IsodensityShapeProfile:
-    """Estimate ``q=z_iso/R_iso`` from major/minor-axis density intercepts.
-
-    The profiles on the lowest-z and lowest-R grid lines are monotonized
-    outwards before interpolation.  This makes the diagnostic stable for
-    sparse empirical maps while retaining the contour-intercept definition
-    used by Zhu et al.
-    """
+    """Estimate ``q=b/a`` from reliable contour arcs inside the fit mask."""
 
     grid = comparison.grid
     values = np.asarray(density, dtype=float)
@@ -99,36 +112,83 @@ def isodensity_shape_profile(
         raise ValueError("n_levels must be at least two")
 
     r_centers, z_centers, _ = grid.centers
-    radial_profile = values[:, 0, phi_index]
-    vertical_profile = values[0, :, phi_index]
-    positive = np.concatenate(
-        (
-            radial_profile[np.isfinite(radial_profile) & (radial_profile > 0)],
-            vertical_profile[np.isfinite(vertical_profile) & (vertical_profile > 0)],
-        )
-    )
-    if positive.size < 4:
+    fit_mask = comparison.fit_mask[:, :, phi_index]
+    plane = values[:, :, phi_index]
+    valid = fit_mask & np.isfinite(plane) & (plane > 0)
+    positive = plane[valid]
+    if positive.size < 8:
         empty = np.array([], dtype=float)
-        return IsodensityShapeProfile(empty, empty, empty)
+        return IsodensityShapeProfile(
+            empty,
+            empty,
+            empty,
+            empty,
+            np.array([], dtype=np.int64),
+            n_levels,
+        )
 
     low, high = np.nanpercentile(np.log10(positive), [15, 85])
+    if not np.isfinite(low) or not np.isfinite(high) or low >= high:
+        empty = np.array([], dtype=float)
+        return IsodensityShapeProfile(
+            empty,
+            empty,
+            empty,
+            empty,
+            np.array([], dtype=np.int64),
+            n_levels,
+        )
     levels = np.logspace(low, high, n_levels)
+    import matplotlib.pyplot as plt
+
+    figure, axis = plt.subplots()
+    contours = axis.contour(
+        r_centers,
+        z_centers,
+        np.ma.array(plane.T, mask=~valid.T),
+        levels=levels,
+    )
+    segments_by_level = contours.allsegs
+    plt.close(figure)
+
+    minimum_r_span = 2.0 * float(np.median(np.diff(r_centers)))
+    minimum_z_span = 2.0 * float(np.median(np.diff(z_centers)))
     radius: list[float] = []
     axis_ratio: list[float] = []
     used_levels: list[float] = []
-    for level in levels:
-        r_iso = _monotonic_intercept(r_centers, radial_profile, level)
-        z_iso = _monotonic_intercept(z_centers, vertical_profile, level)
-        if np.isfinite(r_iso) and np.isfinite(z_iso) and r_iso > 0 and z_iso > 0:
-            radius.append(r_iso)
-            axis_ratio.append(z_iso / r_iso)
-            used_levels.append(level)
+    fit_rms: list[float] = []
+    point_count: list[int] = []
+    for level, connected_segments in zip(levels, segments_by_level):
+        candidates = []
+        for segment in connected_segments:
+            fit = _fit_origin_centered_ellipse(
+                segment,
+                minimum_r_span=minimum_r_span,
+                minimum_z_span=minimum_z_span,
+            )
+            if fit is None:
+                continue
+            angles = np.arctan2(segment[:, 1], segment[:, 0])
+            angular_span = float(np.ptp(angles))
+            candidates.append((angular_span, -fit[2], fit))
+        if not candidates:
+            continue
+        _, _, fit = max(candidates, key=lambda item: (item[0], item[1]))
+        fitted_radius, fitted_ratio, rms, count = fit
+        radius.append(fitted_radius)
+        axis_ratio.append(fitted_ratio)
+        used_levels.append(float(level))
+        fit_rms.append(rms)
+        point_count.append(count)
 
     order = np.argsort(radius)
     return IsodensityShapeProfile(
         radius=np.asarray(radius, dtype=float)[order],
         axis_ratio=np.asarray(axis_ratio, dtype=float)[order],
         density_level=np.asarray(used_levels, dtype=float)[order],
+        fit_rms=np.asarray(fit_rms, dtype=float)[order],
+        point_count=np.asarray(point_count, dtype=np.int64)[order],
+        rejected_level_count=n_levels - len(radius),
     )
 
 
@@ -456,6 +516,20 @@ def plot_density_shape(
             label="Target",
         )
         axis.plot(model.radius, model.axis_ratio, color="red", label="Model")
+        axis.text(
+            0.03,
+            0.04,
+            (
+                f"accepted/rejected levels\n"
+                f"target {target.radius.size}/{target.rejected_level_count}; "
+                f"model {model.radius.size}/{model.rejected_level_count}"
+            ),
+            transform=axis.transAxes,
+            ha="left",
+            va="bottom",
+            fontsize=7,
+            color="0.35",
+        )
         phi_lo, phi_hi = np.rad2deg(grid.phi_edges[iphi : iphi + 2])
         axis.set_title(f"{phi_lo:.0f}° ≤ φ < {phi_hi:.0f}°")
         axis.set_xlabel("R of isodensity contour [kpc]")
@@ -470,6 +544,94 @@ def plot_density_shape(
         ha="left",
     )
 
+    output_path = Path(output)
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    figure.savefig(output_path, bbox_inches="tight")
+    plt.close(figure)
+
+
+def plot_density_shell_gate(
+    diagnostics: DensityShellDiagnostics,
+    phi_edges: np.ndarray,
+    output: str | Path,
+    *,
+    limit: float | None,
+) -> None:
+    """Plot shell-by-phi chi-square per fitted density bin."""
+
+    import matplotlib.pyplot as plt
+
+    values = diagnostics.chi2_per_bin_by_shell_phi
+    counts = diagnostics.valid_bins_by_shell_phi
+    finite = values[np.isfinite(values)]
+    upper = float(np.max(finite)) if finite.size else 1.0
+    if limit is not None:
+        upper = max(upper, 2.0 * float(limit))
+    upper = max(upper, 1e-12)
+    figure, axis = plt.subplots(
+        figsize=(max(6.0, 1.4 * values.shape[1]), 1.0 + values.shape[0]),
+        constrained_layout=True,
+    )
+    image = axis.imshow(
+        values,
+        origin="lower",
+        aspect="auto",
+        cmap="magma",
+        vmin=0.0,
+        vmax=upper,
+    )
+    for shell in range(values.shape[0]):
+        for phi in range(values.shape[1]):
+            value = values[shell, phi]
+            label = (
+                f"{value:.2f}\nN={counts[shell, phi]}"
+                if np.isfinite(value)
+                else "inf\nN=0"
+            )
+            failed = (
+                counts[shell, phi] <= 0
+                or not np.isfinite(value)
+                or (limit is not None and value > limit)
+            )
+            axis.text(
+                phi,
+                shell,
+                label,
+                ha="center",
+                va="center",
+                fontsize=7,
+                color="white" if failed or value > 0.45 * upper else "black",
+                fontweight="bold" if failed else "normal",
+            )
+    phi_labels = [
+        f"{lower:.0f}°–{upper:.0f}°"
+        for lower, upper in zip(
+            np.rad2deg(phi_edges[:-1]),
+            np.rad2deg(phi_edges[1:]),
+        )
+    ]
+    shell_labels = [
+        f"{lower:g}–{upper:g}"
+        for lower, upper in zip(
+            diagnostics.radius_edges[:-1],
+            diagnostics.radius_edges[1:],
+        )
+    ]
+    axis.set_xticks(np.arange(values.shape[1]), phi_labels)
+    axis.set_yticks(np.arange(values.shape[0]), shell_labels)
+    axis.set_xlabel("Azimuth sector")
+    axis.set_ylabel("Spherical-radius shell [kpc]")
+    gate_passed = bool(
+        np.all(counts > 0)
+        and np.all(np.isfinite(values))
+        and (limit is None or np.all(values <= limit))
+    )
+    limit_text = "diagnostic only" if limit is None else f"limit={limit:g}"
+    axis.set_title(
+        f"Density χ² per fitted bin by shell and φ ({limit_text}; "
+        f"gate={'PASS' if gate_passed else 'FAIL'})"
+    )
+    figure.colorbar(image, ax=axis, label="density χ² / fitted bin")
     output_path = Path(output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     figure.savefig(output_path, bbox_inches="tight")
@@ -721,6 +883,8 @@ def plot_model_diagnostics(
     output_directory: str | Path,
     *,
     velocity_bin_factor: int = 3,
+    density_shells: DensityShellDiagnostics | None = None,
+    density_shell_phi_limit: float | None = None,
 ) -> list[Path]:
     """Create the complete phi-resolved density and velocity plot set."""
 
@@ -731,6 +895,15 @@ def plot_model_diagnostics(
     plot_density_comparison(density, overview)
     plot_density_shape(density, shape)
     written = [overview, shape]
+    if density_shells is not None:
+        shell_gate = output_directory / "density_shell_phi_gate.pdf"
+        plot_density_shell_gate(
+            density_shells,
+            density.grid.phi_edges,
+            shell_gate,
+            limit=density_shell_phi_limit,
+        )
+        written.append(shell_gate)
     written.extend(plot_density_phi_pages(density, output_directory))
     written.extend(
         plot_velocity_distributions(

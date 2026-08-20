@@ -123,6 +123,12 @@ environments or installing packages.
   evidence and get weight only through the L2 penalty and solver scale. Aligning
   these boundaries (velocity floor to 15 kpc, or density coverage down to 8 kpc)
   is an open decision; do not assume it is resolved without asking.
+- The separate `zhu_2026_density_solved_r8_40` experiment tests radial alignment
+  at `8 <= r < 40 kpc` with velocity-matched shell/phi gates. It does not replace
+  the conservative recipe or resolve the remaining `|z| >= 2 kpc` density-only
+  mask. Run its five paper-best one-trial cases from one clean, locked commit as
+  documented in `docs/density_solved_r8_40_experiment.md`; do not advance to a
+  multi-trial scan until the tolerance and regularization diagnostics are reviewed.
 - Exclude `r < 8 kpc` from the velocity likelihood because the empirical orbit
   library is incomplete there. The inner velocity histograms may remain
   available for diagnostics, but must not affect the optimizer objective.

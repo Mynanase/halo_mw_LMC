@@ -621,18 +621,71 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
     objective_table = _table(document, "objective", "recipe")
     objective_mode = _string(objective_table.get("mode"), "recipe.objective.mode")
     if objective_mode == "velocity_only":
+        shell_fields = {
+            "density_shell_edges_kpc",
+            "density_shell_phi_max_chi2_per_bin",
+        }
+        configured_shell_fields = shell_fields.intersection(objective_table)
+        if configured_shell_fields and configured_shell_fields != shell_fields:
+            missing = sorted(shell_fields - configured_shell_fields)
+            raise ConfigurationError(
+                "recipe.objective density shell fields must be configured together; "
+                "missing: " + ", ".join(missing)
+            )
         _require_exact_fields(
             objective_table,
-            {"mode", "density_max_chi2_per_bin"},
+            {"mode", "density_max_chi2_per_bin"} | configured_shell_fields,
             "recipe.objective",
         )
         limit = _positive_number(
             objective_table["density_max_chi2_per_bin"],
             "recipe.objective.density_max_chi2_per_bin",
         )
+        if configured_shell_fields:
+            shell_edges = _edges(
+                objective_table["density_shell_edges_kpc"],
+                "recipe.objective.density_shell_edges_kpc",
+            )
+            shell_phi_limit = _positive_number(
+                objective_table["density_shell_phi_max_chi2_per_bin"],
+                "recipe.objective.density_shell_phi_max_chi2_per_bin",
+            )
+            if not np.isclose(shell_edges[0], density_fit.min_radius_kpc):
+                raise ConfigurationError(
+                    "density shell edges must start at density_fit.min_radius_kpc"
+                )
+            if not np.isclose(shell_edges[-1], density_fit.max_radius_kpc):
+                raise ConfigurationError(
+                    "density shell edges must end at density_fit.max_radius_kpc"
+                )
+            if not np.isclose(velocity_fit.min_radius_kpc, shell_edges[0]):
+                raise ConfigurationError(
+                    "velocity_fit.min_radius_kpc must match the first density shell edge"
+                )
+            if not np.isclose(velocity_fit.radius_edges_kpc[-1], shell_edges[-1]):
+                raise ConfigurationError(
+                    "the last velocity radius edge must match the last density shell edge"
+                )
+            unmatched = [
+                edge
+                for edge in shell_edges
+                if not any(
+                    np.isclose(edge, velocity_edge)
+                    for velocity_edge in velocity_fit.radius_edges_kpc
+                )
+            ]
+            if unmatched:
+                raise ConfigurationError(
+                    "density shell edges must also be velocity radius edges"
+                )
+        else:
+            shell_edges = None
+            shell_phi_limit = None
     elif objective_mode == "density_velocity":
         _require_exact_fields(objective_table, {"mode"}, "recipe.objective")
         limit = None
+        shell_edges = None
+        shell_phi_limit = None
     else:
         raise ConfigurationError(
             "recipe.objective.mode must be 'velocity_only' or 'density_velocity'"
@@ -640,6 +693,10 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
     objective = ObjectiveSettings(
         mode=objective_mode,
         density_max_chi2_per_bin=limit,
+        density_shell_edges=(
+            tuple(shell_edges) if shell_edges is not None else None
+        ),
+        density_shell_phi_max_chi2_per_bin=shell_phi_limit,
     )
 
     if weight_model.mode == "density_solved":

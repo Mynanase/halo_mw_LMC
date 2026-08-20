@@ -7,10 +7,23 @@ from typing import Mapping
 
 import numpy as np
 
-from ..core.density import DensityComparison, compare_density, orbit_density
-from ..core.orbit_response import build_orbit_density_response
+from ..core.density import (
+    DensityComparison,
+    DensityShellDiagnostics,
+    compare_density,
+    density_shell_diagnostics,
+    orbit_density,
+)
+from ..core.orbit_response import (
+    OrbitDensityResponse,
+    OrbitSupportAudit,
+    build_orbit_density_response,
+)
 from ..core.orbits import OrbitLibrary, integrate_agama_orbits
-from ..core.phase_space import cartesian_to_spherical_phase_space
+from ..core.phase_space import (
+    SphericalPhaseSpace,
+    cartesian_to_spherical_phase_space,
+)
 from ..core.potentials import ZhuHaloParameters, build_potential_from_parameters
 from ..core.velocity import (
     VelocityDistributionComparison,
@@ -38,6 +51,9 @@ class ModelEvaluation:
     weight_solution: WeightSolution
     objective_mode: str
     density_max_chi2_per_bin: float | None
+    density_shells: DensityShellDiagnostics | None = None
+    density_shell_phi_max_chi2_per_bin: float | None = None
+    orbit_support_audit: OrbitSupportAudit | None = None
 
     @property
     def log_likelihood(self) -> float:
@@ -79,32 +95,136 @@ class ModelEvaluation:
         return 0.5 * self.density.chi2 + self.velocity_negative_log_likelihood
 
     @property
+    def density_shell_phi_gate_passed(self) -> bool:
+        if self.density_shells is None:
+            return True
+        limit = self.density_shell_phi_max_chi2_per_bin
+        if limit is None:
+            return False
+        counts = self.density_shells.valid_bins_by_shell_phi
+        values = self.density_shells.chi2_per_bin_by_shell_phi
+        return bool(
+            np.all(counts > 0)
+            and np.all(np.isfinite(values))
+            and np.all(values <= float(limit))
+        )
+
+    @property
+    def density_worst_shell_phi_chi2_per_bin(self) -> float:
+        if self.density_shells is None:
+            return np.nan
+        values = self.density_shells.chi2_per_bin_by_shell_phi
+        return float(np.max(values)) if values.size else np.inf
+
+    @property
+    def density_worst_shell_phi_index(self) -> tuple[int, int] | None:
+        if self.density_shells is None:
+            return None
+        values = self.density_shells.chi2_per_bin_by_shell_phi
+        if values.size == 0:
+            return None
+        return tuple(
+            int(value)
+            for value in np.unravel_index(np.argmax(values), values.shape)
+        )
+
+    @property
+    def density_gate_passed(self) -> bool:
+        limit = self.density_max_chi2_per_bin
+        return bool(
+            limit is not None
+            and np.isfinite(self.density_chi2_per_bin)
+            and self.density_chi2_per_bin <= float(limit)
+            and self.density_shell_phi_gate_passed
+        )
+
+    @property
     def selected_objective(self) -> float:
+        fallback = (
+            self.density_chi2_per_bin
+            if np.isfinite(self.density_chi2_per_bin)
+            else 0.0
+        )
         if not self.weight_solution.converged:
-            return INVALID_TRIAL_PENALTY + self.density_chi2_per_bin
+            return INVALID_TRIAL_PENALTY + fallback
         if self.objective_mode == "velocity_only":
-            limit = float(self.density_max_chi2_per_bin)
-            if self.density_chi2_per_bin > limit:
-                return INVALID_TRIAL_PENALTY + self.density_chi2_per_bin
+            if not self.density_gate_passed:
+                worst = self.density_worst_shell_phi_chi2_per_bin
+                violation = max(fallback, worst if np.isfinite(worst) else 0.0)
+                return INVALID_TRIAL_PENALTY + violation
             return self.objective_velocity
         return self.objective_density_velocity
+
+
+def _orbit_support_audit(
+    response: OrbitDensityResponse,
+    library: OrbitLibrary,
+    density: DensityComparison,
+    seed_weights: np.ndarray,
+    prepared: PreparedModelData,
+    model_phase: SphericalPhaseSpace,
+) -> OrbitSupportAudit:
+    """Measure velocity-supported orbits that have no fitted density response."""
+
+    row_mask = density.fit_mask.reshape(-1)
+    density_response = np.asarray(
+        response.matrix[row_mask].sum(axis=0) > 0,
+        dtype=bool,
+    ).ravel()
+    density_seed = np.zeros(response.seed_count, dtype=bool)
+    density_seed[response.successful_seed_index] = density_response
+
+    grid = prepared.config.velocity_grid
+    wrapped_phi = grid.wrap_phi(model_phase.phi)
+    velocity_sample = (
+        np.isfinite(model_phase.radius)
+        & np.isfinite(model_phase.theta)
+        & np.isfinite(wrapped_phi)
+        & (model_phase.radius >= prepared.config.velocity_fit_min_radius)
+        & (model_phase.radius < grid.radius_edges[-1])
+        & (model_phase.theta >= grid.theta_edges[0])
+        & (model_phase.theta < grid.theta_edges[-1])
+        & (wrapped_phi >= grid.phi_edges[0])
+        & (wrapped_phi < grid.phi_edges[-1])
+    )
+    velocity_seed = np.zeros(response.seed_count, dtype=bool)
+    velocity_seed[np.unique(library.seed_index[velocity_sample])] = True
+    unsupported_seed = velocity_seed & ~density_seed
+    unsupported_sample = velocity_sample & unsupported_seed[library.seed_index]
+    solved_seed_weights = np.asarray(seed_weights, dtype=float)
+    return OrbitSupportAudit(
+        density_supported_orbit_count=int(np.count_nonzero(density_seed)),
+        velocity_supported_orbit_count=int(np.count_nonzero(velocity_seed)),
+        zero_density_response_velocity_orbit_count=int(
+            np.count_nonzero(unsupported_seed)
+        ),
+        zero_density_response_velocity_sample_count=int(
+            np.count_nonzero(unsupported_sample)
+        ),
+        zero_density_response_velocity_weight_sum=float(
+            np.sum(solved_seed_weights[unsupported_seed])
+        ),
+    )
 
 
 def _score_velocities(
     prepared: PreparedModelData,
     library: OrbitLibrary,
     orbit_weights: np.ndarray,
+    *,
+    model_phase: SphericalPhaseSpace | None = None,
 ):
     config = prepared.config
     catalogue_phase = prepared.catalog_phase_space
-    model_phase = cartesian_to_spherical_phase_space(
-        library.x,
-        library.y,
-        library.z,
-        library.vx,
-        library.vy,
-        library.vz,
-    )
+    if model_phase is None:
+        model_phase = cartesian_to_spherical_phase_space(
+            library.x,
+            library.y,
+            library.z,
+            library.vx,
+            library.vy,
+            library.vz,
+        )
     observed_velocity = {
         "vr": catalogue_phase.radial_velocity,
         "vphi": catalogue_phase.azimuthal_velocity,
@@ -234,6 +354,36 @@ def evaluate_prepared_model(
         config.density_grid,
         config.density_fit,
     )
+    shell_diagnostics = None
+    if config.objective.density_shell_edges is not None:
+        shell_diagnostics = density_shell_diagnostics(
+            density,
+            config.objective.density_shell_edges,
+        )
+
+    model_phase = None
+    if config.include_velocity:
+        model_phase = cartesian_to_spherical_phase_space(
+            library.x,
+            library.y,
+            library.z,
+            library.vx,
+            library.vy,
+            library.vz,
+        )
+
+    support_audit = None
+    if config.weight_model.mode == "density_solved":
+        if model_phase is None:
+            raise ValueError("density-solved support audit requires velocity phase space")
+        support_audit = _orbit_support_audit(
+            response,
+            library,
+            density,
+            weight_solution.seed_weights,
+            prepared,
+            model_phase,
+        )
 
     velocity_loglike: Mapping[str, float] = {}
     velocity_by_phi: Mapping[str, np.ndarray] = {}
@@ -245,7 +395,12 @@ def evaluate_prepared_model(
             velocity_by_phi,
             velocity_stars,
             velocity_distributions,
-        ) = _score_velocities(prepared, library, orbit_weights)
+        ) = _score_velocities(
+            prepared,
+            library,
+            orbit_weights,
+            model_phase=model_phase,
+        )
 
     return ModelEvaluation(
         density=density,
@@ -258,4 +413,9 @@ def evaluate_prepared_model(
         weight_solution=weight_solution,
         objective_mode=config.objective.mode,
         density_max_chi2_per_bin=config.objective.density_max_chi2_per_bin,
+        density_shells=shell_diagnostics,
+        density_shell_phi_max_chi2_per_bin=(
+            config.objective.density_shell_phi_max_chi2_per_bin
+        ),
+        orbit_support_audit=support_audit,
     )

@@ -80,6 +80,26 @@ class OrbitDensityResponse:
         return weights[library.seed_index] / counts
 
 
+@dataclass(frozen=True)
+class OrbitSupportAudit:
+    """Overlap between density-fit response and velocity spatial support."""
+
+    density_supported_orbit_count: int
+    velocity_supported_orbit_count: int
+    zero_density_response_velocity_orbit_count: int
+    zero_density_response_velocity_sample_count: int
+    zero_density_response_velocity_weight_sum: float
+
+    @property
+    def zero_density_response_velocity_orbit_fraction(self) -> float:
+        if self.velocity_supported_orbit_count <= 0:
+            return 0.0
+        return (
+            self.zero_density_response_velocity_orbit_count
+            / self.velocity_supported_orbit_count
+        )
+
+
 def build_orbit_density_response(
     library: OrbitLibrary,
     grid: CylindricalGrid,

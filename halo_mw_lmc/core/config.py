@@ -81,6 +81,8 @@ class ObjectiveSettings:
 
     mode: str = "density_velocity"
     density_max_chi2_per_bin: float | None = None
+    density_shell_edges: tuple[float, ...] | None = None
+    density_shell_phi_max_chi2_per_bin: float | None = None
 
     def __post_init__(self) -> None:
         if self.mode not in {"velocity_only", "density_velocity"}:
@@ -96,10 +98,42 @@ class ObjectiveSettings:
                 raise ValueError(
                     "velocity_only requires a positive density chi2-per-bin limit"
                 )
+            has_edges = self.density_shell_edges is not None
+            has_limit = self.density_shell_phi_max_chi2_per_bin is not None
+            if has_edges != has_limit:
+                raise ValueError(
+                    "density shell edges and shell-phi limit must be configured together"
+                )
+            if has_edges:
+                edges = np.asarray(self.density_shell_edges, dtype=float)
+                if (
+                    edges.ndim != 1
+                    or edges.size < 2
+                    or not np.all(np.isfinite(edges))
+                    or np.any(np.diff(edges) <= 0)
+                ):
+                    raise ValueError(
+                        "density_shell_edges must be finite and strictly increasing"
+                    )
+                shell_limit = float(self.density_shell_phi_max_chi2_per_bin)
+                if not np.isfinite(shell_limit) or shell_limit <= 0:
+                    raise ValueError(
+                        "density shell-phi chi2-per-bin limit must be positive"
+                    )
+                object.__setattr__(
+                    self,
+                    "density_shell_edges",
+                    tuple(float(value) for value in edges),
+                )
         elif self.density_max_chi2_per_bin is not None:
             raise ValueError(
                 "density_velocity does not use a density chi2-per-bin gate"
             )
+        elif (
+            self.density_shell_edges is not None
+            or self.density_shell_phi_max_chi2_per_bin is not None
+        ):
+            raise ValueError("density_velocity does not use density shell gates")
 
 
 @dataclass(frozen=True)

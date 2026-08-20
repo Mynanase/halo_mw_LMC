@@ -11,6 +11,7 @@ model_skopt/
 model_skopt_v*/
 /runs/
 data_coverage/
+/data_coverage-*/
 output/
 *.pdf
 *.log

@@ -1,0 +1,61 @@
+# Single-factor variant of zhu_2026_density_solved_r8_40: lsmr_tol=1e-8.
+schema_version = 1
+name = "zhu_2026_density_solved_r8_40_tol1e8_4phi"
+
+[potential]
+recipe = "zhu_2026_fiducial_constant_shape"
+
+[density_grid]
+n_r = 25
+r_range_kpc = [0.0, 50.0]
+n_z = 25
+z_range_kpc = [0.0, 50.0]
+n_phi = 4
+phi_origin_deg = -180.0
+
+[density_fit]
+min_abs_z_kpc = 2.0
+min_radius_kpc = 8.0
+max_radius_kpc = 40.0
+normalization_min_radius_kpc = 8.0
+require_positive_target = true
+normalization = "none"
+
+[velocity_fit]
+enabled = true
+min_radius_kpc = 8.0
+probability_floor = 1e-300
+radius_edges_kpc = [4.0, 6.0, 8.0, 10.0, 12.0, 15.0, 20.0, 30.0, 40.0]
+theta_edges_deg = [0.0, 15.0, 30.0, 45.0, 60.0, 90.0]
+velocity_range_km_s = [-800.0, 800.0]
+velocity_bins = 201
+
+[weight_model]
+mode = "density_solved"
+solver = "lsq_linear"
+target_normalization = "unit_mass"
+regularization = "l2"
+regularization_strength = 1e-6
+max_iter = 20000
+lsmr_tol = 1e-8
+
+[objective]
+mode = "velocity_only"
+density_max_chi2_per_bin = 2.0
+density_shell_edges_kpc = [8.0, 10.0, 12.0, 15.0, 20.0, 30.0, 40.0]
+density_shell_phi_max_chi2_per_bin = 2.0
+
+[orbits]
+periods = 10.0
+samples_per_orbit = 1000
+
+[search]
+initial_point = "paper_best"
+round_decimals = 3
+
+[search.bounds]
+qhalo = [0.70, 1.15]
+phalo = [0.40, 1.20]
+rho0 = [5.50, 7.00]
+rho0_plus_2logrs = [9.50, 10.30]
+gamma = [0.50, 1.80]

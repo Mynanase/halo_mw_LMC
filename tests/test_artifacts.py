@@ -2,7 +2,6 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 
 import numpy as np
 
@@ -15,10 +14,12 @@ from halo_mw_lmc.artifacts import (
     write_resolved_config,
 )
 from halo_mw_lmc.core.config import DensityFitSettings
-from halo_mw_lmc.core.density import compare_density
+from halo_mw_lmc.core.density import compare_density, density_shell_diagnostics
 from halo_mw_lmc.core.grids import CylindricalGrid
+from halo_mw_lmc.core.orbit_response import OrbitSupportAudit
 from halo_mw_lmc.core.potentials import ZhuHaloParameters
 from halo_mw_lmc.core.weight_solver import WeightSolution
+from halo_mw_lmc.workflows.evaluation import ModelEvaluation
 
 
 class RunArtifactTests(unittest.TestCase):
@@ -57,7 +58,7 @@ class RunArtifactTests(unittest.TestCase):
             status=0,
             message="catalogue-fixed weights",
         )
-        return SimpleNamespace(
+        return ModelEvaluation(
             density=density,
             velocity_loglike={},
             velocity_loglike_by_phi={},
@@ -67,10 +68,16 @@ class RunArtifactTests(unittest.TestCase):
             weight_mode="catalogue_fixed",
             weight_solution=weight_solution,
             objective_mode="density_velocity",
-            objective_velocity=0.0,
-            objective_density_velocity=0.0,
-            density_chi2_per_bin=0.0,
             density_max_chi2_per_bin=None,
+            density_shells=density_shell_diagnostics(density, [0.0, 10.0]),
+            density_shell_phi_max_chi2_per_bin=2.0,
+            orbit_support_audit=OrbitSupportAudit(
+                density_supported_orbit_count=2,
+                velocity_supported_orbit_count=2,
+                zero_density_response_velocity_orbit_count=0,
+                zero_density_response_velocity_sample_count=0,
+                zero_density_response_velocity_weight_sum=0.0,
+            ),
         )
 
     def test_best_evaluation_round_trip_uses_only_npz_and_json(self):
@@ -94,6 +101,36 @@ class RunArtifactTests(unittest.TestCase):
         np.testing.assert_allclose(stored.density.model_density, [[[2.0, 3.0]]])
         self.assertEqual(stored.velocity_distributions, {})
         np.testing.assert_allclose(stored.weight_solution.seed_weights, [1.0, 2.0])
+        np.testing.assert_allclose(stored.density_shells.radius_edges, [0.0, 10.0])
+        self.assertEqual(
+            stored.orbit_support_audit.zero_density_response_velocity_orbit_count,
+            0,
+        )
+
+    def test_best_loader_accepts_legacy_v2_without_shell_diagnostics(self):
+        with tempfile.TemporaryDirectory() as directory:
+            save_best_evaluation(
+                directory,
+                self._evaluation(),
+                ZhuHaloParameters(6.2, 1.8, 0.8, 0.92, 1.0),
+                iteration=0,
+                objective=1.0,
+            )
+            best = Path(directory) / "best"
+            metadata_path = best / "metadata.json"
+            metadata = json.loads(metadata_path.read_text())
+            metadata["schema_version"] = 2
+            metadata_path.write_text(json.dumps(metadata))
+            evaluation_path = best / "evaluation.npz"
+            with np.load(evaluation_path, allow_pickle=False) as source:
+                arrays = {name: source[name].copy() for name in source.files}
+            arrays["schema_version"] = np.asarray(2)
+            np.savez_compressed(evaluation_path, **arrays)
+
+            stored = load_best_evaluation(directory)
+
+        self.assertIsNone(stored.density_shells)
+        self.assertIsNone(stored.orbit_support_audit)
 
     def test_run_summary_is_portable_and_discoverable(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -174,6 +211,18 @@ class RunArtifactTests(unittest.TestCase):
             (run / "sample.dat").write_text("# iteration objective\n0 1.0\n")
             with self.assertRaisesRegex(ValueError, "resolved-config schema"):
                 load_run_summary(run)
+
+    def test_summary_accepts_legacy_resolved_config_v4(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            (run / "resolved_config.json").write_text(
+                json.dumps({"schema_version": 4})
+            )
+            (run / "sample.dat").write_text("# iteration objective\n0 1.0\n")
+
+            summary = load_run_summary(run)
+
+        self.assertEqual(summary.config["schema_version"], 4)
 
 
 if __name__ == "__main__":

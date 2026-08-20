@@ -33,6 +33,79 @@ class DensityComparison:
     grid: CylindricalGrid
 
 
+@dataclass(frozen=True)
+class DensityShellDiagnostics:
+    """Density residual statistics in radial shells and azimuth sectors."""
+
+    radius_edges: FloatArray
+    chi2_by_shell: FloatArray
+    valid_bins_by_shell: NDArray[np.int64]
+    chi2_by_shell_phi: FloatArray
+    valid_bins_by_shell_phi: NDArray[np.int64]
+
+    @property
+    def chi2_per_bin_by_shell(self) -> FloatArray:
+        return np.divide(
+            self.chi2_by_shell,
+            self.valid_bins_by_shell,
+            out=np.full_like(self.chi2_by_shell, np.inf, dtype=float),
+            where=self.valid_bins_by_shell > 0,
+        )
+
+    @property
+    def chi2_per_bin_by_shell_phi(self) -> FloatArray:
+        return np.divide(
+            self.chi2_by_shell_phi,
+            self.valid_bins_by_shell_phi,
+            out=np.full_like(self.chi2_by_shell_phi, np.inf, dtype=float),
+            where=self.valid_bins_by_shell_phi > 0,
+        )
+
+
+def density_shell_diagnostics(
+    comparison: DensityComparison,
+    radius_edges: ArrayLike,
+) -> DensityShellDiagnostics:
+    """Aggregate fitted residuals in left-closed, right-open radial shells."""
+
+    edges = np.asarray(radius_edges, dtype=float)
+    if (
+        edges.ndim != 1
+        or edges.size < 2
+        or not np.all(np.isfinite(edges))
+        or np.any(np.diff(edges) <= 0)
+    ):
+        raise ValueError("density shell edges must be finite and strictly increasing")
+
+    radius, z, _ = comparison.grid.center_mesh
+    spherical_radius = np.hypot(radius, z)
+    squared = np.where(comparison.fit_mask, comparison.residual**2, 0.0)
+    n_shell = edges.size - 1
+    n_phi = comparison.grid.shape[-1]
+    chi2_by_shell_phi = np.zeros((n_shell, n_phi), dtype=float)
+    valid_by_shell_phi = np.zeros((n_shell, n_phi), dtype=np.int64)
+    for index, (lower, upper) in enumerate(zip(edges[:-1], edges[1:])):
+        shell = (spherical_radius >= lower) & (spherical_radius < upper)
+        shell_fit = comparison.fit_mask & shell
+        chi2_by_shell_phi[index] = np.sum(
+            np.where(shell_fit, squared, 0.0),
+            axis=(0, 1),
+        )
+        valid_by_shell_phi[index] = np.sum(
+            shell_fit,
+            axis=(0, 1),
+            dtype=np.int64,
+        )
+
+    return DensityShellDiagnostics(
+        radius_edges=edges.copy(),
+        chi2_by_shell=np.sum(chi2_by_shell_phi, axis=1),
+        valid_bins_by_shell=np.sum(valid_by_shell_phi, axis=1, dtype=np.int64),
+        chi2_by_shell_phi=chi2_by_shell_phi,
+        valid_bins_by_shell_phi=valid_by_shell_phi,
+    )
+
+
 def orbit_density(
     x: ArrayLike,
     y: ArrayLike,

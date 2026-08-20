@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 
 from halo_mw_lmc.core.config import DensityFitSettings
-from halo_mw_lmc.core.density import compare_density
+from halo_mw_lmc.core.density import DensityShellDiagnostics, compare_density
 from halo_mw_lmc.core.grids import CylindricalGrid
 from halo_mw_lmc.core.weight_solver import WeightSolution
 from halo_mw_lmc.workflows.evaluation import (
@@ -13,7 +13,16 @@ from halo_mw_lmc.workflows.evaluation import (
 
 
 class ProfileObjectiveTests(unittest.TestCase):
-    def _evaluation(self, *, mode, density_limit=None, converged=True):
+    def _evaluation(
+        self,
+        *,
+        mode,
+        density_limit=None,
+        converged=True,
+        shell_values=None,
+        shell_counts=None,
+        shell_limit=None,
+    ):
         grid = CylindricalGrid.uniform(
             n_r=1,
             r_range=(0, 1),
@@ -50,6 +59,17 @@ class ProfileObjectiveTests(unittest.TestCase):
             status=1 if converged else 0,
             message="synthetic",
         )
+        shells = None
+        if shell_values is not None:
+            values = np.asarray(shell_values, dtype=float)
+            counts = np.asarray(shell_counts, dtype=np.int64)
+            shells = DensityShellDiagnostics(
+                radius_edges=np.arange(values.shape[0] + 1, dtype=float),
+                chi2_by_shell=np.sum(values * counts, axis=1),
+                valid_bins_by_shell=np.sum(counts, axis=1),
+                chi2_by_shell_phi=values * counts,
+                valid_bins_by_shell_phi=counts,
+            )
         return ModelEvaluation(
             density=density,
             velocity_loglike={"vr": -3.0, "vphi": -2.0, "vtheta": -1.0},
@@ -61,6 +81,8 @@ class ProfileObjectiveTests(unittest.TestCase):
             weight_solution=solution,
             objective_mode=mode,
             density_max_chi2_per_bin=density_limit,
+            density_shells=shells,
+            density_shell_phi_max_chi2_per_bin=shell_limit,
         )
 
     def test_both_objectives_are_available_from_one_evaluation(self):
@@ -86,6 +108,41 @@ class ProfileObjectiveTests(unittest.TestCase):
         )
 
         self.assertGreaterEqual(evaluation.selected_objective, INVALID_TRIAL_PENALTY)
+
+    def test_shell_phi_gate_accepts_only_when_every_cell_passes(self):
+        evaluation = self._evaluation(
+            mode="velocity_only",
+            density_limit=3.0,
+            shell_values=[[1.0, 2.0], [1.5, 1.9]],
+            shell_counts=[[2, 2], [1, 1]],
+            shell_limit=2.0,
+        )
+
+        self.assertTrue(evaluation.density_shell_phi_gate_passed)
+        self.assertTrue(evaluation.density_gate_passed)
+        self.assertEqual(evaluation.selected_objective, 6.0)
+
+    def test_shell_phi_gate_rejects_excess_empty_and_nonfinite_cells(self):
+        cases = (
+            ([[1.0, 2.1]], [[1, 1]]),
+            ([[1.0, 0.0]], [[1, 0]]),
+            ([[1.0, np.nan]], [[1, 1]]),
+        )
+        for values, counts in cases:
+            with self.subTest(values=values, counts=counts):
+                evaluation = self._evaluation(
+                    mode="velocity_only",
+                    density_limit=3.0,
+                    shell_values=values,
+                    shell_counts=counts,
+                    shell_limit=2.0,
+                )
+                self.assertFalse(evaluation.density_shell_phi_gate_passed)
+                self.assertTrue(np.isfinite(evaluation.selected_objective))
+                self.assertGreaterEqual(
+                    evaluation.selected_objective,
+                    INVALID_TRIAL_PENALTY,
+                )
 
     def test_orbit_and_weight_diagnostics_are_derived_from_saved_slots(self):
         evaluation = self._evaluation(mode="density_velocity")

@@ -1,4 +1,5 @@
 import unittest
+from dataclasses import replace
 
 import numpy as np
 
@@ -7,6 +8,7 @@ from halo_mw_lmc.core.density import compare_density
 from halo_mw_lmc.core.grids import CylindricalGrid
 from halo_mw_lmc.visualization.model import (
     _coarsen_velocity_panel,
+    _fit_origin_centered_ellipse,
     _velocity_panel_values,
     isodensity_shape_profile,
 )
@@ -17,6 +19,23 @@ from halo_mw_lmc.core.velocity import (
 
 
 class PlottingDiagnosticsTests(unittest.TestCase):
+    def test_masked_contour_ellipse_fit_recovers_known_shape(self):
+        angle = np.linspace(0.15, 1.35, 50)
+        vertices = np.column_stack((20.0 * np.cos(angle), 13.0 * np.sin(angle)))
+
+        fit = _fit_origin_centered_ellipse(
+            vertices,
+            minimum_r_span=1.0,
+            minimum_z_span=1.0,
+        )
+
+        self.assertIsNotNone(fit)
+        radius, axis_ratio, rms, count = fit
+        self.assertAlmostEqual(radius, 20.0, places=10)
+        self.assertAlmostEqual(axis_ratio, 0.65, places=10)
+        self.assertLess(rms, 1e-12)
+        self.assertEqual(count, 50)
+
     def test_isodensity_shape_recovers_oblate_axis_ratio(self):
         grid = CylindricalGrid.uniform(
             n_r=80,
@@ -72,6 +91,68 @@ class PlottingDiagnosticsTests(unittest.TestCase):
             0,
         )
         self.assertEqual(empty.radius.size, 0)
+
+    def test_isodensity_shape_ignores_values_outside_fit_mask(self):
+        grid = CylindricalGrid.uniform(
+            n_r=80,
+            r_range=(0.0, 40.0),
+            n_z=80,
+            z_range=(0.0, 40.0),
+            n_phi=1,
+        )
+        radius, z, _ = grid.center_mesh
+        density = np.exp(-np.sqrt(radius**2 + (z / 0.7) ** 2) / 8.0)
+        comparison = compare_density(
+            density,
+            np.full_like(density, 0.05),
+            density,
+            grid,
+            DensityFitSettings(
+                min_abs_z=2.0,
+                min_spherical_radius=8.0,
+                max_spherical_radius=30.0,
+                normalization_min_radius=8.0,
+            ),
+        )
+        perturbed = density.copy()
+        perturbed[~comparison.fit_mask] = 1e12
+
+        original = isodensity_shape_profile(density, comparison, 0)
+        changed = isodensity_shape_profile(perturbed, comparison, 0)
+
+        np.testing.assert_allclose(changed.radius, original.radius)
+        np.testing.assert_allclose(changed.axis_ratio, original.axis_ratio)
+
+    def test_isodensity_shape_rejects_insufficient_masked_arc(self):
+        grid = CylindricalGrid.uniform(
+            n_r=10,
+            r_range=(0.0, 10.0),
+            n_z=10,
+            z_range=(0.0, 10.0),
+            n_phi=1,
+        )
+        radius, z, _ = grid.center_mesh
+        density = np.exp(-np.sqrt(radius**2 + z**2))
+        comparison = compare_density(
+            density,
+            np.ones_like(density),
+            density,
+            grid,
+            DensityFitSettings(
+                min_abs_z=0.0,
+                min_spherical_radius=0.0,
+                max_spherical_radius=100.0,
+                normalization_min_radius=0.0,
+            ),
+        )
+        tiny_mask = np.zeros(grid.shape, dtype=bool)
+        tiny_mask[:2, :2, :] = True
+        comparison = replace(comparison, fit_mask=tiny_mask)
+
+        profile = isodensity_shape_profile(density, comparison, 0)
+
+        self.assertEqual(profile.radius.size, 0)
+        self.assertEqual(profile.rejected_level_count, 7)
 
     def test_velocity_phi_average_is_occupancy_weighted(self):
         grid = SphericalVelocityGrid(

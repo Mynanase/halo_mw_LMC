@@ -12,8 +12,9 @@ from typing import TYPE_CHECKING, Mapping, Sequence
 
 import numpy as np
 
-from .core.density import DensityComparison
+from .core.density import DensityComparison, DensityShellDiagnostics
 from .core.grids import CylindricalGrid
+from .core.orbit_response import OrbitSupportAudit
 from .core.velocity import (
     SphericalVelocityGrid,
     VelocityDistributionComparison,
@@ -24,8 +25,10 @@ if TYPE_CHECKING:
     from .core.potentials import ZhuHaloParameters
 
 
-BEST_EVALUATION_SCHEMA_VERSION = 2
-RESOLVED_CONFIG_SCHEMA_VERSION = 4
+BEST_EVALUATION_SCHEMA_VERSION = 3
+RESOLVED_CONFIG_SCHEMA_VERSION = 5
+SUPPORTED_BEST_EVALUATION_SCHEMA_VERSIONS = frozenset({2, 3})
+SUPPORTED_RESOLVED_CONFIG_SCHEMA_VERSIONS = frozenset({4, 5})
 WEIGHT_AUDIT_SCHEMA_VERSION = 1
 
 
@@ -94,6 +97,8 @@ class StoredBestEvaluation:
     velocity_stars_by_phi: Mapping[str, np.ndarray]
     velocity_distributions: Mapping[str, VelocityDistributionComparison]
     weight_solution: WeightSolution
+    density_shells: DensityShellDiagnostics | None = None
+    orbit_support_audit: OrbitSupportAudit | None = None
 
 
 @dataclass(frozen=True)
@@ -170,7 +175,8 @@ def load_run_summary(run_directory: str | Path) -> RunSummary:
     config = _load_json(config_path)
     if (
         config_path.name == "resolved_config.json"
-        and config.get("schema_version") != RESOLVED_CONFIG_SCHEMA_VERSION
+        and config.get("schema_version")
+        not in SUPPORTED_RESOLVED_CONFIG_SCHEMA_VERSIONS
     ):
         raise ValueError(f"unsupported resolved-config schema in {config_path}")
     samples = load_sample_table(
@@ -198,7 +204,9 @@ def load_run_summary(run_directory: str | Path) -> RunSummary:
     metadata_path = run / "best" / "metadata.json"
     metadata = _load_json(metadata_path) if metadata_path.exists() else None
     if metadata is not None:
-        if metadata.get("schema_version") != BEST_EVALUATION_SCHEMA_VERSION:
+        if metadata.get("schema_version") not in (
+            SUPPORTED_BEST_EVALUATION_SCHEMA_VERSIONS
+        ):
             raise ValueError(f"unsupported best metadata schema in {metadata_path}")
         current_best = best_sample(samples)
         try:
@@ -299,6 +307,61 @@ def _evaluation_arrays(
             dtype=float,
         ),
     }
+    shells = evaluation.density_shells
+    if shells is None:
+        arrays.update(
+            {
+                "density_shell_edges": np.array([], dtype=float),
+                "density_shell_chi2": np.array([], dtype=float),
+                "density_shell_valid_bins": np.array([], dtype=np.int64),
+                "density_shell_phi_chi2": np.empty((0, density.grid.shape[-1])),
+                "density_shell_phi_valid_bins": np.empty(
+                    (0, density.grid.shape[-1]), dtype=np.int64
+                ),
+            }
+        )
+    else:
+        arrays.update(
+            {
+                "density_shell_edges": np.asarray(shells.radius_edges),
+                "density_shell_chi2": np.asarray(shells.chi2_by_shell),
+                "density_shell_valid_bins": np.asarray(
+                    shells.valid_bins_by_shell, dtype=np.int64
+                ),
+                "density_shell_phi_chi2": np.asarray(shells.chi2_by_shell_phi),
+                "density_shell_phi_valid_bins": np.asarray(
+                    shells.valid_bins_by_shell_phi, dtype=np.int64
+                ),
+            }
+        )
+    support = evaluation.orbit_support_audit
+    arrays["orbit_support_available"] = np.asarray(support is not None, dtype=bool)
+    arrays["orbit_density_supported_count"] = np.asarray(
+        support.density_supported_orbit_count if support is not None else -1,
+        dtype=np.int64,
+    )
+    arrays["orbit_velocity_supported_count"] = np.asarray(
+        support.velocity_supported_orbit_count if support is not None else -1,
+        dtype=np.int64,
+    )
+    arrays["orbit_zero_density_response_velocity_count"] = np.asarray(
+        support.zero_density_response_velocity_orbit_count
+        if support is not None
+        else -1,
+        dtype=np.int64,
+    )
+    arrays["orbit_zero_density_response_velocity_sample_count"] = np.asarray(
+        support.zero_density_response_velocity_sample_count
+        if support is not None
+        else -1,
+        dtype=np.int64,
+    )
+    arrays["orbit_zero_density_response_velocity_weight_sum"] = np.asarray(
+        support.zero_density_response_velocity_weight_sum
+        if support is not None
+        else np.nan,
+        dtype=float,
+    )
     components = tuple(evaluation.velocity_distributions)
     arrays["velocity_components"] = np.asarray(components, dtype="U16")
     if components:
@@ -386,6 +449,9 @@ def save_best_evaluation(
         if temporary.exists():
             temporary.unlink()
 
+    worst_shell_phi = evaluation.density_worst_shell_phi_chi2_per_bin
+    if not np.isfinite(worst_shell_phi):
+        worst_shell_phi = None
     metadata = {
         "schema_version": BEST_EVALUATION_SCHEMA_VERSION,
         "generation": generation,
@@ -413,6 +479,53 @@ def save_best_evaluation(
         ),
         "density_chi2_per_bin": float(evaluation.density_chi2_per_bin),
         "density_max_chi2_per_bin": evaluation.density_max_chi2_per_bin,
+        "density_shell_phi_max_chi2_per_bin": (
+            evaluation.density_shell_phi_max_chi2_per_bin
+        ),
+        "density_shell_phi_gate_passed": (
+            evaluation.density_shell_phi_gate_passed
+            if evaluation.density_shells is not None
+            else None
+        ),
+        "density_worst_shell_phi_chi2_per_bin": (
+            worst_shell_phi
+            if evaluation.density_shells is not None
+            else None
+        ),
+        "density_worst_shell_phi_index": (
+            list(evaluation.density_worst_shell_phi_index)
+            if evaluation.density_worst_shell_phi_index is not None
+            else None
+        ),
+        "density_gate_passed": (
+            evaluation.density_gate_passed
+            if evaluation.objective_mode == "velocity_only"
+            else None
+        ),
+        "orbit_support_audit": (
+            {
+                "density_supported_orbit_count": (
+                    evaluation.orbit_support_audit.density_supported_orbit_count
+                ),
+                "velocity_supported_orbit_count": (
+                    evaluation.orbit_support_audit.velocity_supported_orbit_count
+                ),
+                "zero_density_response_velocity_orbit_count": (
+                    evaluation.orbit_support_audit.zero_density_response_velocity_orbit_count
+                ),
+                "zero_density_response_velocity_orbit_fraction": (
+                    evaluation.orbit_support_audit.zero_density_response_velocity_orbit_fraction
+                ),
+                "zero_density_response_velocity_sample_count": (
+                    evaluation.orbit_support_audit.zero_density_response_velocity_sample_count
+                ),
+                "zero_density_response_velocity_weight_sum": (
+                    evaluation.orbit_support_audit.zero_density_response_velocity_weight_sum
+                ),
+            }
+            if evaluation.orbit_support_audit is not None
+            else None
+        ),
     }
     _atomic_json(best_directory / "metadata.json", metadata)
 
@@ -435,7 +548,8 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
     if not metadata_path.exists() or not evaluation_path.exists():
         raise ValueError(f"best-evaluation snapshot not found in {best_directory}")
     metadata = _load_json(metadata_path)
-    if metadata.get("schema_version") != BEST_EVALUATION_SCHEMA_VERSION:
+    metadata_schema = metadata.get("schema_version")
+    if metadata_schema not in SUPPORTED_BEST_EVALUATION_SCHEMA_VERSIONS:
         raise ValueError("unsupported best-evaluation metadata schema")
 
     required = (
@@ -470,8 +584,11 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
     try:
         with np.load(evaluation_path, allow_pickle=False) as archive:
             _required_arrays(archive, required, evaluation_path)
-            if int(archive["schema_version"]) != BEST_EVALUATION_SCHEMA_VERSION:
+            archive_schema = int(archive["schema_version"])
+            if archive_schema not in SUPPORTED_BEST_EVALUATION_SCHEMA_VERSIONS:
                 raise ValueError("unsupported best-evaluation array schema")
+            if archive_schema != metadata_schema:
+                raise ValueError("best-evaluation metadata and arrays do not match")
             if str(archive["snapshot_generation"].item()) != metadata.get(
                 "generation"
             ):
@@ -555,6 +672,75 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
                     raise ValueError(
                         f"array {name} has shape {archive[name].shape}; "
                         f"expected {(n_phi,)}"
+                    )
+
+            density_shells = None
+            orbit_support_audit = None
+            if archive_schema >= 3:
+                shell_names = (
+                    "density_shell_edges",
+                    "density_shell_chi2",
+                    "density_shell_valid_bins",
+                    "density_shell_phi_chi2",
+                    "density_shell_phi_valid_bins",
+                    "orbit_support_available",
+                    "orbit_density_supported_count",
+                    "orbit_velocity_supported_count",
+                    "orbit_zero_density_response_velocity_count",
+                    "orbit_zero_density_response_velocity_sample_count",
+                    "orbit_zero_density_response_velocity_weight_sum",
+                )
+                _required_arrays(archive, shell_names, evaluation_path)
+                shell_edges = archive["density_shell_edges"].copy()
+                if shell_edges.size:
+                    n_shell = shell_edges.size - 1
+                    if archive["density_shell_chi2"].shape != (n_shell,):
+                        raise ValueError("array density_shell_chi2 has invalid shape")
+                    if archive["density_shell_valid_bins"].shape != (n_shell,):
+                        raise ValueError(
+                            "array density_shell_valid_bins has invalid shape"
+                        )
+                    expected_shell_phi = (n_shell, n_phi)
+                    for name in (
+                        "density_shell_phi_chi2",
+                        "density_shell_phi_valid_bins",
+                    ):
+                        if archive[name].shape != expected_shell_phi:
+                            raise ValueError(f"array {name} has invalid shape")
+                    density_shells = DensityShellDiagnostics(
+                        radius_edges=shell_edges,
+                        chi2_by_shell=archive["density_shell_chi2"].copy(),
+                        valid_bins_by_shell=archive[
+                            "density_shell_valid_bins"
+                        ].astype(np.int64),
+                        chi2_by_shell_phi=archive[
+                            "density_shell_phi_chi2"
+                        ].copy(),
+                        valid_bins_by_shell_phi=archive[
+                            "density_shell_phi_valid_bins"
+                        ].astype(np.int64),
+                    )
+                if bool(archive["orbit_support_available"]):
+                    orbit_support_audit = OrbitSupportAudit(
+                        density_supported_orbit_count=int(
+                            archive["orbit_density_supported_count"]
+                        ),
+                        velocity_supported_orbit_count=int(
+                            archive["orbit_velocity_supported_count"]
+                        ),
+                        zero_density_response_velocity_orbit_count=int(
+                            archive["orbit_zero_density_response_velocity_count"]
+                        ),
+                        zero_density_response_velocity_sample_count=int(
+                            archive[
+                                "orbit_zero_density_response_velocity_sample_count"
+                            ]
+                        ),
+                        zero_density_response_velocity_weight_sum=float(
+                            archive[
+                                "orbit_zero_density_response_velocity_weight_sum"
+                            ]
+                        ),
                     )
 
             components = tuple(str(value) for value in archive["velocity_components"])
@@ -659,4 +845,6 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
         velocity_stars_by_phi=stars,
         velocity_distributions=distributions,
         weight_solution=weight_solution,
+        density_shells=density_shells,
+        orbit_support_audit=orbit_support_audit,
     )

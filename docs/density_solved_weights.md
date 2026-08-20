@@ -84,18 +84,25 @@ second fitted density scale would introduce the degeneracy `w -> c*w` and
 Every row in `sample.dat` records density chi-square and chi-square per fitted
 bin, velocity-only and joint objectives, regularization penalty, inner solver
 objective, effective orbit count, maximum weight fraction, active orbit count,
-and solver convergence/status plus the explicit solver `max_iter` limit used.
+and solver convergence/status. The explicit solver `max_iter` and `lsmr_tol`
+settings are recorded in `resolved_config.json`.
 The complete `(N_seed,)` weights are stored only
 for the current best trial in `best/evaluation.npz`, together with the density
 and velocity arrays needed by reports and Marimo. For the best trial, the
 inner-solve iteration count (`nit`), first-order optimality, and solver cost
 are persisted as `weight_iterations`, `weight_optimality`, and
-`weight_solver_cost`; the configured `lsmr_tol` appears in the persisted
-resolved configuration.
+`weight_solver_cost`.
+
+The independent 8--40 kpc benchmark additionally partitions the density
+residuals into the velocity-aligned radial shells `[8,10,12,15,20,30,40]` and
+persists shell and shell-by-phi chi-square per bin. Its velocity-only objective
+requires every shell/phi cell to pass the configured limit; existing recipes
+without shell fields retain the global gate only. See
+`docs/density_solved_r8_40_experiment.md`.
 
 ## Open boundary: velocity floor vs density coverage
 
-The density fit mask currently constrains only `15 < r < 40 kpc`, while the
+The conservative density fit mask constrains only `15 <= r < 40 kpc`, while the
 velocity likelihood starts at `r >= 8 kpc`. Orbits that never enter the density
 fit region therefore get weight only through the numerical L2 regularization and
 the least-squares scale, with no density evidence. The intended resolution is to
