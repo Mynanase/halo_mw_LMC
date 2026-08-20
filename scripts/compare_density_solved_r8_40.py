@@ -118,13 +118,15 @@ def compare_runs(runs_root: str | Path) -> dict[str, object]:
         ),
     }
     commits = {result["git_commit"] for result in results.values()}
-    reproducible = len(commits) == 1 and all(
-        result["git_dirty"] is False for result in results.values()
-    )
     return {
         "cases": results,
         "tight_tolerance_stability": stability,
-        "same_clean_commit": reproducible,
+        "git_provenance": {
+            "same_head": len(commits) == 1,
+            "all_status_clean": all(
+                result["git_dirty"] is False for result in results.values()
+            ),
+        },
     }
 
 

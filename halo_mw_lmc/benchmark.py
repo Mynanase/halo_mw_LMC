@@ -1,11 +1,10 @@
-"""Hard preflight for the locked 8--40 kpc one-trial benchmark cases."""
+"""Preflight for the 8--40 kpc one-trial benchmark cases."""
 
 from __future__ import annotations
 
 import os
 from dataclasses import dataclass
 from pathlib import Path
-import re
 import subprocess
 import sys
 
@@ -35,30 +34,15 @@ R8_40_CASE_PARAMETERS = {
 @dataclass(frozen=True)
 class BenchmarkPreflight:
     configuration: RunConfiguration
-    git_commit: str
-
-
-def _git(repository: Path, *arguments: str) -> str:
-    try:
-        return subprocess.run(
-            ["git", *arguments],
-            cwd=repository,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-    except (OSError, subprocess.CalledProcessError) as exc:
-        raise RuntimeError(f"git {' '.join(arguments)} failed") from exc
 
 
 def validate_benchmark_preflight(
     repository: str | Path,
     config_path: str | Path,
-    expected_commit: str,
     *,
     time_program: str | Path = "/usr/bin/time",
 ) -> BenchmarkPreflight:
-    """Reject an uncommitted, mismatched, non-GNU, or non-cold-start run."""
+    """Reject an invalid, non-GNU-time, or non-cold-start run."""
 
     root = Path(repository).resolve()
     config = Path(config_path)
@@ -67,18 +51,7 @@ def validate_benchmark_preflight(
     config = config.resolve()
     allowed_directory = (root / "configs" / "runs").resolve()
     if config.parent != allowed_directory or config.name not in R8_40_RUN_CONFIG_NAMES:
-        raise RuntimeError("the launcher only accepts checked-in 8--40 benchmark configs")
-    if not re.fullmatch(r"[0-9a-fA-F]{40}", expected_commit):
-        raise RuntimeError("expected commit must be a full 40-character Git SHA")
-
-    current_commit = _git(root, "rev-parse", "HEAD")
-    if current_commit.lower() != expected_commit.lower():
-        raise RuntimeError(
-            f"Git HEAD {current_commit} does not match locked commit {expected_commit}"
-        )
-    status = _git(root, "status", "--porcelain", "--untracked-files=all")
-    if status:
-        raise RuntimeError("Git worktree is not clean; refusing benchmark execution")
+        raise RuntimeError("the launcher only accepts the named 8--40 benchmark configs")
 
     time_path = Path(time_program)
     if not time_path.is_file() or not os.access(time_path, os.X_OK):
@@ -141,14 +114,14 @@ def validate_benchmark_preflight(
     ):
         if not path.is_file():
             raise RuntimeError(f"{label} not found: {path}")
-    return BenchmarkPreflight(configuration=configuration, git_commit=current_commit)
+    return BenchmarkPreflight(configuration=configuration)
 
 
 def main(argv: list[str] | None = None) -> int:
     arguments = sys.argv[1:] if argv is None else argv
-    if len(arguments) != 2:
+    if len(arguments) != 1:
         print(
-            "usage: python -m halo_mw_lmc.benchmark RUN_CONFIG LOCKED_GIT_SHA",
+            "usage: python -m halo_mw_lmc.benchmark RUN_CONFIG",
             file=sys.stderr,
         )
         return 2
@@ -157,7 +130,6 @@ def main(argv: list[str] | None = None) -> int:
         result = validate_benchmark_preflight(
             repository,
             arguments[0],
-            arguments[1],
         )
     except (RuntimeError, ValueError) as exc:
         print(f"benchmark preflight failed: {exc}", file=sys.stderr)

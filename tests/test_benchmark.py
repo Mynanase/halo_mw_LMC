@@ -12,7 +12,7 @@ from halo_mw_lmc.configuration import load_run_configuration
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 CONFIG = REPOSITORY / "configs/runs/density_solved_r8_40_benchmark.toml"
-COMMIT = "a" * 40
+LAUNCHER = REPOSITORY / "scripts/run_density_solved_r8_40_case.sh"
 
 
 class BenchmarkPreflightTests(unittest.TestCase):
@@ -22,39 +22,28 @@ class BenchmarkPreflightTests(unittest.TestCase):
     @patch("halo_mw_lmc.benchmark.Path.is_file", return_value=True)
     @patch("halo_mw_lmc.benchmark.os.access", return_value=True)
     @patch("halo_mw_lmc.benchmark.subprocess.run")
-    @patch("halo_mw_lmc.benchmark._git")
-    def test_clean_locked_case_passes(
+    def test_valid_case_passes(
         self,
-        git,
         run,
         _access,
         _is_file,
     ):
-        git.side_effect = [COMMIT, ""]
         run.side_effect = self._time_version
 
-        result = validate_benchmark_preflight(REPOSITORY, CONFIG, COMMIT)
+        result = validate_benchmark_preflight(REPOSITORY, CONFIG)
 
-        self.assertEqual(result.git_commit, COMMIT)
         self.assertEqual(result.configuration.iterations, 1)
-
-    @patch("halo_mw_lmc.benchmark._git", return_value="b" * 40)
-    def test_mismatched_commit_fails(self, _git):
-        with self.assertRaisesRegex(RuntimeError, "does not match"):
-            validate_benchmark_preflight(REPOSITORY, CONFIG, COMMIT)
-
-    @patch("halo_mw_lmc.benchmark._git")
-    def test_dirty_worktree_fails(self, git):
-        git.side_effect = [COMMIT, " M halo_mw_lmc/core/density.py"]
-        with self.assertRaisesRegex(RuntimeError, "not clean"):
-            validate_benchmark_preflight(REPOSITORY, CONFIG, COMMIT)
+        run.assert_called_once_with(
+            ["/usr/bin/time", "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
 
     @patch("halo_mw_lmc.benchmark.Path.is_file", return_value=False)
-    @patch("halo_mw_lmc.benchmark._git")
-    def test_missing_gnu_time_fails(self, git, _is_file):
-        git.side_effect = [COMMIT, ""]
+    def test_missing_gnu_time_fails(self, _is_file):
         with self.assertRaisesRegex(RuntimeError, "GNU time executable not found"):
-            validate_benchmark_preflight(REPOSITORY, CONFIG, COMMIT)
+            validate_benchmark_preflight(REPOSITORY, CONFIG)
 
     @patch("halo_mw_lmc.benchmark.Path.is_file", return_value=True)
     @patch("halo_mw_lmc.benchmark.os.access", return_value=True)
@@ -62,24 +51,19 @@ class BenchmarkPreflightTests(unittest.TestCase):
         "halo_mw_lmc.benchmark.subprocess.run",
         return_value=SimpleNamespace(stdout="BSD time\n", stderr=""),
     )
-    @patch("halo_mw_lmc.benchmark._git")
-    def test_non_gnu_time_fails(self, git, _run, _access, _is_file):
-        git.side_effect = [COMMIT, ""]
+    def test_non_gnu_time_fails(self, _run, _access, _is_file):
         with self.assertRaisesRegex(RuntimeError, "requires GNU time"):
-            validate_benchmark_preflight(REPOSITORY, CONFIG, COMMIT)
+            validate_benchmark_preflight(REPOSITORY, CONFIG)
 
     @patch("halo_mw_lmc.benchmark.Path.is_file", return_value=True)
     @patch("halo_mw_lmc.benchmark.os.access", return_value=True)
     @patch("halo_mw_lmc.benchmark.subprocess.run")
-    @patch("halo_mw_lmc.benchmark._git")
     def test_existing_output_directory_fails_before_execution(
         self,
-        git,
         run,
         _access,
         _is_file,
     ):
-        git.side_effect = [COMMIT, ""]
         run.side_effect = self._time_version
         configuration = load_run_configuration(CONFIG)
         with tempfile.TemporaryDirectory() as directory:
@@ -92,7 +76,33 @@ class BenchmarkPreflightTests(unittest.TestCase):
                 return_value=configuration,
             ):
                 with self.assertRaisesRegex(RuntimeError, "already exists"):
-                    validate_benchmark_preflight(REPOSITORY, CONFIG, COMMIT)
+                    validate_benchmark_preflight(REPOSITORY, CONFIG)
+
+
+class BenchmarkLauncherPolicyTests(unittest.TestCase):
+    def test_launcher_records_git_state_without_locking_it(self):
+        source = LAUNCHER.read_text()
+
+        self.assertIn('git rev-parse HEAD > "$STAGING/git-head.txt"', source)
+        self.assertIn(
+            'git status --porcelain --untracked-files=all > '
+            '"$STAGING/git-status.txt"',
+            source,
+        )
+        self.assertNotIn("LOCKED_GIT_SHA", source)
+        self.assertNotIn("git diff", source)
+
+    def test_launcher_usage_has_no_sha_argument(self):
+        completed = subprocess.run(
+            ["bash", str(LAUNCHER)],
+            check=False,
+            capture_output=True,
+            text=True,
+        )
+
+        self.assertEqual(completed.returncode, 2)
+        self.assertIn("RUN_CONFIG [--preflight-only]", completed.stderr)
+        self.assertNotIn("GIT_SHA", completed.stderr)
 
 
 if __name__ == "__main__":

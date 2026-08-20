@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 2 || $# -gt 3 ]]; then
-  echo "usage: $0 RUN_CONFIG LOCKED_GIT_SHA [--preflight-only]" >&2
+if [[ $# -lt 1 || $# -gt 2 ]]; then
+  echo "usage: $0 RUN_CONFIG [--preflight-only]" >&2
   exit 2
 fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOSITORY="$(cd "$SCRIPT_DIR/.." && pwd)"
 RUN_CONFIG="$1"
-LOCKED_GIT_SHA="$2"
-MODE="${3:-}"
+MODE="${2:-}"
 if [[ -n "$MODE" && "$MODE" != "--preflight-only" ]]; then
   echo "unknown option: $MODE" >&2
   exit 2
@@ -21,7 +20,7 @@ export PYTHONPATH="$REPOSITORY/Agama-master${PYTHONPATH:+:$PYTHONPATH}"
 
 mapfile -t PREFLIGHT < <(
   conda run -n halo_lmc python -m halo_mw_lmc.benchmark \
-    "$RUN_CONFIG" "$LOCKED_GIT_SHA"
+    "$RUN_CONFIG"
 )
 if [[ ${#PREFLIGHT[@]} -ne 4 ]]; then
   echo "benchmark preflight did not return the expected run information" >&2
@@ -37,7 +36,7 @@ conda run -n halo_lmc python -c \
 conda run -n halo_lmc python -m halo_mw_lmc -v "$RUN_CONFIG"
 
 if [[ "$MODE" == "--preflight-only" ]]; then
-  echo "preflight passed: $RUN_ID at $LOCKED_GIT_SHA"
+  echo "preflight passed: $RUN_ID"
   exit 0
 fi
 
@@ -56,9 +55,8 @@ copy_metadata() {
 }
 trap copy_metadata EXIT
 
-git rev-parse HEAD > "$STAGING/git-commit.txt"
+git rev-parse HEAD > "$STAGING/git-head.txt"
 git status --porcelain --untracked-files=all > "$STAGING/git-status.txt"
-git diff --binary HEAD > "$STAGING/git-diff.patch"
 sha256sum "$CATALOGUE" "$TARGET_DENSITY" > "$STAGING/input-sha256.txt"
 conda run -n halo_lmc python -c \
   "import agama, astropy, matplotlib, numpy, scipy, skopt, sys; print(sys.version); print('agama', getattr(agama, '__version__', 'unknown')); print('astropy', astropy.__version__); print('matplotlib', matplotlib.__version__); print('numpy', numpy.__version__); print('scipy', scipy.__version__); print('skopt', skopt.__version__)" \

@@ -30,31 +30,17 @@ target, and the same shell/phi density gate.
 These are five independent cold-start, one-trial benchmarks, not a multi-trial
 optimization and not a 3x3 parameter grid.
 
-## Preserve the server state and lock the code
+## Git provenance
 
-Before replacing or committing a dirty server checkout, preserve its tracked
-diff and status in the ignored local research area:
+The launcher does not require a detached or locked commit and does not reject a
+dirty worktree. It records the current `HEAD` and `git status` in each run's
+metadata for retrospective tracking, but does not save a Git diff. Avoid changing
+code or configuration while the five cases are running: code identity between
+cases is an operator convention rather than a launcher-enforced guarantee.
 
-```bash
-mkdir -p .agent-local/benchmarks/r8_40_preflight
-git rev-parse HEAD > .agent-local/benchmarks/r8_40_preflight/original-head.txt
-git status --porcelain --untracked-files=all \
-  > .agent-local/benchmarks/r8_40_preflight/original-status.txt
-git diff --binary HEAD \
-  > .agent-local/benchmarks/r8_40_preflight/original-worktree.patch
-```
-
-Commit the implementation and configs once, deploy that exact commit to the
-server, and confirm that `git status --porcelain --untracked-files=all` is empty.
-Do not commit or upload the `.agent-local` patch. Record the full commit for all
-five invocations:
-
-```bash
-R8_40_LOCKED_COMMIT="$(git rev-parse HEAD)"
-```
-
-The launcher refuses to run if this SHA changes, if the worktree becomes dirty,
-if an output directory already exists, or if `/usr/bin/time` is not GNU time.
+The launcher still refuses to reuse an output directory and still checks the
+experiment configuration, required inputs, and GNU `/usr/bin/time` before orbit
+integration starts.
 
 ## Coverage and execution
 
@@ -69,26 +55,32 @@ conda run -n halo_lmc python -m halo_mw_lmc \
   -c configs/runs/density_solved_r8_40_benchmark.toml
 ```
 
-Run each case separately and in this order. The optional preflight-only command
-does not integrate orbits:
+Run the cases sequentially in this order. The optional preflight-only pass does
+not integrate orbits:
 
 ```bash
-scripts/run_density_solved_r8_40_case.sh \
-  configs/runs/density_solved_r8_40_benchmark.toml \
-  "$R8_40_LOCKED_COMMIT" --preflight-only
+R8_40_CONFIGS=(
+  configs/runs/density_solved_r8_40_benchmark.toml
+  configs/runs/density_solved_r8_40_tol1e7_benchmark.toml
+  configs/runs/density_solved_r8_40_tol1e8_benchmark.toml
+  configs/runs/density_solved_r8_40_reg1e5_benchmark.toml
+  configs/runs/density_solved_r8_40_reg1e4_benchmark.toml
+)
 
-scripts/run_density_solved_r8_40_case.sh configs/runs/density_solved_r8_40_benchmark.toml "$R8_40_LOCKED_COMMIT"
-scripts/run_density_solved_r8_40_case.sh configs/runs/density_solved_r8_40_tol1e7_benchmark.toml "$R8_40_LOCKED_COMMIT"
-scripts/run_density_solved_r8_40_case.sh configs/runs/density_solved_r8_40_tol1e8_benchmark.toml "$R8_40_LOCKED_COMMIT"
-scripts/run_density_solved_r8_40_case.sh configs/runs/density_solved_r8_40_reg1e5_benchmark.toml "$R8_40_LOCKED_COMMIT"
-scripts/run_density_solved_r8_40_case.sh configs/runs/density_solved_r8_40_reg1e4_benchmark.toml "$R8_40_LOCKED_COMMIT"
+for config in "${R8_40_CONFIGS[@]}"; do
+  scripts/run_density_solved_r8_40_case.sh "$config" --preflight-only
+done
+
+for config in "${R8_40_CONFIGS[@]}"; do
+  scripts/run_density_solved_r8_40_case.sh "$config"
+done
 ```
 
 Each run contains `benchmark_metadata/time-v.txt`, input hashes, environment
-versions, the command, logs, and Git evidence. If the workflow fails after
-creating its cold-start directory, the exit trap still copies the available
-metadata into that incomplete run for investigation; never delete it merely to
-reuse its name.
+versions, the command, logs, `git-head.txt`, and `git-status.txt`. If the
+workflow fails after creating its cold-start directory, the exit trap still
+copies the available metadata into that incomplete run for investigation;
+never delete it merely to reuse its name.
 
 ## Gate and acceptance
 
@@ -106,6 +98,10 @@ records. Compare the five saved runs without reintegration:
 conda run -n halo_lmc python scripts/compare_density_solved_r8_40.py \
   runs --output .agent-local/benchmarks/r8_40_comparison.json
 ```
+
+The comparison reports `git_provenance.same_head` and
+`git_provenance.all_status_clean` for information only. Neither field changes
+the scientific stability result or blocks a case.
 
 The tight-tolerance stability flag requires the 1e-7 and 1e-8 cases to agree to
 `1e-5` in relative selected objective, `1e-3` in maximum absolute shell/phi
