@@ -1,0 +1,68 @@
+# 实验性 No-Fixed recipe：把密度权重约束径向范围扩展到速度似然的
+# 8 <= r < 50 kpc。它与保守的 15 <= r < 40 kpc recipe 完全独立。
+schema_version = 1
+name = "zhu_2026_density_solved_r8_50_4phi"
+
+[potential]
+recipe = "zhu_2026_fiducial_constant_shape"
+
+[density_grid]
+n_r = 25
+r_range_kpc = [0.0, 50.0]
+n_z = 25
+z_range_kpc = [0.0, 50.0]
+n_phi = 4
+phi_origin_deg = -180.0
+
+[density_fit]
+# 实验改动：径向支持与 velocity_fit 对齐到 8 <= r < 50 kpc。
+# |z| >= 2 kpc 仍是独立的恒星晕选择，必须在 benchmark 中审计它是否
+# 留下参与速度似然、却没有密度响应的轨道。
+min_abs_z_kpc = 2.0
+min_radius_kpc = 8.0
+max_radius_kpc = 50.0
+# density_solved 使用 normalization="none"，target 则在实际 fit mask 内
+# 归一化为单位质量；该字段不参与当前权重尺度求解，保留为完整配置记录。
+normalization_min_radius_kpc = 8.0
+require_positive_target = true
+normalization = "none"
+
+[velocity_fit]
+enabled = true
+min_radius_kpc = 8.0
+probability_floor = 1e-300
+radius_edges_kpc = [4.0, 6.0, 8.0, 10.0, 12.0, 15.0, 20.0, 30.0, 50.0]
+theta_edges_deg = [0.0, 15.0, 30.0, 45.0, 60.0, 90.0]
+velocity_range_km_s = [-800.0, 800.0]
+velocity_bins = 201
+
+[weight_model]
+mode = "density_solved"
+solver = "lsq_linear"
+# target 在扩展后的 density fit mask 内归一化为单位质量；权重总量由
+# 逆误差最小二乘直接决定，不施加 sum(w)=1，也不在求解后重归一化。
+target_normalization = "unit_mass"
+regularization = "l2"
+regularization_strength = 1e-6
+max_iter = 20000
+lsmr_tol = 1e-6
+
+[objective]
+# 保持与基准 No-Fixed recipe 相同，只改变密度 fit mask，便于成对比较。
+mode = "velocity_only"
+density_max_chi2_per_bin = 2.0
+
+[orbits]
+periods = 10.0
+samples_per_orbit = 1000
+
+[search]
+initial_point = "paper_best"
+round_decimals = 3
+
+[search.bounds]
+qhalo = [0.70, 1.15]
+phalo = [0.40, 1.20]
+rho0 = [5.50, 7.00]
+rho0_plus_2logrs = [9.50, 10.30]
+gamma = [0.50, 1.80]

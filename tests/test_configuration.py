@@ -20,6 +20,12 @@ DENSITY_SOLVED_RUN_FILE = REPOSITORY / "configs" / "runs" / "density_solved.toml
 BENCHMARK_RUN_FILE = (
     REPOSITORY / "configs" / "runs" / "density_solved_benchmark.toml"
 )
+R8_50_BENCHMARK_RUN_FILE = (
+    REPOSITORY
+    / "configs"
+    / "runs"
+    / "density_solved_r8_50_benchmark.toml"
+)
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -104,6 +110,33 @@ class ConfigurationTests(unittest.TestCase):
         self.assertEqual(
             configuration.coverage.output_dir,
             REPOSITORY / "data_coverage-density-solved-paper-best-benchmark",
+        )
+
+    def test_r8_50_benchmark_aligns_density_and_velocity_radial_support(self):
+        configuration = load_run_configuration(R8_50_BENCHMARK_RUN_FILE)
+        comparison = configuration.to_comparison_config()
+
+        self.assertEqual(
+            configuration.run_id,
+            "density-solved-r8-50-paper-best-benchmark",
+        )
+        self.assertEqual(configuration.iterations, 1)
+        self.assertEqual(configuration.recipe.search.initial_point, "paper_best")
+        self.assertEqual(comparison.density_fit.min_spherical_radius, 8.0)
+        self.assertEqual(comparison.density_fit.max_spherical_radius, 50.0)
+        self.assertEqual(comparison.velocity_fit_min_radius, 8.0)
+        self.assertEqual(comparison.velocity_grid.radius_edges[-1], 50.0)
+        self.assertEqual(comparison.density_fit.min_abs_z, 2.0)
+        self.assertEqual(comparison.weight_model.mode, "density_solved")
+        self.assertEqual(comparison.density_fit.normalization, "none")
+        self.assertEqual(
+            configuration.output_dir,
+            REPOSITORY / "runs/density-solved-r8-50-paper-best-benchmark",
+        )
+        self.assertEqual(
+            configuration.coverage.output_dir,
+            REPOSITORY
+            / "data_coverage-density-solved-r8-50-paper-best-benchmark",
         )
 
     def test_every_relative_path_is_resolved_from_its_declaring_file(self):
