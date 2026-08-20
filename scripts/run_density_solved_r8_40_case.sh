@@ -18,12 +18,29 @@ fi
 cd "$REPOSITORY"
 export PYTHONPATH="$REPOSITORY/Agama-master${PYTHONPATH:+:$PYTHONPATH}"
 
-mapfile -t PREFLIGHT < <(
+if ! PREFLIGHT_OUTPUT="$(
   conda run -n halo_lmc python -m halo_mw_lmc.benchmark \
     "$RUN_CONFIG"
-)
+)"; then
+  echo "benchmark preflight command failed" >&2
+  if [[ -n "$PREFLIGHT_OUTPUT" ]]; then
+    echo "preflight output was:" >&2
+    printf '%s\n' "$PREFLIGHT_OUTPUT" >&2
+  fi
+  exit 1
+fi
+PREFLIGHT=()
+while IFS= read -r line; do
+  if [[ -n "${line//[[:space:]]/}" ]]; then
+    PREFLIGHT+=("$line")
+  fi
+done <<< "$PREFLIGHT_OUTPUT"
 if [[ ${#PREFLIGHT[@]} -ne 4 ]]; then
   echo "benchmark preflight did not return the expected run information" >&2
+  if [[ -n "$PREFLIGHT_OUTPUT" ]]; then
+    echo "preflight output was:" >&2
+    printf '%s\n' "$PREFLIGHT_OUTPUT" >&2
+  fi
   exit 1
 fi
 RUN_ID="${PREFLIGHT[0]}"

@@ -91,6 +91,8 @@ class BenchmarkLauncherPolicyTests(unittest.TestCase):
         )
         self.assertNotIn("LOCKED_GIT_SHA", source)
         self.assertNotIn("git diff", source)
+        self.assertNotIn("mapfile -t PREFLIGHT < <(", source)
+        self.assertIn('if ! PREFLIGHT_OUTPUT="$(', source)
 
     def test_launcher_usage_has_no_sha_argument(self):
         completed = subprocess.run(
