@@ -1,0 +1,133 @@
+{
+  "catalog_path": "/home/tqiu/halo_mw_LMC/data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt",
+  "complete_6d_fraction": 1.0,
+  "complete_6d_rows": 11250,
+  "configuration": {
+    "phi_edges_rad": [
+      -3.141592653589793,
+      -1.5707963267948966,
+      0.0,
+      1.5707963267948966,
+      3.141592653589793
+    ],
+    "r_edges_kpc": [
+      0.0,
+      2.0,
+      4.0,
+      6.0,
+      8.0,
+      10.0,
+      12.0,
+      14.0,
+      16.0,
+      18.0,
+      20.0,
+      22.0,
+      24.0,
+      26.0,
+      28.0,
+      30.0,
+      32.0,
+      34.0,
+      36.0,
+      38.0,
+      40.0,
+      42.0,
+      44.0,
+      46.0,
+      48.0,
+      50.0
+    ],
+    "random_seed": 0,
+    "velocity_display_limit_km_s": 600.0,
+    "z_edges_kpc": [
+      0.0,
+      2.0,
+      4.0,
+      6.0,
+      8.0,
+      10.0,
+      12.0,
+      14.0,
+      16.0,
+      18.0,
+      20.0,
+      22.0,
+      24.0,
+      26.0,
+      28.0,
+      30.0,
+      32.0,
+      34.0,
+      36.0,
+      38.0,
+      40.0,
+      42.0,
+      44.0,
+      46.0,
+      48.0,
+      50.0
+    ]
+  },
+  "density_interpretation": "raw catalogue sampling density; no selection-function correction",
+  "finite_position_rows": 11250,
+  "finite_rows_by_column": {
+    "vx_gc": 11250,
+    "vy_gc": 11250,
+    "vz_gc": 11250,
+    "x_gc": 11250,
+    "y_gc": 11250,
+    "z_gc": 11250
+  },
+  "input_rows": 11250,
+  "rtheta_phi": {
+    "cells_with_1_to_10_stars": 14,
+    "cells_with_1_to_5_stars": 8,
+    "empty_cells": 39,
+    "empty_fraction": 0.24375,
+    "in_grid_fraction": 0.9845333333333334,
+    "in_grid_rows": 11076,
+    "maximum_count": 520,
+    "median_nonempty_count": 62.0,
+    "minimum_nonempty_count": 1,
+    "occupied_cells": 121,
+    "outside_grid_rows": 174,
+    "rows_by_phi": [
+      4021,
+      101,
+      853,
+      6101
+    ],
+    "shape": [
+      8,
+      5,
+      4
+    ],
+    "total_cells": 160
+  },
+  "rzphi": {
+    "cells_with_1_to_10_stars": 589,
+    "cells_with_1_to_5_stars": 516,
+    "empty_cells": 1745,
+    "empty_fraction": 0.698,
+    "in_grid_fraction": 0.9931555555555556,
+    "in_grid_rows": 11173,
+    "maximum_count": 666,
+    "median_nonempty_count": 2.0,
+    "minimum_nonempty_count": 1,
+    "occupied_cells": 755,
+    "outside_grid_rows": 77,
+    "rows_by_phi": [
+      4039,
+      102,
+      856,
+      6176
+    ],
+    "shape": [
+      25,
+      25,
+      4
+    ],
+    "total_cells": 2500
+  }
+}
