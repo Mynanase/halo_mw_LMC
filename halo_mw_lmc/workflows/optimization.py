@@ -188,6 +188,16 @@ def resolved_configuration_document(
             "implementation": "scikit-optimize.Optimizer",
             "iterations": configuration.iterations,
             "random_seed": configuration.random_seed,
+            "schedule": (
+                "fixed_points"
+                if configuration.fixed_optimizer_points is not None
+                else "adaptive"
+            ),
+            "fixed_points": (
+                [list(point) for point in configuration.fixed_optimizer_points]
+                if configuration.fixed_optimizer_points is not None
+                else None
+            ),
             "coordinates": list(OPTIMIZER_COORDINATES),
             "round_decimals": configuration.round_decimals,
             "initial_point": configuration.recipe.search.initial_point,
@@ -433,7 +443,14 @@ def run_optimization(configuration: RunConfiguration) -> Path:
     )
     best_objective = np.inf
     for iteration in range(configuration.iterations):
-        suggested = paper_point if iteration == 0 and use_paper_first else optimizer.ask()
+        if configuration.fixed_optimizer_points is not None:
+            suggested = configuration.fixed_optimizer_points[iteration]
+        else:
+            suggested = (
+                paper_point
+                if iteration == 0 and use_paper_first
+                else optimizer.ask()
+            )
         evaluated, parameters = rounded_trial(
             suggested,
             decimals=configuration.round_decimals,

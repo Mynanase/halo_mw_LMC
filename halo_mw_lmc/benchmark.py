@@ -20,6 +20,8 @@ R8_40_RUN_CONFIG_NAMES = frozenset(
         "density_solved_r8_40_tol1e8_benchmark.toml",
         "density_solved_r8_40_reg1e5_benchmark.toml",
         "density_solved_r8_40_reg1e4_benchmark.toml",
+        "density_solved_r8_40_potential_ranking_tol1e7.toml",
+        "density_solved_r8_40_potential_ranking_tol1e8.toml",
     }
 )
 R8_40_CASE_PARAMETERS = {
@@ -29,6 +31,17 @@ R8_40_CASE_PARAMETERS = {
     "density_solved_r8_40_reg1e5_benchmark.toml": (1e-6, 1e-5),
     "density_solved_r8_40_reg1e4_benchmark.toml": (1e-6, 1e-4),
 }
+R8_40_POTENTIAL_RANKING_CASE_PARAMETERS = {
+    "density_solved_r8_40_potential_ranking_tol1e7.toml": (1e-7, 1e-6),
+    "density_solved_r8_40_potential_ranking_tol1e8.toml": (1e-8, 1e-6),
+}
+R8_40_POTENTIAL_RANKING_FIXED_POINTS = (
+    (0.920, 0.800, 6.200, 9.890, 1.000),
+    (0.820, 0.700, 6.200, 9.890, 1.000),
+    (1.020, 0.950, 6.200, 9.890, 1.000),
+    (0.920, 0.800, 6.500, 9.800, 1.200),
+    (0.920, 0.800, 5.900, 10.050, 0.800),
+)
 
 
 @dataclass(frozen=True)
@@ -77,10 +90,23 @@ def validate_benchmark_preflight(
         dtype=float,
     )
     actual_shells = np.asarray(comparison.objective.density_shell_edges, dtype=float)
-    expected_tol, expected_regularization = R8_40_CASE_PARAMETERS[config.name]
+    ranking_case = config.name in R8_40_POTENTIAL_RANKING_CASE_PARAMETERS
+    case_parameters = (
+        R8_40_POTENTIAL_RANKING_CASE_PARAMETERS
+        if ranking_case
+        else R8_40_CASE_PARAMETERS
+    )
+    expected_tol, expected_regularization = case_parameters[config.name]
+    expected_iterations = (
+        len(R8_40_POTENTIAL_RANKING_FIXED_POINTS) if ranking_case else 1
+    )
+    expected_fixed_points = (
+        R8_40_POTENTIAL_RANKING_FIXED_POINTS if ranking_case else None
+    )
     if (
-        configuration.iterations != 1
+        configuration.iterations != expected_iterations
         or configuration.random_seed != 0
+        or configuration.fixed_optimizer_points != expected_fixed_points
         or configuration.recipe.search.initial_point != "paper_best"
         or comparison.density_fit.min_spherical_radius != 8.0
         or comparison.density_fit.max_spherical_radius != 40.0
@@ -103,7 +129,7 @@ def validate_benchmark_preflight(
         or comparison.orbit_periods != 10.0
         or comparison.orbit_samples_per_orbit != 1000
     ):
-        raise RuntimeError("run config is not a one-trial paper-best 8--40 benchmark")
+        raise RuntimeError("run config does not match its named 8--40 benchmark")
     if configuration.output_dir.exists():
         raise RuntimeError(
             f"cold-start output directory already exists: {configuration.output_dir}"

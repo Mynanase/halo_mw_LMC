@@ -229,6 +229,32 @@ def _azimuthal_density_error(comparison: DensityComparison) -> np.ndarray:
     )
 
 
+def _density_fit_display_mask(
+    comparison: DensityComparison,
+    phi_index: int | None,
+) -> np.ndarray:
+    """Return the fitted cells that may be shown as fit results."""
+
+    if phi_index is None:
+        return np.all(comparison.fit_mask, axis=2)
+    if not 0 <= phi_index < comparison.grid.shape[-1]:
+        raise IndexError("phi_index is outside the density grid")
+    return comparison.fit_mask[:, :, phi_index].copy()
+
+
+def _masked_density_panel(values: np.ndarray, fit_mask: np.ndarray) -> np.ndarray:
+    """Hide values outside the density fit mask without changing artifacts."""
+
+    result = np.asarray(values, dtype=float).copy()
+    mask = np.asarray(fit_mask, dtype=bool)
+    if result.shape != mask.shape:
+        raise ValueError(
+            f"panel has shape {result.shape}; fit mask has shape {mask.shape}"
+        )
+    result[~mask] = np.nan
+    return result
+
+
 def plot_density_comparison(
     comparison: DensityComparison,
     output: str | Path,
@@ -250,16 +276,24 @@ def plot_density_comparison(
         sharey=True,
     )
     extent = [grid.r_edges[0], grid.r_edges[-1], grid.z_edges[0], grid.z_edges[-1]]
-    log_min, log_max = _positive_log_limits(
+    fitted_data = np.where(
+        comparison.fit_mask,
         comparison.data_density,
-        comparison.model_density,
+        np.nan,
     )
+    fitted_model = np.where(
+        comparison.fit_mask,
+        comparison.model_density,
+        np.nan,
+    )
+    log_min, log_max = _positive_log_limits(fitted_data, fitted_model)
     relative_error = np.divide(
         comparison.data_error,
         comparison.data_density,
         out=np.full_like(comparison.data_error, np.nan),
         where=comparison.data_density > 0,
     )
+    relative_error[~comparison.fit_mask] = np.nan
     finite_relative_error = relative_error[np.isfinite(relative_error)]
     relative_max = (
         float(np.nanpercentile(finite_relative_error, 95))
@@ -289,24 +323,36 @@ def plot_density_comparison(
         out=np.full_like(average_error, np.nan),
         where=average_error > 0,
     )
-    average_residual[~np.any(comparison.fit_mask, axis=2)] = np.nan
+    average_fit_mask = _density_fit_display_mask(comparison, None)
     panels = [
         (
             "φ averaged",
-            average_data,
-            average_model,
-            average_relative_error,
-            average_residual,
+            _masked_density_panel(average_data, average_fit_mask),
+            _masked_density_panel(average_model, average_fit_mask),
+            _masked_density_panel(average_relative_error, average_fit_mask),
+            _masked_density_panel(average_residual, average_fit_mask),
         )
     ]
     panels.extend(
         (
             (
                 f"{phi_lo:.0f}° ≤ φ < {phi_hi:.0f}°",
-                comparison.data_density[:, :, iphi],
-                comparison.model_density[:, :, iphi],
-                relative_error[:, :, iphi],
-                comparison.residual[:, :, iphi],
+                _masked_density_panel(
+                    comparison.data_density[:, :, iphi],
+                    _density_fit_display_mask(comparison, iphi),
+                ),
+                _masked_density_panel(
+                    comparison.model_density[:, :, iphi],
+                    _density_fit_display_mask(comparison, iphi),
+                ),
+                _masked_density_panel(
+                    relative_error[:, :, iphi],
+                    _density_fit_display_mask(comparison, iphi),
+                ),
+                _masked_density_panel(
+                    comparison.residual[:, :, iphi],
+                    _density_fit_display_mask(comparison, iphi),
+                ),
             )
         )
         for iphi, (phi_lo, phi_hi) in enumerate(
@@ -397,16 +443,24 @@ def plot_density_phi_pages(
     output_directory.mkdir(parents=True, exist_ok=True)
     grid = comparison.grid
     extent = [grid.r_edges[0], grid.r_edges[-1], grid.z_edges[0], grid.z_edges[-1]]
-    log_min, log_max = _positive_log_limits(
+    fitted_data = np.where(
+        comparison.fit_mask,
         comparison.data_density,
-        comparison.model_density,
+        np.nan,
     )
+    fitted_model = np.where(
+        comparison.fit_mask,
+        comparison.model_density,
+        np.nan,
+    )
+    log_min, log_max = _positive_log_limits(fitted_data, fitted_model)
     relative_error = np.divide(
         comparison.data_error,
         comparison.data_density,
         out=np.full_like(comparison.data_error, np.nan),
         where=comparison.data_density > 0,
     )
+    relative_error[~comparison.fit_mask] = np.nan
     finite_relative_error = relative_error[np.isfinite(relative_error)]
     relative_max = (
         float(np.nanpercentile(finite_relative_error, 95))
@@ -416,6 +470,23 @@ def plot_density_phi_pages(
     relative_max = max(relative_max, np.finfo(float).eps)
     written: list[Path] = []
     for iphi in range(grid.shape[-1]):
+        fit_mask = _density_fit_display_mask(comparison, iphi)
+        data_density = _masked_density_panel(
+            comparison.data_density[:, :, iphi],
+            fit_mask,
+        )
+        model_density = _masked_density_panel(
+            comparison.model_density[:, :, iphi],
+            fit_mask,
+        )
+        relative_slice = _masked_density_panel(
+            relative_error[:, :, iphi],
+            fit_mask,
+        )
+        residual_slice = _masked_density_panel(
+            comparison.residual[:, :, iphi],
+            fit_mask,
+        )
         figure, axes = plt.subplots(
             2,
             2,
@@ -426,8 +497,8 @@ def plot_density_phi_pages(
         )
         density_image = None
         for axis, title, density in (
-            (axes[0, 0], "Target density", comparison.data_density[:, :, iphi]),
-            (axes[0, 1], "Model density", comparison.model_density[:, :, iphi]),
+            (axes[0, 0], "Target density", data_density),
+            (axes[0, 1], "Model density", model_density),
         ):
             density_image = axis.imshow(
                 _log_density(density).T,
@@ -441,7 +512,7 @@ def plot_density_phi_pages(
             _draw_contours(axis, density, grid)
             axis.set_title(title)
         error_image = axes[1, 0].imshow(
-            relative_error[:, :, iphi].T,
+            relative_slice.T,
             origin="lower",
             extent=extent,
             aspect="auto",
@@ -450,7 +521,7 @@ def plot_density_phi_pages(
             vmax=relative_max,
         )
         residual_image = axes[1, 1].imshow(
-            comparison.residual[:, :, iphi].T,
+            residual_slice.T,
             origin="lower",
             extent=extent,
             aspect="auto",

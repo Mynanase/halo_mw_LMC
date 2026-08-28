@@ -76,6 +76,23 @@ for config in "${R8_40_CONFIGS[@]}"; do
 done
 ```
 
+After a successful baseline, the four remaining cases can instead be launched
+sequentially with one command:
+
+```bash
+scripts/run_density_solved_r8_40_remaining_cases.sh
+```
+
+To validate all four without integrating orbits, use:
+
+```bash
+scripts/run_density_solved_r8_40_remaining_cases.sh --preflight-only
+```
+
+The batch stops on the first failed case. It does not require a locked commit or
+clean worktree; each delegated single-case run records its own Git HEAD, status,
+logs, input hashes, and GNU time measurements.
+
 Each run contains `benchmark_metadata/time-v.txt`, input hashes, environment
 versions, the command, logs, `git-head.txt`, and `git-status.txt`. If the
 workflow fails after creating its cold-start directory, the exit trap still
@@ -109,3 +126,44 @@ chi-square per bin, and `1e-2` in normalized-weight L1 distance. Regularization
 cases are diagnostic: review effective orbit count, maximum weight fraction,
 active orbit count, velocity objective, and gates without automatically changing
 the default strength.
+
+## Fixed-point potential-ranking test
+
+The paper-best sensitivity runs pass every density gate but fail tolerance
+stability in velocity objective and normalized weights. This does not by itself
+show that potential recovery is unstable: a tolerance-dependent offset that is
+nearly constant across potentials would leave the potential ranking unchanged.
+
+The next bounded experiment evaluates the same five potentials, in the same
+order, at `lsmr_tol=1e-7` and `1e-8`. It is a cold-start fixed schedule, not an
+adaptive optimizer and not warm-start injection.
+
+| point | q | p | rho0 | rho0+2log10(rs) | gamma | purpose |
+|---|---:|---:|---:|---:|---:|---|
+| paper-best | 0.92 | 0.80 | 6.20 | 9.89 | 1.00 | common reference |
+| flatter/more triaxial | 0.82 | 0.70 | 6.20 | 9.89 | 1.00 | shape perturbation |
+| rounder | 1.02 | 0.95 | 6.20 | 9.89 | 1.00 | opposite shape perturbation |
+| more concentrated | 0.92 | 0.80 | 6.50 | 9.80 | 1.20 | radial-profile perturbation |
+| more extended | 0.92 | 0.80 | 5.90 | 10.05 | 0.80 | opposite radial perturbation |
+
+Validate both runs without integration:
+
+```bash
+scripts/run_density_solved_r8_40_potential_ranking.sh --preflight-only
+```
+
+Then run both sequentially and generate the comparison JSON automatically:
+
+```bash
+scripts/run_density_solved_r8_40_potential_ranking.sh
+```
+
+The comparison is written to
+`.agent-local/benchmarks/r8_40_potential_ranking_comparison.json`. It removes
+the tolerance offset measured at paper-best and reports the best point,
+Spearman rank correlation, pairwise ordering agreement, and maximum remaining
+differential shift relative to the objective span. `ranking_stable=true`
+requires all ten evaluations to be valid, the same best point, Spearman and
+pairwise agreement at least 0.9, and differential shift no more than 10% of the
+paired objective span. These thresholds are a small-sample screening rule, not
+a posterior-accuracy statement.

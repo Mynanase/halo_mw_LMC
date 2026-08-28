@@ -40,11 +40,11 @@ physical stellar densities.
     conda run -n halo_lmc python <command>
     ```
 
-  - **Local debugging**: `dp_jax` (the name has an underscore, not a dash).
-    Use the same `conda run -n dp_jax python <command>` form. `dp_jax` is
+  - **Local debugging**: `dp-jax` (the name has a dash, not an underscore).
+    Use the same `conda run -n dp-jax python <command>` form. `dp-jax` is
     only present on the developer's local machine; do not assume it exists
     on the server.
-- Do not silently switch between `halo_lmc` and `dp_jax`. If a command is
+- Do not silently switch between `halo_lmc` and `dp-jax`. If a command is
   requested in one environment and the dependency probe shows it is
   missing there, report the missing dependency instead of falling back to
   the other environment without asking.
@@ -68,7 +68,7 @@ physical stellar densities.
     compiled 2026-07-24, on the server.
 - The repository-local `.venv` is not the preferred scientific runtime
   unless the user explicitly changes this convention.
-- Do not install or upgrade packages in `halo_lmc` or `dp_jax` without
+- Do not install or upgrade packages in `halo_lmc` or `dp-jax` without
   user approval. For disposable build experiments, use a temporary
   directory or temporary environment.
 
@@ -131,6 +131,11 @@ environments or installing packages.
   not require a clean or locked checkout. See
   `docs/density_solved_r8_40_experiment.md`; do not advance to a multi-trial scan
   until the tolerance and regularization diagnostics are reviewed.
+- The five paper-best 8--40 sensitivity cases pass their density gates but the
+  1e-7/1e-8 comparison is not stable in velocity objective or solved weights.
+  Before an adaptive multi-trial scan, run the paired five-point fixed-potential
+  ranking test documented in `docs/density_solved_r8_40_experiment.md`. Fixed
+  points are an explicit cold-start diagnostic schedule, not warm-start data.
 - Exclude `r < 8 kpc` from the velocity likelihood because the empirical orbit
   library is incomplete there. The inner velocity histograms may remain
   available for diagnostics, but must not affect the optimizer objective.

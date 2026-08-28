@@ -9,6 +9,10 @@ from ..artifacts import load_best_evaluation, load_run_summary
 from ..configuration import RunConfiguration
 from ..visualization.convergence import build_convergence_figure
 from ..visualization.model import plot_model_diagnostics
+from ..visualization.parameter_constraints import (
+    build_parameter_constraints_figure,
+    search_bounds_from_resolved_config,
+)
 
 
 def generate_report(configuration: RunConfiguration) -> list[Path]:
@@ -49,4 +53,12 @@ def generate_report(configuration: RunConfiguration) -> list[Path]:
 
     plt.close(convergence)
     written.append(convergence_path)
+    constraints = build_parameter_constraints_figure(
+        summary.samples,
+        search_bounds_from_resolved_config(summary.config),
+    )
+    constraints_path = figure_directory / "parameter_constraints.pdf"
+    constraints.savefig(constraints_path, bbox_inches="tight")
+    plt.close(constraints)
+    written.append(constraints_path)
     return written

@@ -206,6 +206,7 @@ class DataConfiguration:
 class OptimizerConfiguration:
     iterations: int
     random_seed: int
+    fixed_points: tuple[tuple[float, ...], ...] | None = None
 
 
 @dataclass(frozen=True)
@@ -260,6 +261,10 @@ class RunConfiguration:
     def random_seed(self) -> int:
         return self.optimizer.random_seed
 
+    @property
+    def fixed_optimizer_points(self) -> tuple[tuple[float, ...], ...] | None:
+        return self.optimizer.fixed_points
+
     def to_comparison_config(self) -> ZhuComparisonConfig:
         return self.recipe.to_comparison_config()
 
@@ -301,9 +306,12 @@ def _require_exact_fields(
     table: Mapping[str, Any],
     expected: set[str],
     context: str,
+    *,
+    optional: set[str] | None = None,
 ) -> None:
+    optional = set() if optional is None else optional
     actual = set(table)
-    unknown = sorted(actual - expected)
+    unknown = sorted(actual - expected - optional)
     missing = sorted(expected - actual)
     if unknown:
         raise ConfigurationError(
@@ -375,6 +383,53 @@ def _edges(value: Any, context: str) -> tuple[float, ...]:
     if any(left >= right for left, right in zip(result, result[1:])):
         raise ConfigurationError(f"{context} must be strictly increasing")
     return result
+
+
+def _fixed_optimizer_points(
+    value: Any,
+    context: str,
+    *,
+    bounds: Mapping[str, tuple[float, float]],
+    round_decimals: int,
+) -> tuple[tuple[float, ...], ...]:
+    if not isinstance(value, list) or not value:
+        raise ConfigurationError(f"{context} must contain at least one point")
+    points: list[tuple[float, ...]] = []
+    for point_index, raw_point in enumerate(value):
+        point_context = f"{context}[{point_index}]"
+        if not isinstance(raw_point, list) or len(raw_point) != len(
+            SEARCH_PARAMETER_NAMES
+        ):
+            raise ConfigurationError(
+                f"{point_context} must contain exactly "
+                f"{len(SEARCH_PARAMETER_NAMES)} coordinates in "
+                f"{', '.join(SEARCH_PARAMETER_NAMES)} order"
+            )
+        point = tuple(
+            _number(coordinate, f"{point_context}[{coordinate_index}]")
+            for coordinate_index, coordinate in enumerate(raw_point)
+        )
+        for name, coordinate in zip(SEARCH_PARAMETER_NAMES, point):
+            if not math.isclose(
+                coordinate,
+                round(coordinate, round_decimals),
+                rel_tol=0.0,
+                abs_tol=10 ** (-(round_decimals + 10)),
+            ):
+                raise ConfigurationError(
+                    f"{point_context} coordinate {name} must be representable "
+                    f"with round_decimals={round_decimals}"
+                )
+            lower, upper = bounds[name]
+            if not lower <= coordinate <= upper:
+                raise ConfigurationError(
+                    f"{point_context} coordinate {name}={coordinate} lies outside "
+                    f"configured bounds [{lower}, {upper}]"
+                )
+        points.append(point)
+    if len(set(points)) != len(points):
+        raise ConfigurationError(f"{context} must not contain duplicate points")
+    return tuple(points)
 
 
 def _resolved_path(value: Any, source: Path, context: str) -> Path:
@@ -874,18 +929,34 @@ def load_run_configuration(path: str | Path) -> RunConfiguration:
         optimizer_table,
         {"iterations", "random_seed"},
         "run configuration.optimizer",
+        optional={"fixed_points"},
     )
+    optimizer_iterations = _integer(
+        optimizer_table["iterations"],
+        "run configuration.optimizer.iterations",
+        minimum=1,
+    )
+    fixed_points = None
+    if "fixed_points" in optimizer_table:
+        fixed_points = _fixed_optimizer_points(
+            optimizer_table["fixed_points"],
+            "run configuration.optimizer.fixed_points",
+            bounds=recipe.search.bounds.as_dict(),
+            round_decimals=recipe.search.round_decimals,
+        )
+        if optimizer_iterations != len(fixed_points):
+            raise ConfigurationError(
+                "run configuration.optimizer.iterations must equal the number "
+                "of fixed_points"
+            )
     optimizer = OptimizerConfiguration(
-        iterations=_integer(
-            optimizer_table["iterations"],
-            "run configuration.optimizer.iterations",
-            minimum=1,
-        ),
+        iterations=optimizer_iterations,
         random_seed=_integer(
             optimizer_table["random_seed"],
             "run configuration.optimizer.random_seed",
             minimum=0,
         ),
+        fixed_points=fixed_points,
     )
 
     report_table = _table(document, "report", "run configuration")

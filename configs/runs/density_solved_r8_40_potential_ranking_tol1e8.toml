@@ -1,0 +1,33 @@
+# Five fixed potential points for tolerance-ranking stability at lsmr_tol=1e-8.
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved_r8_40_tol1e8.toml"
+
+[run]
+id = "density-solved-r8-40-potential-ranking-tol1e8"
+output_dir = "../../runs/density-solved-r8-40-potential-ranking-tol1e8"
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz"
+
+[optimizer]
+iterations = 5
+random_seed = 0
+# Keep this list byte-for-byte aligned with the tol1e7 paired run.
+# Coordinate order: qhalo, phalo, rho0, rho0_plus_2logrs, gamma.
+fixed_points = [
+  [0.920, 0.800, 6.200, 9.890, 1.000], # paper-best
+  [0.820, 0.700, 6.200, 9.890, 1.000], # flatter and more triaxial
+  [1.020, 0.950, 6.200, 9.890, 1.000], # rounder
+  [0.920, 0.800, 6.500, 9.800, 1.200], # more centrally concentrated
+  [0.920, 0.800, 5.900, 10.050, 0.800], # more radially extended
+]
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../../data_coverage-density-solved-r8-40-potential-ranking-tol1e8"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0

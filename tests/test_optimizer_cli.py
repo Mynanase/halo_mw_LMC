@@ -140,6 +140,20 @@ class OptimizerCliTests(unittest.TestCase):
             2.0,
         )
 
+    def test_resolved_config_records_fixed_optimizer_schedule(self):
+        configuration = load_run_configuration(
+            R8_40_CONFIG.parent
+            / "density_solved_r8_40_potential_ranking_tol1e7.toml"
+        )
+
+        document = resolved_configuration_document(configuration)
+
+        self.assertEqual(document["optimizer"]["schedule"], "fixed_points")
+        self.assertEqual(
+            document["optimizer"]["fixed_points"],
+            [list(point) for point in configuration.fixed_optimizer_points],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

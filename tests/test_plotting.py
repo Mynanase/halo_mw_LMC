@@ -8,7 +8,9 @@ from halo_mw_lmc.core.density import compare_density
 from halo_mw_lmc.core.grids import CylindricalGrid
 from halo_mw_lmc.visualization.model import (
     _coarsen_velocity_panel,
+    _density_fit_display_mask,
     _fit_origin_centered_ellipse,
+    _masked_density_panel,
     _velocity_panel_values,
     isodensity_shape_profile,
 )
@@ -19,6 +21,69 @@ from halo_mw_lmc.core.velocity import (
 
 
 class PlottingDiagnosticsTests(unittest.TestCase):
+    def test_density_display_hides_unfitted_cells_and_requires_all_phi(self):
+        grid = CylindricalGrid.uniform(
+            n_r=2,
+            r_range=(0.0, 4.0),
+            n_z=2,
+            z_range=(0.0, 4.0),
+            n_phi=2,
+        )
+        density = np.ones(grid.shape)
+        comparison = compare_density(
+            density,
+            density,
+            density,
+            grid,
+            DensityFitSettings(
+                min_abs_z=2.0,
+                min_spherical_radius=0.0,
+                max_spherical_radius=10.0,
+                normalization_min_radius=0.0,
+            ),
+        )
+
+        phi_mask = _density_fit_display_mask(comparison, 0)
+        displayed = _masked_density_panel(
+            comparison.data_density[:, :, 0],
+            phi_mask,
+        )
+        self.assertTrue(np.all(np.isnan(displayed[:, 0])))
+        self.assertTrue(np.all(np.isfinite(displayed[:, 1])))
+
+        changed = comparison.fit_mask.copy()
+        changed[0, 1, 1] = False
+        average_mask = _density_fit_display_mask(
+            replace(comparison, fit_mask=changed),
+            None,
+        )
+        self.assertFalse(average_mask[0, 1])
+        self.assertTrue(average_mask[1, 1])
+
+    def test_density_display_includes_lowest_row_when_it_is_fitted(self):
+        grid = CylindricalGrid.uniform(
+            n_r=2,
+            r_range=(0.0, 4.0),
+            n_z=2,
+            z_range=(0.0, 4.0),
+            n_phi=1,
+        )
+        density = np.ones(grid.shape)
+        comparison = compare_density(
+            density,
+            density,
+            density,
+            grid,
+            DensityFitSettings(
+                min_abs_z=0.0,
+                min_spherical_radius=0.0,
+                max_spherical_radius=10.0,
+                normalization_min_radius=0.0,
+            ),
+        )
+
+        self.assertTrue(np.all(_density_fit_display_mask(comparison, 0)))
+
     def test_masked_contour_ellipse_fit_recovers_known_shape(self):
         angle = np.linspace(0.15, 1.35, 50)
         vertices = np.column_stack((20.0 * np.cos(angle), 13.0 * np.sin(angle)))

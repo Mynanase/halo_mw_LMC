@@ -6,13 +6,23 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from halo_mw_lmc.benchmark import validate_benchmark_preflight
+from halo_mw_lmc.benchmark import (
+    R8_40_POTENTIAL_RANKING_FIXED_POINTS,
+    validate_benchmark_preflight,
+)
 from halo_mw_lmc.configuration import load_run_configuration
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
 CONFIG = REPOSITORY / "configs/runs/density_solved_r8_40_benchmark.toml"
+RANKING_CONFIG = (
+    REPOSITORY
+    / "configs/runs/density_solved_r8_40_potential_ranking_tol1e7.toml"
+)
 LAUNCHER = REPOSITORY / "scripts/run_density_solved_r8_40_case.sh"
+RANKING_LAUNCHER = (
+    REPOSITORY / "scripts/run_density_solved_r8_40_potential_ranking.sh"
+)
 
 
 class BenchmarkPreflightTests(unittest.TestCase):
@@ -38,6 +48,25 @@ class BenchmarkPreflightTests(unittest.TestCase):
             check=True,
             capture_output=True,
             text=True,
+        )
+
+    @patch("halo_mw_lmc.benchmark.Path.is_file", return_value=True)
+    @patch("halo_mw_lmc.benchmark.os.access", return_value=True)
+    @patch("halo_mw_lmc.benchmark.subprocess.run")
+    def test_fixed_point_ranking_case_passes(
+        self,
+        run,
+        _access,
+        _is_file,
+    ):
+        run.side_effect = self._time_version
+
+        result = validate_benchmark_preflight(REPOSITORY, RANKING_CONFIG)
+
+        self.assertEqual(result.configuration.iterations, 5)
+        self.assertEqual(
+            result.configuration.fixed_optimizer_points,
+            R8_40_POTENTIAL_RANKING_FIXED_POINTS,
         )
 
     @patch("halo_mw_lmc.benchmark.Path.is_file", return_value=False)
@@ -105,6 +134,18 @@ class BenchmarkLauncherPolicyTests(unittest.TestCase):
         self.assertEqual(completed.returncode, 2)
         self.assertIn("RUN_CONFIG [--preflight-only]", completed.stderr)
         self.assertNotIn("GIT_SHA", completed.stderr)
+
+    def test_ranking_launcher_runs_the_paired_tolerances_in_order(self):
+        source = RANKING_LAUNCHER.read_text()
+        left = "density_solved_r8_40_potential_ranking_tol1e7.toml"
+        right = "density_solved_r8_40_potential_ranking_tol1e8.toml"
+
+        self.assertLess(source.index(left), source.index(right))
+        self.assertIn("run_density_solved_r8_40_case.sh", source)
+        self.assertIn(
+            "compare_density_solved_r8_40_potential_ranking.py",
+            source,
+        )
 
 
 if __name__ == "__main__":

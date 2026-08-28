@@ -39,6 +39,17 @@ R8_40_CASES = {
     "density_solved_r8_40_reg1e5_benchmark.toml": (1e-6, 1e-5),
     "density_solved_r8_40_reg1e4_benchmark.toml": (1e-6, 1e-4),
 }
+R8_40_RANKING_CASES = {
+    "density_solved_r8_40_potential_ranking_tol1e7.toml": 1e-7,
+    "density_solved_r8_40_potential_ranking_tol1e8.toml": 1e-8,
+}
+R8_40_RANKING_POINTS = (
+    (0.920, 0.800, 6.200, 9.890, 1.000),
+    (0.820, 0.700, 6.200, 9.890, 1.000),
+    (1.020, 0.950, 6.200, 9.890, 1.000),
+    (0.920, 0.800, 6.500, 9.800, 1.200),
+    (0.920, 0.800, 5.900, 10.050, 0.800),
+)
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -185,6 +196,39 @@ class ConfigurationTests(unittest.TestCase):
                     comparison.weight_model.regularization_strength,
                     expected_regularization,
                 )
+
+    def test_r8_40_ranking_cases_use_identical_fixed_points(self):
+        for filename, expected_tol in R8_40_RANKING_CASES.items():
+            with self.subTest(filename=filename):
+                configuration = load_run_configuration(
+                    REPOSITORY / "configs" / "runs" / filename
+                )
+                comparison = configuration.to_comparison_config()
+                self.assertEqual(configuration.iterations, 5)
+                self.assertEqual(
+                    configuration.fixed_optimizer_points,
+                    R8_40_RANKING_POINTS,
+                )
+                self.assertEqual(comparison.weight_model.lsmr_tol, expected_tol)
+                self.assertEqual(
+                    comparison.weight_model.regularization_strength,
+                    1e-6,
+                )
+
+    def test_fixed_point_count_must_match_iterations(self):
+        source = (
+            REPOSITORY
+            / "configs/runs/density_solved_r8_40_potential_ranking_tol1e7.toml"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "run.toml"
+            text = source.read_text().replace(
+                'recipe = "../recipes/zhu_2026_density_solved_r8_40_tol1e7.toml"',
+                f'recipe = "{REPOSITORY / "configs/recipes/zhu_2026_density_solved_r8_40_tol1e7.toml"}"',
+            )
+            path.write_text(text.replace("iterations = 5", "iterations = 4"))
+            with self.assertRaisesRegex(ConfigurationError, "must equal"):
+                load_run_configuration(path)
 
     def test_density_shell_gate_requires_matching_velocity_boundaries(self):
         source = REPOSITORY / "configs/recipes/zhu_2026_density_solved_r8_40.toml"
