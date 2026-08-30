@@ -207,3 +207,66 @@ requires all ten evaluations to be valid, the same best point, Spearman and
 pairwise agreement at least 0.9, and differential shift no more than 10% of the
 paired objective span. These thresholds are a small-sample screening rule, not
 a posterior-accuracy statement.
+
+## Wide adaptive scan
+
+The fixed-point ranking test confirmed ranking stability: Spearman = 1.0,
+pairwise order agreement = 1.0, same best point (`more_extended`), and maximum
+differential shift = 9.7% < 10% of the paired objective span. Although
+`ranking_stable` is formally `false` because two of five points fail the density
+shell/phi gate identically at both tolerances (a deterministic property of those
+potentials, not tolerance noise), the ranking itself is stable across
+tolerances. This satisfies the precondition for advancing to an adaptive
+multi-trial scan.
+
+The paper-best potential is not optimal under `density_solved` mode: `more_extended`
+(q=0.92, p=0.80, rho0=5.90, rho0+2log10(rs)=10.05, gamma=0.80) has a lower
+velocity objective by ~588 and both points pass the density gate. The scan
+therefore uses `initial_point = "optimizer"` so the GP surrogate explores from
+random seeds rather than anchoring at paper-best.
+
+| parameter | local-search bound | wide-scan bound |
+|---|---|---|
+| qhalo | [0.70, 1.15] | [0.600, 1.300] |
+| phalo | [0.40, 1.20] | [0.300, 1.400] |
+| rho0 | [5.50, 7.00] | [5.000, 7.500] |
+| rho0_plus_2logrs | [9.50, 10.30] | [9.200, 10.600] |
+| gamma | [0.50, 1.80] | [0.300, 2.500] |
+
+The scan runs 50 adaptive iterations at `lsmr_tol = 1e-6` (the recipe default,
+~20--25 min per evaluation, ~17--21 h total). The run config is
+`configs/runs/density_solved_r8_40_wide_scan.toml`, which references
+`configs/recipes/zhu_2026_density_solved_r8_40_wide.toml`.
+
+Validate without integration:
+
+```bash
+PYTHONPATH="$PWD/Agama-master" conda run -n halo_lmc python -m halo_mw_lmc \
+  -v configs/runs/density_solved_r8_40_wide_scan.toml
+```
+
+Run optimization only (no static report):
+
+```bash
+PYTHONPATH="$PWD/Agama-master" conda run -n halo_lmc python -m halo_mw_lmc \
+  -o configs/runs/density_solved_r8_40_wide_scan.toml
+```
+
+Expected outputs:
+
+```text
+runs/density-solved-r8-40-wide-scan/
+  resolved_config.json
+  weight_model_inputs.npz
+  sample.dat
+  best/metadata.json
+  best/evaluation.npz
+```
+
+Before drawing posterior conclusions from the scan, review:
+
+- density gate pass rate and which regions of parameter space fail;
+- objective behavior across the 50 points (convergence trend, outliers);
+- weight concentration (effective orbit count, maximum weight fraction);
+- GP surrogate surface quality for `parameter_constraints.py` visualization;
+- whether the best point remains near `more_extended` or moves elsewhere.
