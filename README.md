@@ -18,16 +18,30 @@ halo_mw_lmc/
   visualization/    Matplotlib 图形构建与批量输出
   configuration.py  严格 TOML 解析与类型化配置
   artifacts.py      可移植运行产物的读写与校验
-  cli.py             默认完整运行，短参数选择单独工作流
+  cli.py             八个日常运行生命周期命令及兼容入口
+  inspection.py      从权威 artifacts 重建运行与报告状态
 configs/
   recipes/          可复用科学模型配置
   runs/             数据路径、输出、随机种子和运行设置
+.agents/skills/     仓库级科学设计与日常维护工作流
 apps/results.py     只读 Marimo 结果应用
 archive/            重构前代码快照，不属于当前生产路径
 ```
 
 依赖方向和核心数组契约见
 [`docs/architecture.md`](docs/architecture.md)。
+
+## 项目设计与 Codex 工作流
+
+科学目标、非主张、实验准入阶梯和当前开放决策统一记录在
+[`docs/project_blueprint.md`](docs/project_blueprint.md)。根
+`AGENTS.md` 只保留跨任务稳定的仓库契约，具体实验阈值和运行状态由对应
+`docs/` 文档维护。
+
+重大研究方向、实验设计或架构变化应显式调用
+`$scientific-project-blueprint`，先完成方案评审再修改科学代码。日常代码、
+配置、测试和图表修改由仓库级 `scientific-repo-maintainer` skill 按 blueprint
+和现有模块边界检查，避免为单次调试复制新脚本。
 
 ## 配置
 
@@ -46,7 +60,7 @@ shell 目录。未知或拼错的字段会直接报错。
 No-Fixed 示例只需换一份 run 配置，命令不变：
 
 ```bash
-python -m halo_mw_lmc configs/runs/density_solved.toml
+halo-mw-lmc run configs/runs/density_solved.toml
 ```
 
 该 recipe 使用 `unit_mass` 目标归一化、`lsq_linear` 非负最小二乘和 L2
@@ -57,7 +71,7 @@ python -m halo_mw_lmc configs/runs/density_solved.toml
 正式扫描前先在生产服务器执行一次完整星表、单势的 paper-best benchmark：
 
 ```bash
-python -m halo_mw_lmc configs/runs/density_solved_benchmark.toml
+halo-mw-lmc run configs/runs/density_solved_benchmark.toml
 ```
 
 该配置只执行一个 trial，并写入独立输出目录，不会修改 1000-trial 配置。数据
@@ -69,7 +83,7 @@ python -m halo_mw_lmc configs/runs/density_solved_benchmark.toml
 当前 No-Fixed run 使用 DESI year-1 K-giant 三轴分段幂律模型生成的相对密度：
 
 ```bash
-python -m halo_mw_lmc.generate_density \
+conda run -n dp-jax python scripts/generate_synthetic_density.py \
   configs/synthetic_density/desi_year1_kgiants.toml
 ```
 
@@ -85,42 +99,40 @@ error。生成文件位于 `data_for_model/synthetic/`，属于忽略的本地�
 `target_density`、`target_error`、`r_edges`、`z_edges` 和 `phi_edges` 的
 NPZ；边界不一致会在积分前报错。
 
-## 运行
+## 日常运行 CLI
 
-默认命令执行一次新的 cold-start 优化，并直接从保存的 best snapshot 生成
-静态报告：
-
-```bash
-python -m halo_mw_lmc configs/runs/fix_weight.toml
-```
-
-配置路径是唯一的位置参数，所有科学选择仍然来自 TOML。以下短参数仅在需要
-单独执行某个阶段时使用。
-
-只检查配置，不读取观测数据或可选科学依赖：
+普通工作流重点记住四条命令：
 
 ```bash
-python -m halo_mw_lmc -v configs/runs/fix_weight.toml
+halo-mw-lmc coverage configs/runs/fix_weight.toml
+halo-mw-lmc run configs/runs/fix_weight.toml
+halo-mw-lmc inspect runs/fix-weight
+halo-mw-lmc report runs/fix-weight --overwrite
 ```
 
-只生成拟合前的数据覆盖诊断：
+完整生命周期接口为：
 
-```bash
-python -m halo_mw_lmc -c configs/runs/fix_weight.toml
+```text
+halo-mw-lmc run CONFIG
+halo-mw-lmc optimize CONFIG
+halo-mw-lmc evaluate CONFIG
+halo-mw-lmc coverage CONFIG
+halo-mw-lmc validate CONFIG [--json]
+halo-mw-lmc preflight CONFIG [--stage run|optimize|evaluate|coverage] [--json]
+halo-mw-lmc report RUN_DIR [--overwrite]
+halo-mw-lmc inspect RUN_DIR [--json] [--save]
 ```
 
-只执行优化，不生成静态 PDF：
+`run` 固定执行 validate、一次性 preflight/prepare、配置对应的 fixed evaluation
+或 adaptive optimization、数值 artifact 校验、报告与 inspection。`evaluate`
+只接受显式 `fixed_points`，不导入 skopt；`optimize` 只接受 adaptive 配置并独占
+`ask/tell`。`validate` 不读取数据，`preflight` 只检查而不创建输出目录。
+`coverage` 只读取 catalogue，输出仍解释为未校正 selection function 的原始
+sampling density。
 
-```bash
-python -m halo_mw_lmc -o configs/runs/fix_weight.toml
-```
-
-默认命令已经包含配置验证、优化和静态报告；coverage 是更换数据或网格时才
-需要的独立诊断，因此不会在每次默认运行中重复执行。默认运行和 `-o` 都要求
-配置中的运行输出目录尚不存在，不会续写、恢复或注入旧采样点。Coverage 输出
-目录也必须尚不存在，重新生成时请在 run TOML 中换一个目录名。
-
-安装项目后，也可以把 `python -m halo_mw_lmc` 替换为 `halo-mw-lmc`。
+旧入口继续兼容：`python -m halo_mw_lmc CONFIG`、`-v`、`-c` 和 `-o`；其中
+`-o` 按配置自动选择 fixed 或 adaptive 数值路径。它们不再是文档推荐入口。
+所有 cold-start 数值命令和 coverage 都要求配置的输出目录尚不存在。
 
 运行优化需要 NumPy、scikit-optimize 和单独安装的 AGAMA；No-Fixed 权重求解
 还需要 SciPy；绘图需要 Matplotlib。Astropy 可提供更宽容的 ASCII 读取，但简单命名列文件有 NumPy
@@ -138,12 +150,16 @@ weight_model_inputs.npz    No-Fixed 输入 target 与网格边界（替代上一
 sample.dat                 每个 trial 的参数和标量评分
 best/metadata.json         当前 best 的参数、iteration 和 objective
 best/evaluation.npz        当前 best 的密度、速度和完整轨道权重快照
-figures/                   独立 report 命令生成的图
+inspection.json            可重新计算的运行/solver/report 派生摘要
+report/manifest.json       受管理报告的 generation、版本与文件清单
+report/                    artifact-only 静态 PDF 与 summary.md
 ```
 
-优化工作流只保存数值产物，不调用绘图。默认组合工作流在优化完成后再由独立
-报告层读取这些产物；`best/evaluation.npz` 在出现新 best 时原子替换，因此
-报告和交互分析无需再次调用 AGAMA。
+数值工作流不导入绘图。报告只读取 `resolved_config.json`、`sample.dat` 和
+`best/`，不重新打开 catalogue/target，也不调用 AGAMA、optimizer 或权重求解器。
+已有 `report/` 默认拒绝覆盖；`--overwrite` 先完整生成并校验临时目录，再以
+可恢复的目录交换发布。历史 `figures/` 不删除，也不参与 report current 判定。
+`inspection.json` 只是缓存；`inspect` 总是重新读取权威 numerical artifacts。
 
 ## Marimo 结果展示
 

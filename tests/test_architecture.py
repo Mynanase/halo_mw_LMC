@@ -49,6 +49,29 @@ class DependencyDirectionTests(unittest.TestCase):
             )
         )
 
+    def test_reporting_and_inspection_do_not_import_execution_or_source_data(self):
+        for relative in (
+            "halo_mw_lmc/workflows/reporting.py",
+            "halo_mw_lmc/inspection.py",
+        ):
+            with self.subTest(path=relative):
+                imports = imported_modules(REPOSITORY / relative)
+                self.assertFalse(
+                    any(
+                        module.startswith(
+                            (
+                                "halo_mw_lmc.data",
+                                ".data",
+                                "optimization",
+                                ".optimization",
+                                "agama",
+                                "skopt",
+                            )
+                        )
+                        for module in imports
+                    )
+                )
+
 
 if __name__ == "__main__":
     unittest.main()

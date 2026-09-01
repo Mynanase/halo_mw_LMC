@@ -48,9 +48,8 @@ RUN_DIRECTORY="${PREFLIGHT[1]}"
 CATALOGUE="${PREFLIGHT[2]}"
 TARGET_DENSITY="${PREFLIGHT[3]}"
 
-conda run -n halo_lmc python -c \
-  "import agama, astropy, matplotlib, numpy, scipy, skopt"
-conda run -n halo_lmc python -m halo_mw_lmc -v "$RUN_CONFIG"
+conda run -n halo_lmc python -m halo_mw_lmc \
+  preflight "$RUN_CONFIG" --stage run
 
 if [[ "$MODE" == "--preflight-only" ]]; then
   echo "preflight passed: $RUN_ID"
@@ -78,12 +77,12 @@ sha256sum "$CATALOGUE" "$TARGET_DENSITY" > "$STAGING/input-sha256.txt"
 conda run -n halo_lmc python -c \
   "import agama, astropy, matplotlib, numpy, scipy, skopt, sys; print(sys.version); print('agama', getattr(agama, '__version__', 'unknown')); print('astropy', astropy.__version__); print('matplotlib', matplotlib.__version__); print('numpy', numpy.__version__); print('scipy', scipy.__version__); print('skopt', skopt.__version__)" \
   > "$STAGING/environment.txt"
-printf '%q ' /usr/bin/time -v conda run -n halo_lmc python -m halo_mw_lmc "$RUN_CONFIG" \
+printf '%q ' /usr/bin/time -v conda run -n halo_lmc python -m halo_mw_lmc run "$RUN_CONFIG" \
   > "$STAGING/command.txt"
 printf '\n' >> "$STAGING/command.txt"
 
 /usr/bin/time -v -o "$STAGING/time-v.txt" \
-  conda run -n halo_lmc python -m halo_mw_lmc "$RUN_CONFIG" \
+  conda run -n halo_lmc python -m halo_mw_lmc run "$RUN_CONFIG" \
   > "$STAGING/stdout.log" 2> "$STAGING/stderr.log"
 
 copy_metadata

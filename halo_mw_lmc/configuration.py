@@ -624,25 +624,33 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
         _require_exact_fields(weight_table, {"mode"}, "recipe.weight_model")
         weight_model = WeightModelSettings(mode=weight_mode)
     elif weight_mode == "density_solved":
+        weight_solver = _string(
+            weight_table.get("solver"), "recipe.weight_model.solver"
+        )
+        common_weight_fields = {
+            "mode",
+            "solver",
+            "target_normalization",
+            "regularization",
+            "regularization_strength",
+            "max_iter",
+        }
+        if weight_solver == "lsq_linear":
+            expected_weight_fields = common_weight_fields | {"lsmr_tol"}
+            optional_weight_fields = {"solver_tolerance"}
+        else:
+            expected_weight_fields = common_weight_fields | {"solver_tolerance"}
+            optional_weight_fields = set()
         _require_exact_fields(
             weight_table,
-            {
-                "mode",
-                "solver",
-                "target_normalization",
-                "regularization",
-                "regularization_strength",
-                "max_iter",
-                "lsmr_tol",
-            },
+            expected_weight_fields,
             "recipe.weight_model",
+            optional=optional_weight_fields,
         )
         try:
             weight_model = WeightModelSettings(
                 mode=weight_mode,
-                solver=_string(
-                    weight_table["solver"], "recipe.weight_model.solver"
-                ),
+                solver=weight_solver,
                 target_normalization=_string(
                     weight_table["target_normalization"],
                     "recipe.weight_model.target_normalization",
@@ -660,9 +668,21 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
                     "recipe.weight_model.max_iter",
                     minimum=1,
                 ),
-                lsmr_tol=_positive_number(
-                    weight_table["lsmr_tol"],
-                    "recipe.weight_model.lsmr_tol",
+                solver_tolerance=(
+                    _positive_number(
+                        weight_table["solver_tolerance"],
+                        "recipe.weight_model.solver_tolerance",
+                    )
+                    if "solver_tolerance" in weight_table
+                    else None
+                ),
+                lsmr_tol=(
+                    _positive_number(
+                        weight_table["lsmr_tol"],
+                        "recipe.weight_model.lsmr_tol",
+                    )
+                    if "lsmr_tol" in weight_table
+                    else None
                 ),
             )
         except ValueError as exc:

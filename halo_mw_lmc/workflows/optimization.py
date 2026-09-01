@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib.util
 import subprocess
 from datetime import datetime, timezone
 from pathlib import Path
@@ -16,9 +15,12 @@ from ..core.potentials import (
     ZHU_2026_POTENTIAL_NAME,
     ZhuHaloParameters,
 )
-from ..core.weights import catalogue_weight_audit
 from .evaluation import evaluate_prepared_model
-from .preparation import prepare_model_data
+from .preflight import (
+    PreparedExecution,
+    preflight_and_prepare,
+    require_preflight,
+)
 
 
 OPTIMIZER_COORDINATES = (
@@ -148,6 +150,7 @@ def resolved_configuration_document(
                 comparison.weight_model.regularization_strength
             ),
             "max_iter": comparison.weight_model.max_iter,
+            "solver_tolerance": comparison.weight_model.solver_tolerance,
             "lsmr_tol": comparison.weight_model.lsmr_tol,
         },
         "objective": {
@@ -185,7 +188,11 @@ def resolved_configuration_document(
             "sample_divisor": comparison.orbit_sample_divisor,
         },
         "optimizer": {
-            "implementation": "scikit-optimize.Optimizer",
+            "implementation": (
+                "sequential_fixed_points"
+                if configuration.fixed_optimizer_points is not None
+                else "scikit-optimize.Optimizer.ask_tell"
+            ),
             "iterations": configuration.iterations,
             "random_seed": configuration.random_seed,
             "schedule": (
@@ -259,8 +266,10 @@ def sample_header(
         "chi2 density_chi2_per_bin density_scale "
         "regularization_penalty inner_weight_objective "
         "effective_orbit_count max_weight_fraction active_orbit_count "
+        "zero_weight_fraction "
         "weight_solver_converged weight_solver_status "
         "weight_solver_iterations weight_solver_optimality weight_solver_cost "
+        "weight_solver_kkt_residual weight_solver_wall_seconds "
         "successful_orbits "
         "failed_orbits weight_sum "
         f"{phi_columns}{shell_columns}{velocity_columns}"
@@ -325,11 +334,14 @@ def _append_sample(
             f"{evaluation.weight_solution.effective_orbit_count:.8e} "
             f"{evaluation.weight_solution.maximum_weight_fraction:.8e} "
             f"{evaluation.weight_solution.active_orbit_count:d} "
+            f"{np.mean(evaluation.weight_solution.seed_weights == 0.0):.8e} "
             f"{int(evaluation.weight_solution.converged):d} "
             f"{evaluation.weight_solution.status:d} "
             f"{evaluation.weight_solution.iterations:d} "
             f"{evaluation.weight_solution.optimality:.8e} "
             f"{evaluation.weight_solution.solver_cost:.8e} "
+            f"{evaluation.weight_solution.kkt_residual:.8e} "
+            f"{evaluation.weight_solution.solve_wall_seconds:.8e} "
             f"{evaluation.successful_orbits:d} "
             f"{evaluation.failed_orbits:d} "
             f"{evaluation.weight_sum:.16e} "
@@ -337,44 +349,36 @@ def _append_sample(
         )
 
 
-def run_optimization(configuration: RunConfiguration) -> Path:
-    """Run one new optimization and return its cold-start artifact directory."""
-
-    try:
-        from skopt import Optimizer
-        from skopt.space import Real
-    except ImportError as exc:
-        raise RuntimeError(
-            "scikit-optimize is required for optimization; install the inference extra"
-        ) from exc
-    if importlib.util.find_spec("agama") is None:
-        raise RuntimeError("AGAMA is required for orbit integration")
-
-    if not configuration.data.catalog.exists():
-        raise FileNotFoundError(f"catalogue not found: {configuration.data.catalog}")
-    if not configuration.data.target_density.exists():
-        raise FileNotFoundError(
-            f"target density not found: {configuration.data.target_density}"
+def _prepared_execution(
+    configuration: RunConfiguration,
+    prepared: PreparedExecution | None,
+    *,
+    stage: str,
+) -> PreparedExecution:
+    if prepared is None:
+        result = require_preflight(
+            preflight_and_prepare(configuration, stage=stage)
         )
+        prepared = result.execution
+    if prepared is None:
+        raise RuntimeError("numerical preflight did not return prepared inputs")
+    if prepared.configuration != configuration:
+        raise ValueError("prepared numerical inputs belong to another configuration")
+    return prepared
+
+
+def _initialize_run(
+    configuration: RunConfiguration,
+    prepared: PreparedExecution,
+) -> tuple[Path, Path]:
+    """Create artifacts only after every preflight check has passed."""
+
     output_directory = configuration.output_dir
     if output_directory.exists():
         raise FileExistsError(
             f"cold-start runs require a new output directory: {output_directory}"
         )
-
     comparison = configuration.to_comparison_config()
-    prepared = prepare_model_data(
-        configuration.data.catalog,
-        configuration.data.target_density,
-        comparison,
-    )
-    audit = None
-    if comparison.weight_model.mode == "catalogue_fixed":
-        audit = catalogue_weight_audit(
-            prepared.initial_conditions,
-            prepared.seed_weights,
-            comparison.density_grid,
-        )
     try:
         output_directory.mkdir(parents=True, exist_ok=False)
     except FileExistsError as exc:
@@ -388,46 +392,27 @@ def run_optimization(configuration: RunConfiguration) -> Path:
     )
     input_artifact = (
         output_directory / "fixed_seed_weights.npz"
-        if audit is not None
+        if prepared.weight_audit is not None
         else output_directory / "weight_model_inputs.npz"
     )
     np.savez_compressed(
         input_artifact,
         artifact_schema_version=np.asarray(1),
-        **(audit or {}),
-        target_density=prepared.target_density,
-        target_error=prepared.target_error,
+        **(prepared.weight_audit or {}),
+        target_density=prepared.model.target_density,
+        target_error=prepared.model.target_error,
         r_edges=comparison.density_grid.r_edges,
         z_edges=comparison.density_grid.z_edges,
         phi_edges=comparison.density_grid.phi_edges,
         weight_source=np.asarray(
-            "catalogue_column" if audit is not None else "trial_density_solution"
+            "catalogue_column"
+            if prepared.weight_audit is not None
+            else "trial_density_solution"
         ),
-        weight_column=np.asarray("w" if audit is not None else ""),
-        catalog_path=np.asarray(str(prepared.catalog_path)),
-        density_path=np.asarray(str(prepared.density_path)),
+        weight_column=np.asarray("w" if prepared.weight_audit is not None else ""),
+        catalog_path=np.asarray(str(prepared.model.catalog_path)),
+        density_path=np.asarray(str(prepared.model.density_path)),
     )
-
-    bounds = configuration.search_bounds
-    parameter_space = [
-        Real(*bounds[name], name=name)
-        for name in OPTIMIZER_COORDINATES
-    ]
-    optimizer = Optimizer(
-        parameter_space,
-        random_state=configuration.random_seed,
-    )
-    paper_point = paper_best_optimizer_point()
-    paper_point_is_in_bounds = all(
-        dimension.low <= value <= dimension.high
-        for dimension, value in zip(parameter_space, paper_point)
-    )
-    use_paper_first = configuration.recipe.search.initial_point == "paper_best"
-    if use_paper_first and not paper_point_is_in_bounds:
-        raise ValueError(
-            "the configured paper-best initial point lies outside search bounds"
-        )
-
     sample_file = output_directory / "sample.dat"
     sample_file.write_text(
         sample_header(
@@ -441,23 +426,30 @@ def run_optimization(configuration: RunConfiguration) -> Path:
         )
         + "\n"
     )
+    return output_directory, sample_file
+
+
+def _run_trials(
+    configuration: RunConfiguration,
+    prepared: PreparedExecution,
+    suggestions,
+    *,
+    tell=None,
+) -> Path:
+    """Evaluate, persist, and update best for one already-selected schedule."""
+
+    output_directory, sample_file = _initialize_run(configuration, prepared)
+    comparison = configuration.to_comparison_config()
     best_objective = np.inf
-    for iteration in range(configuration.iterations):
-        if configuration.fixed_optimizer_points is not None:
-            suggested = configuration.fixed_optimizer_points[iteration]
-        else:
-            suggested = (
-                paper_point
-                if iteration == 0 and use_paper_first
-                else optimizer.ask()
-            )
+    for iteration, suggested in enumerate(suggestions):
         evaluated, parameters = rounded_trial(
             suggested,
             decimals=configuration.round_decimals,
         )
-        evaluation = evaluate_prepared_model(parameters, prepared)
+        evaluation = evaluate_prepared_model(parameters, prepared.model)
         objective = evaluation.selected_objective
-        optimizer.tell(evaluated, objective)
+        if tell is not None:
+            tell(evaluated, objective)
         _append_sample(
             sample_file,
             iteration=iteration,
@@ -489,3 +481,86 @@ def run_optimization(configuration: RunConfiguration) -> Path:
             f"chi2_phi={evaluation.density.chi2_by_phi.tolist()}"
         )
     return output_directory
+
+
+def run_fixed_evaluation(
+    configuration: RunConfiguration,
+    prepared: PreparedExecution | None = None,
+) -> Path:
+    """Evaluate explicit points sequentially without importing scikit-optimize."""
+
+    points = configuration.fixed_optimizer_points
+    if points is None:
+        raise ValueError("evaluate requires optimizer.fixed_points")
+    prepared = _prepared_execution(
+        configuration,
+        prepared,
+        stage="evaluate",
+    )
+    return _run_trials(configuration, prepared, points)
+
+
+def run_optimization(
+    configuration: RunConfiguration,
+    prepared: PreparedExecution | None = None,
+) -> Path:
+    """Run an adaptive cold-start optimization using skopt ask/tell."""
+
+    if configuration.fixed_optimizer_points is not None:
+        raise ValueError("optimize accepts adaptive configurations only")
+    prepared = _prepared_execution(
+        configuration,
+        prepared,
+        stage="optimize",
+    )
+    try:
+        from skopt import Optimizer
+        from skopt.space import Real
+    except ImportError as exc:
+        raise RuntimeError(
+            "scikit-optimize is required for adaptive optimization"
+        ) from exc
+
+    bounds = configuration.search_bounds
+    parameter_space = [
+        Real(*bounds[name], name=name) for name in OPTIMIZER_COORDINATES
+    ]
+    optimizer = Optimizer(
+        parameter_space,
+        random_state=configuration.random_seed,
+    )
+    paper_point = paper_best_optimizer_point()
+    use_paper_first = configuration.recipe.search.initial_point == "paper_best"
+    if use_paper_first and not all(
+        dimension.low <= value <= dimension.high
+        for dimension, value in zip(parameter_space, paper_point)
+    ):
+        raise ValueError(
+            "the configured paper-best initial point lies outside search bounds"
+        )
+
+    def suggestions():
+        for iteration in range(configuration.iterations):
+            yield (
+                paper_point
+                if iteration == 0 and use_paper_first
+                else optimizer.ask()
+            )
+
+    return _run_trials(
+        configuration,
+        prepared,
+        suggestions(),
+        tell=optimizer.tell,
+    )
+
+
+def run_configured_numerical_stage(
+    configuration: RunConfiguration,
+    prepared: PreparedExecution | None = None,
+) -> Path:
+    """Compatibility dispatch used by the historical ``-o`` entry point."""
+
+    if configuration.fixed_optimizer_points is not None:
+        return run_fixed_evaluation(configuration, prepared)
+    return run_optimization(configuration, prepared)

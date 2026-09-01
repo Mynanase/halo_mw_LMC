@@ -50,6 +50,44 @@ R8_40_RANKING_POINTS = (
     (0.920, 0.800, 6.500, 9.800, 1.200),
     (0.920, 0.800, 5.900, 10.050, 0.800),
 )
+R8_40_SOLVER_CASES = {
+    "density_solved_r8_40_solver_lsq_linear_benchmark.toml": (
+        "lsq_linear",
+        1e-6,
+    ),
+    "density_solved_r8_40_solver_lsq_linear_repeat2.toml": (
+        "lsq_linear",
+        1e-6,
+    ),
+    "density_solved_r8_40_solver_lsq_linear_repeat3.toml": (
+        "lsq_linear",
+        1e-6,
+    ),
+    "density_solved_r8_40_solver_dense_nnls_benchmark.toml": (
+        "dense_nnls",
+        None,
+    ),
+    "density_solved_r8_40_solver_dense_nnls_repeat2.toml": (
+        "dense_nnls",
+        None,
+    ),
+    "density_solved_r8_40_solver_dense_nnls_repeat3.toml": (
+        "dense_nnls",
+        None,
+    ),
+    "density_solved_r8_40_solver_dual_ridge_benchmark.toml": (
+        "dual_ridge",
+        None,
+    ),
+    "density_solved_r8_40_solver_dual_ridge_repeat2.toml": (
+        "dual_ridge",
+        None,
+    ),
+    "density_solved_r8_40_solver_dual_ridge_repeat3.toml": (
+        "dual_ridge",
+        None,
+    ),
+}
 
 
 class ConfigurationTests(unittest.TestCase):
@@ -214,6 +252,40 @@ class ConfigurationTests(unittest.TestCase):
                     comparison.weight_model.regularization_strength,
                     1e-6,
                 )
+
+    def test_solver_backends_use_independent_paper_best_cold_starts(self):
+        for filename, (solver, lsmr_tol) in R8_40_SOLVER_CASES.items():
+            with self.subTest(filename=filename):
+                configuration = load_run_configuration(
+                    REPOSITORY / "configs" / "runs" / filename
+                )
+                model = configuration.to_comparison_config().weight_model
+                self.assertEqual(configuration.iterations, 1)
+                self.assertIsNone(configuration.fixed_optimizer_points)
+                self.assertEqual(
+                    configuration.recipe.search.initial_point,
+                    "paper_best",
+                )
+                self.assertEqual(model.solver, solver)
+                self.assertEqual(model.lsmr_tol, lsmr_tol)
+                self.assertEqual(model.solver_tolerance, 1e-8)
+                self.assertEqual(model.regularization_strength, 1e-6)
+
+    def test_alternative_solver_rejects_lsmr_tolerance(self):
+        source = (
+            REPOSITORY
+            / "configs/recipes/zhu_2026_density_solved_r8_40_dual_ridge.toml"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "recipe.toml"
+            path.write_text(
+                source.read_text().replace(
+                    "solver_tolerance = 1e-8",
+                    "solver_tolerance = 1e-8\nlsmr_tol = 1e-6",
+                )
+            )
+            with self.assertRaisesRegex(ConfigurationError, "unknown field"):
+                load_recipe_configuration(path)
 
     def test_fixed_point_count_must_match_iterations(self):
         source = (

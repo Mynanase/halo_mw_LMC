@@ -14,6 +14,11 @@ from halo_mw_lmc.visualization.model import (
     _velocity_panel_values,
     isodensity_shape_profile,
 )
+from halo_mw_lmc.visualization.weights import (
+    orbit_weight_histograms,
+    shared_log_weight_edges,
+    summarize_orbit_weights,
+)
 from halo_mw_lmc.core.velocity import (
     SphericalVelocityGrid,
     VelocityDistributionComparison,
@@ -83,6 +88,23 @@ class PlottingDiagnosticsTests(unittest.TestCase):
         )
 
         self.assertTrue(np.all(_density_fit_display_mask(comparison, 0)))
+
+    def test_orbit_weight_histogram_preserves_count_and_weight_share(self):
+        summary = summarize_orbit_weights([0.0, 1.0, 1.0, 2.0])
+        edges = shared_log_weight_edges({"case": summary}, bins=4)
+
+        count, weight_share = orbit_weight_histograms(summary, edges)
+
+        self.assertEqual(summary.active_orbit_count, 3)
+        self.assertEqual(summary.inactive_orbit_count, 1)
+        self.assertAlmostEqual(summary.effective_orbit_count, 8.0 / 3.0)
+        self.assertAlmostEqual(summary.maximum_weight_fraction, 0.5)
+        self.assertEqual(int(count.sum()), 3)
+        self.assertAlmostEqual(float(weight_share.sum()), 100.0)
+
+    def test_orbit_weight_summary_rejects_zero_total(self):
+        with self.assertRaisesRegex(ValueError, "positive total"):
+            summarize_orbit_weights([0.0, 0.0])
 
     def test_masked_contour_ellipse_fit_recovers_known_shape(self):
         angle = np.linspace(0.15, 1.35, 50)

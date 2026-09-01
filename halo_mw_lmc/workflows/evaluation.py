@@ -346,6 +346,8 @@ def evaluate_prepared_model(
             converged=True,
             status=0,
             message="catalogue-fixed weights",
+            solver_backend="catalogue_fixed",
+            kkt_residual=0.0,
         )
     density = compare_density(
         density_target,

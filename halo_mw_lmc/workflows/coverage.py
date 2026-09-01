@@ -8,31 +8,30 @@ from pathlib import Path
 import numpy as np
 
 from ..configuration import RunConfiguration
-from ..core.coverage import build_data_coverage
-from ..data.catalogue import read_phase_space_catalogue
 from ..visualization.coverage import plot_all_data_coverage
+from .preflight import PreparedCoverage, preflight_and_prepare, require_preflight
 
 
-def generate_coverage_report(configuration: RunConfiguration) -> list[Path]:
+def generate_coverage_report(
+    configuration: RunConfiguration,
+    prepared: PreparedCoverage | None = None,
+) -> list[Path]:
     """Measure and render raw catalogue coverage from one run configuration."""
 
     catalog_path = configuration.data.catalog
-    if not catalog_path.exists():
-        raise FileNotFoundError(f"catalogue not found: {catalog_path}")
     output_directory = configuration.coverage.output_dir
-    if output_directory.exists():
-        raise FileExistsError(
-            f"coverage output directory already exists: {output_directory}"
+    if prepared is None:
+        result = require_preflight(
+            preflight_and_prepare(configuration, stage="coverage")
         )
-    initial_conditions = read_phase_space_catalogue(catalog_path)
+        prepared = result.coverage
+    if prepared is None:
+        raise RuntimeError("coverage preflight did not return prepared data")
+    if prepared.configuration != configuration:
+        raise ValueError("prepared coverage belongs to a different configuration")
     comparison = configuration.to_comparison_config()
     grid = comparison.density_grid
-    coverage = build_data_coverage(
-        initial_conditions,
-        rzphi_grid=grid,
-        spherical_radius_edges=comparison.velocity_grid.radius_edges,
-        theta_edges=comparison.velocity_grid.theta_edges,
-    )
+    coverage = prepared.coverage
     output_directory.mkdir(parents=True, exist_ok=False)
     written = plot_all_data_coverage(
         coverage,

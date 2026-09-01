@@ -35,6 +35,7 @@ flowchart LR
     ART --> CORE
     REPORT["report workflow"] --> VIS["visualization"]
     REPORT --> ART
+    INSPECT["inspection"] --> ART
     MARIMO["Marimo app"] --> ART
 ```
 
@@ -63,20 +64,28 @@ analysis; the checked-in TOML remains the human-editable source.
 
 ## Execution and artifacts
 
-Expensive integration is confined to `workflows/optimization.py`. It writes one
-sample row per evaluated point and replaces only the current best numerical
-snapshot. Evaluation, `optimizer.tell()`, and persistence receive the same
-rounded optimizer coordinates.
+`workflows/preflight.py` owns stage-aware dependency, input, grid, weight-audit,
+and output-conflict checks. For `run`, it reads catalogue and target exactly once
+and hands the prepared arrays to the numerical path before any run directory is
+created. Coverage uses a separate catalogue-only payload and never reads the
+target or probes numerical dependencies.
 
-The default CLI selects `workflows/run.py`, which performs one cold-start
-optimization followed by artifact-only static reporting. Validation, coverage,
-and optimization-only execution remain available through the mutually exclusive
-`-v`, `-c`, and `-o` flags. These flags select workflows; scientific values stay
-in TOML rather than becoming command-line options.
+Expensive integration is confined to `workflows/optimization.py`. A common trial
+loop writes one sample row per evaluated point and replaces only the current best
+snapshot. Its fixed wrapper consumes explicit points sequentially and never
+imports skopt; its adaptive wrapper alone owns `Optimizer.ask/tell`. Evaluation,
+adaptive `tell()`, and persistence receive the same rounded coordinates.
 
-Reporting and Marimo consume artifacts. They do not reopen the source catalogue
-and never reconstruct missing results by running AGAMA. This keeps interactive
-analysis cheap, reproducible, and safe.
+The default `run` lifecycle is validate → preflight/prepare → fixed evaluation or
+adaptive optimization → numerical artifact inspection → managed report → saved
+inspection. Numerical failure preserves partial artifacts. A report failure does
+not invalidate completed numerical artifacts.
+
+`inspection.py`, reporting, and Marimo consume artifacts. They do not reopen the
+source catalogue and never reconstruct missing results through AGAMA. Managed
+`report/` publication is staged and validated before an optional directory
+replacement. `inspection.json` is a derived cache; resolved configuration,
+`sample.dat`, and `best/` remain authoritative.
 
 ## Weight-model boundary
 

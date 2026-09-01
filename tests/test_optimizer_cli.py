@@ -1,9 +1,11 @@
 import unittest
 from pathlib import Path
+import sys
+from unittest.mock import patch
 
 import numpy as np
 
-from halo_mw_lmc.cli import build_parser
+from halo_mw_lmc.cli import build_legacy_parser, build_parser
 from halo_mw_lmc.configuration import load_run_configuration
 from halo_mw_lmc.core.grids import CylindricalGrid
 from halo_mw_lmc.core.potentials import (
@@ -15,8 +17,10 @@ from halo_mw_lmc.workflows.optimization import (
     paper_best_optimizer_point,
     resolved_configuration_document,
     rounded_trial,
+    run_fixed_evaluation,
     sample_header,
 )
+from halo_mw_lmc.workflows.preflight import PreparedExecution
 
 
 RUN_CONFIG = Path(__file__).resolve().parents[1] / "configs/runs/fix_weight.toml"
@@ -27,22 +31,49 @@ R8_40_CONFIG = (
 
 
 class OptimizerCliTests(unittest.TestCase):
-    def test_cli_defaults_to_full_run_with_only_a_config(self):
-        args = build_parser().parse_args([str(RUN_CONFIG)])
+    def test_public_cli_exposes_all_lifecycle_commands(self):
+        parser = build_parser()
+        for command in ("run", "optimize", "evaluate", "coverage"):
+            with self.subTest(command=command):
+                args = parser.parse_args([command, str(RUN_CONFIG)])
+                self.assertEqual(args.command, command)
+                self.assertEqual(args.config, RUN_CONFIG)
+        self.assertEqual(
+            parser.parse_args(["report", "run-dir"]).command,
+            "report",
+        )
+        self.assertEqual(
+            parser.parse_args(["inspect", "run-dir"]).command,
+            "inspect",
+        )
+
+    def test_legacy_cli_defaults_to_full_run_with_only_a_config(self):
+        args = build_legacy_parser().parse_args([str(RUN_CONFIG)])
         self.assertEqual(args.mode, "run")
         self.assertEqual(args.config, RUN_CONFIG)
 
-    def test_cli_short_flags_select_isolated_modes(self):
-        cases = (("-v", "validate"), ("-c", "coverage"), ("-o", "optimize"))
+    def test_legacy_short_flags_select_isolated_modes(self):
+        cases = (("-v", "validate"), ("-c", "coverage"), ("-o", "numerical"))
         for flag, expected in cases:
             with self.subTest(flag=flag):
-                args = build_parser().parse_args([flag, str(RUN_CONFIG)])
+                args = build_legacy_parser().parse_args([flag, str(RUN_CONFIG)])
                 self.assertEqual(args.mode, expected)
                 self.assertEqual(args.config, RUN_CONFIG)
 
-    def test_cli_modes_are_mutually_exclusive(self):
+    def test_legacy_cli_modes_are_mutually_exclusive(self):
         with self.assertRaises(SystemExit):
-            build_parser().parse_args(["-v", "-c", str(RUN_CONFIG)])
+            build_legacy_parser().parse_args(["-v", "-c", str(RUN_CONFIG)])
+
+    def test_json_and_preflight_stage_options(self):
+        validate = build_parser().parse_args(
+            ["validate", str(RUN_CONFIG), "--json"]
+        )
+        self.assertTrue(validate.json_output)
+        preflight = build_parser().parse_args(
+            ["preflight", str(RUN_CONFIG), "--stage", "coverage", "--json"]
+        )
+        self.assertEqual(preflight.stage, "coverage")
+        self.assertTrue(preflight.json_output)
 
     def test_cold_start_has_reproducible_config_seed(self):
         configuration = load_run_configuration(RUN_CONFIG)
@@ -112,8 +143,11 @@ class OptimizerCliTests(unittest.TestCase):
             "effective_orbit_count",
             "max_weight_fraction",
             "active_orbit_count",
+            "zero_weight_fraction",
             "weight_solver_converged",
             "weight_solver_status",
+            "weight_solver_kkt_residual",
+            "weight_solver_wall_seconds",
             "successful_orbits",
             "failed_orbits",
             "weight_sum",
@@ -131,6 +165,7 @@ class OptimizerCliTests(unittest.TestCase):
 
         self.assertEqual(document["weight_model"]["max_iter"], 20000)
         self.assertEqual(document["weight_model"]["lsmr_tol"], 1e-6)
+        self.assertEqual(document["weight_model"]["solver_tolerance"], 1e-8)
         self.assertEqual(
             document["objective"]["density_shell_edges_kpc"],
             [8.0, 10.0, 12.0, 15.0, 20.0, 30.0, 40.0],
@@ -150,8 +185,35 @@ class OptimizerCliTests(unittest.TestCase):
 
         self.assertEqual(document["optimizer"]["schedule"], "fixed_points")
         self.assertEqual(
+            document["optimizer"]["implementation"],
+            "sequential_fixed_points",
+        )
+        self.assertEqual(
             document["optimizer"]["fixed_points"],
             [list(point) for point in configuration.fixed_optimizer_points],
+        )
+
+    def test_fixed_evaluation_does_not_import_or_instantiate_skopt(self):
+        configuration = load_run_configuration(
+            R8_40_CONFIG.parent
+            / "density_solved_r8_40_potential_ranking_tol1e7.toml"
+        )
+        prepared = PreparedExecution(configuration, object(), None)
+        expected = Path("fixed-output")
+        with (
+            patch.dict(sys.modules, {"skopt": None}),
+            patch(
+                "halo_mw_lmc.workflows.optimization._run_trials",
+                return_value=expected,
+            ) as run_trials,
+        ):
+            actual = run_fixed_evaluation(configuration, prepared)
+
+        self.assertEqual(actual, expected)
+        run_trials.assert_called_once_with(
+            configuration,
+            prepared,
+            configuration.fixed_optimizer_points,
         )
 
 

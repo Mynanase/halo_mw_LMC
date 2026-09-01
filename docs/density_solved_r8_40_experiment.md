@@ -30,6 +30,46 @@ target, and the same shell/phi density gate.
 These are five independent cold-start, one-trial benchmarks, not a multi-trial
 optimization and not a 3x3 parameter grid.
 
+## Solver-backend timing benchmark
+
+The solver benchmark keeps the paper-best potential, density target, orbit
+sampling, L2 strength, objective, and gates fixed. It changes only the numerical
+backend. Each backend is evaluated in three independent one-point cold-start
+runs so the comparison can use median solve-only wall time and an independent
+GNU-time peak RSS for every repetition; the problem fingerprint must agree
+across all nine runs.
+
+| Run config | Solver | KKT tolerance |
+| --- | --- | ---: |
+| `density_solved_r8_40_solver_lsq_linear_benchmark.toml` | `lsq_linear` | `1e-8` for benchmark qualification |
+| `density_solved_r8_40_solver_dense_nnls_benchmark.toml` | `dense_nnls` | `1e-8` |
+| `density_solved_r8_40_solver_dual_ridge_benchmark.toml` | `dual_ridge` | `1e-8` |
+
+Validate all three configurations without integration:
+
+```bash
+scripts/run_density_solved_r8_40_weight_solvers.sh --preflight-only
+```
+
+Run them sequentially and write the artifact-only comparison:
+
+```bash
+scripts/run_density_solved_r8_40_weight_solvers.sh
+```
+
+The comparison is written to
+`.agent-local/benchmarks/r8_40_weight_solver_comparison.json`. The comparator
+requires exactly three distinct one-point runs per backend. All three backends,
+including the current baseline, enter speed selection only when every repeated
+solve is finite, non-negative, converged, below its normalized KKT threshold,
+and passes all density gates. Their median inner objectives must agree to
+`1e-8` relative. The fastest qualifying backend wins unless another is within
+20 percent and uses less peak RSS. The report also records effective orbit
+count, active orbit count, maximum weight fraction, and exact-zero weight
+fraction. This result is an engineering selection only: `production_ready`
+remains false until the winner passes the five fixed-potential ranking test,
+and the active recipe remains `lsq_linear`.
+
 ## Git provenance
 
 The launcher does not require a detached or locked commit and does not reject a

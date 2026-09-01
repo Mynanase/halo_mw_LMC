@@ -25,10 +25,10 @@ if TYPE_CHECKING:
     from .core.potentials import ZhuHaloParameters
 
 
-BEST_EVALUATION_SCHEMA_VERSION = 3
-RESOLVED_CONFIG_SCHEMA_VERSION = 5
-SUPPORTED_BEST_EVALUATION_SCHEMA_VERSIONS = frozenset({2, 3})
-SUPPORTED_RESOLVED_CONFIG_SCHEMA_VERSIONS = frozenset({4, 5})
+BEST_EVALUATION_SCHEMA_VERSION = 4
+RESOLVED_CONFIG_SCHEMA_VERSION = 7
+SUPPORTED_BEST_EVALUATION_SCHEMA_VERSIONS = frozenset({2, 3, 4})
+SUPPORTED_RESOLVED_CONFIG_SCHEMA_VERSIONS = frozenset({4, 5, 6, 7})
 WEIGHT_AUDIT_SCHEMA_VERSION = 1
 
 
@@ -160,6 +160,21 @@ def _load_json(path: Path) -> dict[str, object]:
         raise ValueError(f"could not read JSON artifact {path}: {exc}") from exc
     if not isinstance(document, dict):
         raise ValueError(f"JSON artifact must contain an object: {path}")
+    return document
+
+
+def load_resolved_config(run_directory: str | Path) -> dict[str, object]:
+    """Load only the versioned resolved configuration for artifact reporting."""
+
+    run = Path(run_directory).expanduser().resolve()
+    path = run / "resolved_config.json"
+    if not path.exists():
+        raise ValueError(f"resolved run configuration not found in {run}")
+    document = _load_json(path)
+    if document.get("schema_version") not in (
+        SUPPORTED_RESOLVED_CONFIG_SCHEMA_VERSIONS
+    ):
+        raise ValueError(f"unsupported resolved-config schema in {path}")
     return document
 
 
@@ -305,6 +320,20 @@ def _evaluation_arrays(
         "weight_solver_cost": np.asarray(
             evaluation.weight_solution.solver_cost,
             dtype=float,
+        ),
+        "weight_solver_backend": np.asarray(
+            evaluation.weight_solution.solver_backend,
+        ),
+        "weight_solver_kkt_residual": np.asarray(
+            evaluation.weight_solution.kkt_residual,
+            dtype=float,
+        ),
+        "weight_solver_wall_seconds": np.asarray(
+            evaluation.weight_solution.solve_wall_seconds,
+            dtype=float,
+        ),
+        "weight_problem_fingerprint": np.asarray(
+            evaluation.weight_solution.problem_fingerprint,
         ),
     }
     shells = evaluation.density_shells
@@ -472,6 +501,16 @@ def save_best_evaluation(
             evaluation.weight_solution.optimality
         ),
         "weight_solver_cost": float(evaluation.weight_solution.solver_cost),
+        "weight_solver_backend": evaluation.weight_solution.solver_backend,
+        "weight_solver_kkt_residual": float(
+            evaluation.weight_solution.kkt_residual
+        ),
+        "weight_solver_wall_seconds": float(
+            evaluation.weight_solution.solve_wall_seconds
+        ),
+        "weight_problem_fingerprint": (
+            evaluation.weight_solution.problem_fingerprint
+        ),
         "objective_mode": evaluation.objective_mode,
         "objective_velocity": float(evaluation.objective_velocity),
         "objective_density_velocity": float(
@@ -589,6 +628,17 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
                 raise ValueError("unsupported best-evaluation array schema")
             if archive_schema != metadata_schema:
                 raise ValueError("best-evaluation metadata and arrays do not match")
+            if archive_schema >= 4:
+                _required_arrays(
+                    archive,
+                    (
+                        "weight_solver_backend",
+                        "weight_solver_kkt_residual",
+                        "weight_solver_wall_seconds",
+                        "weight_problem_fingerprint",
+                    ),
+                    evaluation_path,
+                )
             if str(archive["snapshot_generation"].item()) != metadata.get(
                 "generation"
             ):
@@ -665,6 +715,26 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
                 iterations=int(archive.get("weight_iterations", 0)),
                 optimality=float(archive.get("weight_optimality", np.inf)),
                 solver_cost=float(archive.get("weight_solver_cost", np.inf)),
+                solver_backend=(
+                    str(archive["weight_solver_backend"].item())
+                    if archive_schema >= 4
+                    else str(metadata.get("weight_solver_backend", "legacy"))
+                ),
+                kkt_residual=(
+                    float(archive["weight_solver_kkt_residual"])
+                    if archive_schema >= 4
+                    else np.inf
+                ),
+                solve_wall_seconds=(
+                    float(archive["weight_solver_wall_seconds"])
+                    if archive_schema >= 4
+                    else 0.0
+                ),
+                problem_fingerprint=(
+                    str(archive["weight_problem_fingerprint"].item())
+                    if archive_schema >= 4
+                    else ""
+                ),
             )
             n_phi = grid.shape[-1]
             for name in ("density_chi2_by_phi", "density_valid_bins_by_phi"):

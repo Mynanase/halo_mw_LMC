@@ -2,10 +2,14 @@ import unittest
 from unittest.mock import patch
 
 import numpy as np
+from scipy.sparse import csr_matrix
 
 from halo_mw_lmc.core.config import DensityFitSettings, WeightModelSettings
 from halo_mw_lmc.core.grids import CylindricalGrid
-from halo_mw_lmc.core.orbit_response import build_orbit_density_response
+from halo_mw_lmc.core.orbit_response import (
+    OrbitDensityResponse,
+    build_orbit_density_response,
+)
 from halo_mw_lmc.core.orbits import OrbitLibrary
 from halo_mw_lmc.core.weight_solver import solve_density_weights
 
@@ -175,6 +179,110 @@ class DensitySolvedWeightTests(unittest.TestCase):
         self.assertAlmostEqual(float(np.sum(result.seed_weights)), 0.4, delta=1e-3)
         model_mass = result.model_density * self.grid.volumes
         self.assertAlmostEqual(model_mass[0, 0, 0], 0.2, delta=1e-3)
+
+    def test_dense_and_dual_backends_solve_the_same_ridge_nnls_problem(self):
+        original_weights = np.array([2.0, 0.0, 3.0])
+        target = self.response.model_density(original_weights)
+        common = dict(
+            mode="density_solved",
+            target_normalization="absolute",
+            regularization="l2",
+            regularization_strength=1e-3,
+            max_iter=1000,
+            solver_tolerance=1e-8,
+        )
+        dense = solve_density_weights(
+            self.response,
+            target,
+            np.full(self.grid.shape, 0.02),
+            self.fit,
+            WeightModelSettings(
+                solver="dense_nnls",
+                lsmr_tol=None,
+                **common,
+            ),
+        )
+        dual = solve_density_weights(
+            self.response,
+            target,
+            np.full(self.grid.shape, 0.02),
+            self.fit,
+            WeightModelSettings(
+                solver="dual_ridge",
+                lsmr_tol=None,
+                **common,
+            ),
+        )
+
+        self.assertTrue(dense.converged, dense.message)
+        self.assertTrue(dual.converged, dual.message)
+        self.assertEqual(dense.solver_backend, "dense_nnls")
+        self.assertEqual(dual.solver_backend, "dual_ridge")
+        self.assertEqual(dense.problem_fingerprint, dual.problem_fingerprint)
+        self.assertLessEqual(dense.kkt_residual, 1e-8)
+        self.assertLessEqual(dual.kkt_residual, 1e-8)
+        np.testing.assert_allclose(
+            dense.seed_weights,
+            dual.seed_weights,
+            rtol=1e-8,
+            atol=1e-10,
+        )
+        self.assertAlmostEqual(
+            dense.inner_objective,
+            dual.inner_objective,
+            places=10,
+        )
+
+    def test_backends_restore_zero_for_a_fit_region_zero_response_column(self):
+        response = OrbitDensityResponse(
+            matrix=csr_matrix(
+                np.array(
+                    [
+                        [1.0, 0.0, 0.0],
+                        [0.0, 1.0, 0.0],
+                    ]
+                )
+            ),
+            successful_seed_index=np.array([0, 1, 2], dtype=np.int64),
+            sample_count=np.ones(3, dtype=np.int64),
+            grid=self.grid,
+            seed_count=3,
+        )
+        target = response.model_density(np.array([2.0, 3.0, 0.0]))
+        for solver in ("lsq_linear", "dense_nnls", "dual_ridge"):
+            with self.subTest(solver=solver):
+                result = solve_density_weights(
+                    response,
+                    target,
+                    np.full(self.grid.shape, 0.01),
+                    self.fit,
+                    WeightModelSettings(
+                        mode="density_solved",
+                        solver=solver,
+                        target_normalization="absolute",
+                        regularization="l2",
+                        regularization_strength=1e-3,
+                        max_iter=1000,
+                        solver_tolerance=1e-8,
+                        lsmr_tol=(1e-8 if solver == "lsq_linear" else None),
+                    ),
+                )
+
+                self.assertTrue(result.converged, result.message)
+                self.assertEqual(result.seed_weights[2], 0.0)
+                self.assertTrue(result.problem_fingerprint)
+
+    def test_dual_backend_requires_positive_regularization(self):
+        with self.assertRaisesRegex(ValueError, "requires positive"):
+            WeightModelSettings(
+                mode="density_solved",
+                solver="dual_ridge",
+                target_normalization="absolute",
+                regularization="l2",
+                regularization_strength=0.0,
+                solver_tolerance=1e-8,
+                lsmr_tol=None,
+            )
 
 
 if __name__ == "__main__":

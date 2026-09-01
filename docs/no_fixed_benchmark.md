@@ -44,12 +44,13 @@ Activate the production Python environment, then run:
 
 ```bash
 python -c "import agama, skopt, scipy, matplotlib"
-python -m halo_mw_lmc -v configs/runs/density_solved_benchmark.toml
-python -m halo_mw_lmc -c configs/runs/density_solved_benchmark.toml
+halo-mw-lmc validate configs/runs/density_solved_benchmark.toml
+halo-mw-lmc preflight configs/runs/density_solved_benchmark.toml --stage run
+halo-mw-lmc coverage configs/runs/density_solved_benchmark.toml
 mkdir -p .agent-local/benchmarks
 /usr/bin/time -v \
   -o .agent-local/benchmarks/density_solved_paper_best.time.txt \
-  python -m halo_mw_lmc configs/runs/density_solved_benchmark.toml
+  halo-mw-lmc run configs/runs/density_solved_benchmark.toml
 ```
 
 Coverage and optimization are cold-start operations. Their configured output
@@ -88,7 +89,9 @@ runs/density-solved-paper-best-benchmark/
   sample.dat
   best/metadata.json
   best/evaluation.npz
-  figures/
+  inspection.json
+  report/manifest.json
+  report/
 ```
 
 Record the wall time and peak resident memory from

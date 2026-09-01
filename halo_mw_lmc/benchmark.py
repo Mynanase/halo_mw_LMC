@@ -1,4 +1,4 @@
-"""Preflight for the 8--40 kpc one-trial benchmark cases."""
+"""Preflight for the named 8--40 kpc benchmark cases."""
 
 from __future__ import annotations
 
@@ -13,17 +13,6 @@ import numpy as np
 from .configuration import RunConfiguration, load_run_configuration
 
 
-R8_40_RUN_CONFIG_NAMES = frozenset(
-    {
-        "density_solved_r8_40_benchmark.toml",
-        "density_solved_r8_40_tol1e7_benchmark.toml",
-        "density_solved_r8_40_tol1e8_benchmark.toml",
-        "density_solved_r8_40_reg1e5_benchmark.toml",
-        "density_solved_r8_40_reg1e4_benchmark.toml",
-        "density_solved_r8_40_potential_ranking_tol1e7.toml",
-        "density_solved_r8_40_potential_ranking_tol1e8.toml",
-    }
-)
 R8_40_CASE_PARAMETERS = {
     "density_solved_r8_40_benchmark.toml": (1e-6, 1e-6),
     "density_solved_r8_40_tol1e7_benchmark.toml": (1e-7, 1e-6),
@@ -35,12 +24,64 @@ R8_40_POTENTIAL_RANKING_CASE_PARAMETERS = {
     "density_solved_r8_40_potential_ranking_tol1e7.toml": (1e-7, 1e-6),
     "density_solved_r8_40_potential_ranking_tol1e8.toml": (1e-8, 1e-6),
 }
+R8_40_SOLVER_CASE_PARAMETERS = {
+    "density_solved_r8_40_solver_lsq_linear_benchmark.toml": (
+        "lsq_linear",
+        1e-6,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_lsq_linear_repeat2.toml": (
+        "lsq_linear",
+        1e-6,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_lsq_linear_repeat3.toml": (
+        "lsq_linear",
+        1e-6,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_dense_nnls_benchmark.toml": (
+        "dense_nnls",
+        None,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_dense_nnls_repeat2.toml": (
+        "dense_nnls",
+        None,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_dense_nnls_repeat3.toml": (
+        "dense_nnls",
+        None,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_dual_ridge_benchmark.toml": (
+        "dual_ridge",
+        None,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_dual_ridge_repeat2.toml": (
+        "dual_ridge",
+        None,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_dual_ridge_repeat3.toml": (
+        "dual_ridge",
+        None,
+        1e-8,
+    ),
+}
 R8_40_POTENTIAL_RANKING_FIXED_POINTS = (
     (0.920, 0.800, 6.200, 9.890, 1.000),
     (0.820, 0.700, 6.200, 9.890, 1.000),
     (1.020, 0.950, 6.200, 9.890, 1.000),
     (0.920, 0.800, 6.500, 9.800, 1.200),
     (0.920, 0.800, 5.900, 10.050, 0.800),
+)
+R8_40_RUN_CONFIG_NAMES = frozenset(
+    R8_40_CASE_PARAMETERS
+    | R8_40_POTENTIAL_RANKING_CASE_PARAMETERS
+    | R8_40_SOLVER_CASE_PARAMETERS
 )
 
 
@@ -90,19 +131,29 @@ def validate_benchmark_preflight(
         dtype=float,
     )
     actual_shells = np.asarray(comparison.objective.density_shell_edges, dtype=float)
-    ranking_case = config.name in R8_40_POTENTIAL_RANKING_CASE_PARAMETERS
-    case_parameters = (
-        R8_40_POTENTIAL_RANKING_CASE_PARAMETERS
-        if ranking_case
-        else R8_40_CASE_PARAMETERS
-    )
-    expected_tol, expected_regularization = case_parameters[config.name]
-    expected_iterations = (
-        len(R8_40_POTENTIAL_RANKING_FIXED_POINTS) if ranking_case else 1
-    )
-    expected_fixed_points = (
-        R8_40_POTENTIAL_RANKING_FIXED_POINTS if ranking_case else None
-    )
+    if config.name in R8_40_CASE_PARAMETERS:
+        expected_tol, expected_regularization = R8_40_CASE_PARAMETERS[config.name]
+        expected_solver = "lsq_linear"
+        expected_solver_tolerance = 1e-8
+        expected_iterations = 1
+        expected_fixed_points = None
+    elif config.name in R8_40_POTENTIAL_RANKING_CASE_PARAMETERS:
+        expected_tol, expected_regularization = (
+            R8_40_POTENTIAL_RANKING_CASE_PARAMETERS[config.name]
+        )
+        expected_solver = "lsq_linear"
+        expected_solver_tolerance = 1e-8
+        expected_iterations = len(R8_40_POTENTIAL_RANKING_FIXED_POINTS)
+        expected_fixed_points = R8_40_POTENTIAL_RANKING_FIXED_POINTS
+    else:
+        (
+            expected_solver,
+            expected_tol,
+            expected_solver_tolerance,
+        ) = R8_40_SOLVER_CASE_PARAMETERS[config.name]
+        expected_regularization = 1e-6
+        expected_iterations = 1
+        expected_fixed_points = None
     if (
         configuration.iterations != expected_iterations
         or configuration.random_seed != 0
@@ -123,7 +174,10 @@ def validate_benchmark_preflight(
         or comparison.objective.density_max_chi2_per_bin != 2.0
         or comparison.objective.density_shell_phi_max_chi2_per_bin != 2.0
         or comparison.weight_model.mode != "density_solved"
+        or comparison.weight_model.solver != expected_solver
         or comparison.weight_model.lsmr_tol != expected_tol
+        or comparison.weight_model.solver_tolerance
+        != expected_solver_tolerance
         or comparison.weight_model.regularization_strength
         != expected_regularization
         or comparison.orbit_periods != 10.0

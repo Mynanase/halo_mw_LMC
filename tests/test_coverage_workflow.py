@@ -39,11 +39,11 @@ class CoverageWorkflowTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "halo_mw_lmc.workflows.coverage.read_phase_space_catalogue",
+                    "halo_mw_lmc.workflows.preflight.read_phase_space_catalogue",
                     return_value=np.zeros((1, 6)),
                 ),
                 patch(
-                    "halo_mw_lmc.workflows.coverage.build_data_coverage",
+                    "halo_mw_lmc.workflows.preflight.build_data_coverage",
                     side_effect=RuntimeError("stop after boundary check"),
                 ) as build,
             ):

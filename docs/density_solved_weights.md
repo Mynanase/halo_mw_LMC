@@ -23,11 +23,29 @@ For each trial potential parameter vector `theta`:
    w_hat(theta) = argmin(w >= 0) [chi2_density(theta,w) + lambda * ||w||2]
    ```
 
-   with SciPy `lsq_linear` (TRF/LSMR, explicit `max_iter` and a configured
-   fixed inner `lsmr_tol`). Seed orbits whose
+   through one configured numerical backend. The production default remains
+   SciPy `lsq_linear` (TRF/LSMR, explicit `max_iter` and a configured fixed
+   inner `lsmr_tol`). Two solver-only benchmark backends preserve the same
+   objective and non-negative constraint:
+
+   - `dense_nnls` forms `[A; sqrt(lambda) I]` once and calls SciPy's dense
+     NNLS implementation;
+   - `dual_ridge` solves the observation-space dual with a semismooth Newton
+     step and Armijo line search, then recovers
+     `w = max(-A.T @ y, 0) / lambda`. It requires `lambda > 0`.
+
+   Seed orbits whose
    response is strictly zero inside the fit mask are dropped from the solve and
    restored as zero weight afterwards. Failed seed integrations also receive
    zero weight in the full `(N_seed,)` result.
+
+All backends receive the exact same inverse-error-scaled CSR `A`, target `b`,
+and L2 strength. A SHA-256 problem fingerprint is persisted so benchmark runs
+can reject comparisons that did not solve the same numerical problem. The
+normalized primal KKT residual is recorded for every backend. Alternative
+backends are converged only when their own termination succeeds and this KKT
+residual is no larger than `solver_tolerance`; the historical `lsq_linear`
+success rule remains unchanged for backward compatibility.
 
 The default `lsmr_tol = 1e-6` replaces SciPy's `"auto"` rule, which kept the
 inner LSMR solve coarse while the optimality residual was large and stalled
@@ -84,14 +102,17 @@ second fitted density scale would introduce the degeneracy `w -> c*w` and
 Every row in `sample.dat` records density chi-square and chi-square per fitted
 bin, velocity-only and joint objectives, regularization penalty, inner solver
 objective, effective orbit count, maximum weight fraction, active orbit count,
-and solver convergence/status. The explicit solver `max_iter` and `lsmr_tol`
-settings are recorded in `resolved_config.json`.
+exact-zero weight fraction, solver convergence/status, normalized KKT residual,
+and solve-only wall time.
+The backend, explicit `max_iter`, `solver_tolerance`, and backend-specific
+`lsmr_tol` are recorded in `resolved_config.json`.
 The complete `(N_seed,)` weights are stored only
 for the current best trial in `best/evaluation.npz`, together with the density
 and velocity arrays needed by reports and Marimo. For the best trial, the
 inner-solve iteration count (`nit`), first-order optimality, and solver cost
-are persisted as `weight_iterations`, `weight_optimality`, and
-`weight_solver_cost`.
+are persisted together with backend, KKT residual, solve wall time, and problem
+fingerprint. Peak RSS is measured externally by GNU `time -v` because an
+in-process high-water mark cannot isolate one solver call reliably.
 
 The independent 8--40 kpc benchmark additionally partitions the density
 residuals into the velocity-aligned radial shells `[8,10,12,15,20,30,40]` and

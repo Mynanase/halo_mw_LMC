@@ -57,6 +57,10 @@ class RunArtifactTests(unittest.TestCase):
             converged=True,
             status=0,
             message="catalogue-fixed weights",
+            solver_backend="catalogue_fixed",
+            kkt_residual=0.0,
+            solve_wall_seconds=0.0,
+            problem_fingerprint="not-applicable",
         )
         return ModelEvaluation(
             density=density,
@@ -101,6 +105,12 @@ class RunArtifactTests(unittest.TestCase):
         np.testing.assert_allclose(stored.density.model_density, [[[2.0, 3.0]]])
         self.assertEqual(stored.velocity_distributions, {})
         np.testing.assert_allclose(stored.weight_solution.seed_weights, [1.0, 2.0])
+        self.assertEqual(stored.weight_solution.solver_backend, "catalogue_fixed")
+        self.assertEqual(stored.weight_solution.kkt_residual, 0.0)
+        self.assertEqual(
+            stored.weight_solution.problem_fingerprint,
+            "not-applicable",
+        )
         np.testing.assert_allclose(stored.density_shells.radius_edges, [0.0, 10.0])
         self.assertEqual(
             stored.orbit_support_audit.zero_density_response_velocity_orbit_count,

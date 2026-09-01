@@ -1,74 +1,82 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
-from halo_mw_lmc.workflows.reporting import generate_report
+from halo_mw_lmc.inspection import inspect_run
+from halo_mw_lmc.workflows.reporting import generate_report_from_run
+
+from tests.artifact_fixture import write_complete_run
 
 
-class ReportingTests(unittest.TestCase):
-    @patch("halo_mw_lmc.workflows.reporting.build_parameter_constraints_figure")
-    @patch("halo_mw_lmc.workflows.reporting.build_convergence_figure")
-    @patch("halo_mw_lmc.workflows.reporting.plot_model_diagnostics")
-    @patch("halo_mw_lmc.workflows.reporting.load_best_evaluation")
-    @patch("halo_mw_lmc.workflows.reporting.load_run_summary")
-    def test_static_report_writes_parameter_constraint_pdf(
-        self,
-        load_summary,
-        load_best,
-        plot_model,
-        build_convergence,
-        build_constraints,
-    ):
-        try:
-            import matplotlib.pyplot as plt
-        except ImportError:
-            self.skipTest("Matplotlib is unavailable")
+class ManagedReportTests(unittest.TestCase):
+    def test_artifact_only_report_renders_nonempty_pdfs_and_manifest(self):
         with tempfile.TemporaryDirectory() as directory:
-            run = Path(directory)
-            (run / "figures" / "best").mkdir(parents=True)
-            samples = object()
-            bounds = {
-                "qhalo": [0.7, 1.1],
-                "phalo": [0.7, 1.1],
-                "rho0": [5.5, 7.0],
-                "rho0_plus_2logrs": [9.0, 11.0],
-                "gamma": [0.0, 2.0],
-            }
-            load_summary.return_value = SimpleNamespace(
-                samples=samples,
-                config={"optimizer": {"bounds": bounds}},
+            run = write_complete_run(
+                Path(directory) / "run",
+                include_velocity=True,
             )
-            load_best.return_value = SimpleNamespace(
-                density=object(),
-                velocity_distributions=object(),
-                density_shells=None,
-                orbit_support_audit=None,
-                metadata={},
-            )
-            plot_model.return_value = []
-            convergence = plt.figure()
-            constraints = plt.figure()
-            convergence.savefig = MagicMock()
-            constraints.savefig = MagicMock()
-            build_convergence.return_value = convergence
-            build_constraints.return_value = constraints
-            configuration = SimpleNamespace(
-                output_dir=run,
-                report=SimpleNamespace(velocity_bin_factor=3),
-            )
+            (run / "fixed_seed_weights.npz").write_bytes(b"not-report-input")
+            written = generate_report_from_run(run)
+            manifest = json.loads((run / "report/manifest.json").read_text())
+            inspection = inspect_run(run)
 
-            written = generate_report(configuration)
+            expected = (
+                run / "report/convergence.pdf",
+                run / "report/parameter_constraints.pdf",
+                run / "report/density/overview.pdf",
+                run / "report/density/flattening.pdf",
+                run / "report/density/shell_phi_gate.pdf",
+                run / "report/density/phi_00.pdf",
+                run / "report/velocity/phi_average.pdf",
+                run / "report/velocity/phi_00.pdf",
+                run / "report/weights/distribution.pdf",
+            )
+            for path in expected:
+                self.assertTrue(path.is_file(), path)
+                self.assertGreater(path.stat().st_size, 0)
 
-        build_constraints.assert_called_once_with(
-            samples,
-            {name: tuple(interval) for name, interval in bounds.items()},
+        self.assertTrue(written)
+        self.assertEqual(manifest["schema_version"], 1)
+        self.assertEqual(manifest["resolved_config_schema"], 7)
+        self.assertNotIn(
+            "velocity/: no saved velocity distributions",
+            manifest["omitted"],
         )
-        constraints.savefig.assert_called_once()
-        saved_path = constraints.savefig.call_args.args[0]
-        self.assertEqual(saved_path.name, "parameter_constraints.pdf")
-        self.assertIn(saved_path, written)
+        self.assertEqual(inspection.report_status, "current")
+
+    def test_default_refuses_existing_report_and_overwrite_replaces_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = write_complete_run(Path(directory) / "run")
+            generate_report_from_run(run)
+            marker = run / "report/old-marker.txt"
+            marker.write_text("old")
+            with self.assertRaises(FileExistsError):
+                generate_report_from_run(run)
+
+            generate_report_from_run(run, overwrite=True)
+
+            self.assertFalse(marker.exists())
+            self.assertTrue((run / "report/manifest.json").exists())
+
+    def test_failed_overwrite_preserves_published_report(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = write_complete_run(Path(directory) / "run")
+            generate_report_from_run(run)
+            manifest_before = (run / "report/manifest.json").read_bytes()
+
+            with patch(
+                "halo_mw_lmc.workflows.reporting._render_report",
+                side_effect=RuntimeError("render failed"),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "render failed"):
+                    generate_report_from_run(run, overwrite=True)
+
+            self.assertEqual(
+                (run / "report/manifest.json").read_bytes(),
+                manifest_before,
+            )
 
 
 if __name__ == "__main__":

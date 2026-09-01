@@ -29,6 +29,9 @@ class WeightModelSettings:
     regularization: str | None = None
     regularization_strength: float = 0.0
     max_iter: int = 20000
+    # Post-solve normalized KKT tolerance for alternative NNLS backends.
+    # None is resolved to 1e-8 only in density_solved mode.
+    solver_tolerance: float | None = None
     # Inner LSMR tolerance of the TRF least-squares solver. A tight fixed
     # value makes each outer iteration accurate; scipy's "auto" rule keeps
     # the inner solve coarse while the optimality residual is large, which
@@ -48,14 +51,18 @@ class WeightModelSettings:
                     self.solver,
                     self.target_normalization,
                     self.regularization,
+                    self.solver_tolerance,
                 )
             ) or self.regularization_strength != 0:
                 raise ValueError(
                     "catalogue_fixed weights cannot define solver options"
                 )
             return
-        if self.solver != "lsq_linear":
-            raise ValueError("density_solved currently requires solver='lsq_linear'")
+        if self.solver not in {"lsq_linear", "dense_nnls", "dual_ridge"}:
+            raise ValueError(
+                "density_solved solver must be 'lsq_linear', 'dense_nnls', "
+                "or 'dual_ridge'"
+            )
         if self.target_normalization not in {"absolute", "unit_mass"}:
             raise ValueError(
                 "target_normalization must be 'absolute' or 'unit_mass'"
@@ -69,10 +76,26 @@ class WeightModelSettings:
             raise ValueError("regularization_strength must be finite and non-negative")
         if self.max_iter < 1:
             raise ValueError("max_iter must be a positive integer")
+        if self.solver_tolerance is None:
+            object.__setattr__(self, "solver_tolerance", 1e-8)
+        elif (
+            not np.isfinite(self.solver_tolerance)
+            or self.solver_tolerance <= 0
+        ):
+            raise ValueError("solver_tolerance must be a positive finite number")
         if self.lsmr_tol is not None and (
             not np.isfinite(self.lsmr_tol) or self.lsmr_tol <= 0
         ):
             raise ValueError("lsmr_tol must be None or a positive finite number")
+        if self.solver == "lsq_linear" and self.lsmr_tol is None:
+            # None intentionally retains SciPy's historical "auto" behavior.
+            return
+        if self.solver != "lsq_linear" and self.lsmr_tol is not None:
+            raise ValueError(
+                "lsmr_tol is only valid for solver='lsq_linear'; set it to None"
+            )
+        if self.solver == "dual_ridge" and self.regularization_strength <= 0:
+            raise ValueError("dual_ridge requires positive regularization_strength")
 
 
 @dataclass(frozen=True)

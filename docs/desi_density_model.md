@@ -78,9 +78,13 @@ error. Change it only through the generator TOML and record sensitivity tests.
 Run:
 
 ```bash
-python -m halo_mw_lmc.generate_density \
+conda run -n dp-jax python scripts/generate_synthetic_density.py \
   configs/synthetic_density/desi_year1_kgiants.toml
 ```
+
+The script is the recommended low-frequency interface. The installed
+`halo-mw-lmc-density` command and `python -m halo_mw_lmc.generate_density`
+remain compatibility entry points and call the same strict loader/workflow.
 
 The generated file is
 `data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz`. It is ignored by Git
