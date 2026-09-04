@@ -17,6 +17,12 @@ fi
 
 cd "$REPOSITORY"
 export PYTHONPATH="$REPOSITORY/Agama-master${PYTHONPATH:+:$PYTHONPATH}"
+# Pin SciPy/OpenBLAS to one thread: the dense weight solve is a single
+# BLAS-heavy region and BLAS oversubscription made it ~64x CPU-bound
+# (docs/solve_performance_diagnostics.md). Do NOT set OMP_NUM_THREADS here:
+# AGAMA orbit integration is batched (agama.orbit receives all initial
+# conditions at once) and relies on OpenMP scaling across cores.
+export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-1}"
 
 if ! PREFLIGHT_OUTPUT="$(
   conda run -n halo_lmc python -m halo_mw_lmc.benchmark \
@@ -77,6 +83,7 @@ sha256sum "$CATALOGUE" "$TARGET_DENSITY" > "$STAGING/input-sha256.txt"
 conda run -n halo_lmc python -c \
   "import agama, astropy, matplotlib, numpy, scipy, skopt, sys; print(sys.version); print('agama', getattr(agama, '__version__', 'unknown')); print('astropy', astropy.__version__); print('matplotlib', matplotlib.__version__); print('numpy', numpy.__version__); print('scipy', scipy.__version__); print('skopt', skopt.__version__)" \
   > "$STAGING/environment.txt"
+printenv OPENBLAS_NUM_THREADS OMP_NUM_THREADS >> "$STAGING/environment.txt" 2>/dev/null || true
 printf '%q ' /usr/bin/time -v conda run -n halo_lmc python -m halo_mw_lmc run "$RUN_CONFIG" \
   > "$STAGING/command.txt"
 printf '\n' >> "$STAGING/command.txt"

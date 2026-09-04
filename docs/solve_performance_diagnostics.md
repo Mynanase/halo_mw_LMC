@@ -78,6 +78,32 @@ conditions on the identical design matrix:
 
 28 threads captures 13.8x; the remaining 4x speedup costs 4x the CPU.
 
+### Finding 4b - full-problem confirmation (11250 orbits, paper-best, 2026-09-05)
+
+`agama_omp_scan.py` repeated the measurement at production scale (full
+`halo_clean_N.txt`, `periods=10`, `samples_per_orbit=1000`, agama.setNumThreads,
+OPENBLAS pinned to 1, round-robin ordering, 2 repeats; results in
+`.agent-local/benchmarks/agama_omp_scan_results.json`, local-only). Wall times
+are best-of-repeats; the 1-thread baseline is a 10% seed subsample linearly
+extrapolated (orbits are independent).
+
+| threads | wall (s) | speedup vs 1t | cpu/wall |
+|---:|---:|---:|---:|
+| 1 (extrapolated) | ~182 | 1.00x | 1.0 |
+| 4 | 51.9 | 3.50x | 3.9 |
+| 8 | 29.5 | 6.15x | 7.7 |
+| 16 | 18.8 | 9.68x | 15.1 |
+| 32 | 14.7 | 12.32x | 29.2 |
+| 64 | 13.6 | 13.33x | 57.8 |
+| 112 | 11.1 | 16.30x | 97.2 |
+
+Consistent with the 282-orbit subset: ~28-32 threads captures most of the
+achievable speedup, and going to 64 buys only ~1 s (14.7 -> 13.6). More
+importantly, at any reasonable thread count the integration itself is only
+11-15 s of a ~500 s trial, so AGAMA threading is a CPU-footprint lever, not a
+wall-time lever. The remaining non-solve wall time must come from other stages
+(density response, evaluation, report, coverage; see Finding 2).
+
 ## Finding 5 - inside the solve (instrumented `lsq_linear`)
 
 The design matrix handed to `scipy.optimize.lsq_linear` is
@@ -146,14 +172,20 @@ separation starves the GP surrogate of gradient information, and the
 non-converged trials are also the slowest ones (~20,000 outer iterations,
 roughly 5x the paper-best trial).
 
-## Recommendations (ranked; none implemented yet)
+## Recommendations (ranked; status as of 2026-09-05)
 
-1. **Export `OPENBLAS_NUM_THREADS=1` for production runs.** Removes 98% of
-   the process CPU at unchanged wall time. Fix one thread setting and keep
-   it for cross-run comparability (Finding 3 trajectory dependence).
-2. **On shared machines, call `agama.setNumThreads(28)` before
-   integration** (optional): +4 s wall per trial, -65% integration CPU
-   (Finding 4).
+1. **Export `OPENBLAS_NUM_THREADS=1` for production runs. — IMPLEMENTED** in
+   `scripts/run_density_solved_r8_40_case.sh` (`${OPENBLAS_NUM_THREADS:-1}`;
+   benchmark metadata now records the effective thread environment). Removes
+   98% of the process CPU at unchanged wall time. Fix one thread setting and
+   keep it for cross-run comparability (Finding 3 trajectory dependence).
+2. **On shared machines, cap `agama.setNumThreads(~28-32)` before
+   integration** (optional): confirmed at full problem scale (Finding 4b),
+   costs ~3.6 s wall per trial vs all-core and saves ~65-70% integration CPU.
+   This is a CPU-courtesy lever only; integration is 11-15 s of a ~500 s
+   trial either way. Do NOT set OMP_NUM_THREADS globally for this purpose -
+   that would also constrain AGAMA's OpenMP pool; use setNumThreads at the
+   call site instead.
 3. **Parallelize across trials, not within a solve.** After (1) each
    solve is single-core, so fixed-point batches (the five-point ranking
    test, benchmark cases) can run as parallel processes. The sequential GP
@@ -196,6 +228,9 @@ conda run -n halo_lmc python -u .agent-local/benchmarks/solve_timing.py agama1
 OPENBLAS_NUM_THREADS=1 conda run -n halo_lmc python -u .agent-local/benchmarks/solve_breakdown.py
 # solver-knob variants
 OPENBLAS_NUM_THREADS=1 conda run -n halo_lmc python -u .agent-local/benchmarks/solve_scale_test.py
+# AGAMA OpenMP scan at full problem scale (Finding 4b)
+OPENBLAS_NUM_THREADS=1 conda run -n halo_lmc python -u \
+  .agent-local/benchmarks/agama_omp_scan.py --threads 4,8,16,32,64,112 --small-threads 1
 ```
 
 Each script writes a matching `.log` file beside it. `conda run` buffers
