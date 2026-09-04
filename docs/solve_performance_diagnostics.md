@@ -160,6 +160,48 @@ noise on a flat manifold, not physical signal.
 Inner-iteration caps are catastrophic here, consistent with the earlier
 project experience that loose inner tolerances stall the outer loop.
 
+## Finding 8 - full-run wall budget after the OpenBLAS pin (2026-09-05)
+
+A full `python -m halo_mw_lmc run` (single paper-best trial, solver-benchmark
+configuration, disposable output dir) under `OPENBLAS_NUM_THREADS=1` measured
+**209.4 s wall / 1288 s CPU** under cProfile, against **541 s wall / 32878 s
+CPU** for the same case unpinned (`.agent-local/benchmarks/r8_40/*/time-v.txt`,
+profile artifacts in `.agent-local/tmp/`, local-only).
+
+Two corrections to the earlier bookkeeping:
+
+1. The "498 s" previously quoted for the lsq-linear benchmark case was the
+   **solve-only wall** (`weight_solver_wall_seconds`, copied verbatim into the
+   comparison JSON), not the whole case. The real unpinned whole-run wall is
+   541 s.
+2. The profile's 179 s attributed to matplotlib PDF text metrics is a
+   multithreaded cProfile artifact: a real, un-profiled re-render of the
+   report stage takes **14 s**. Do not chase matplotlib text layout.
+
+Pinned full-run wall budget (real timings unless noted):
+
+| stage | wall (s) | note |
+|---|---:|---|
+| weight solve | 151.6 | trajectory-dependent, see below |
+| agama.orbit integration | ~11 | OpenMP all-core, Finding 4b |
+| orbit postprocess + response + spherical + histograms + audit | ~13 | Finding 2 shares |
+| report (all 16 artifacts) | 14 | measured standalone |
+| preflight/coverage/imports/inspection/artifacts | ~20 | residual |
+| **total** | **209** | measured |
+
+The non-solve overhead is therefore only ~58 s; the solve remains the only
+wall-time lever worth engineering on.
+
+Solve trajectory warning (extends Finding 6): with the identical problem
+fingerprint (`49e43d88...`), the solve wall has now been observed at 498 s
+(unpinned, 5788 iterations, KKT 5.9e-5, objective 133666.96), 220 s (pinned,
+3939 iterations, Aug 31 probe), and 151.6 s (pinned, 193 iterations, KKT
+1.7e-3, objective 133680.47). BLAS threading is one input to the TRF
+trajectory, and the underdetermined problem makes per-solve wall time a
+lottery spanning >3x. Cross-run comparisons must therefore fix the thread
+environment AND re-baseline objectives; the 133667 vs 133680 pair above shows
+the same trial can shift by ~1e-4 relative across thread settings.
+
 ## Related known issue - objective bimodality (wide-scan review)
 
 From the `density-solved-r8-40-wide-scan` sample review: objectives are
