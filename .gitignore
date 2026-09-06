@@ -40,3 +40,5 @@ __pycache__/
 
 # === txt data files (observational data, not source code) ===
 *.txt
+# curated benchmark evidence under docs/ is documentation, not observational data
+!docs/benchmarks/*.txt

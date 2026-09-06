@@ -1,0 +1,109 @@
+# Curated solve-timing log excerpts (2026-08-31 to 2026-09-05)
+# Source: .agent-local/benchmarks/*.log on the production server; verbatim
+# concatenation with file markers. Regenerate with the commands in
+# docs/solve_performance_diagnostics.md (Reproduction section).
+
+===== step_timing_profile.log =====
+agama version: 1.0 compiled on Jul 24 2026
+logical CPUs: 112
+config: configs/runs/density_solved_benchmark.toml
+catalogue seeds: 11250
+orbit samples: 11250000
+check: chi2=473.4901 lnL_v=-137300.16 solver_iters=2309 converged=True
+
+=== per-step timing, paper-best trial (default OpenMP threads) ===
+step                                              wall_s      cpu_s cpu/wall peak_thr  share
+--------------------------------------------------------------------------------------------
+prepare_model_data (I/O+observed hist)              0.46       0.44     0.97       65   0.2%
+build_potential (AGAMA components)                  0.05       0.05     1.00        0   0.0%
+potential.Tcirc (batch periods)                     0.07       7.74   106.31       66   0.0%
+agama.orbit (OpenMP integration)                    9.65    1064.75   110.28      176   3.9%
+orbit postprocess (finite-filter loop)              1.30       1.30     1.00      176   0.5%
+build_orbit_density_response (sparse)               1.85       1.85     1.00      176   0.8%
+solve_density_weights (TRF+LSMR)                  222.58   14175.85    63.69      239  90.6%
+compare_density (chi2+scale)                        0.00       0.00     1.08      239   0.0%
+cartesian->spherical (orbit samples)                2.40       2.40     1.00      239   1.0%
+_orbit_support_audit                                0.42       0.42     1.00      239   0.2%
+velocity histogram vr (histogramdd)                 2.22       2.22     1.00      239   0.9%
+velocity likelihood vr (star loop)                  0.10       0.10     1.00      239   0.0%
+velocity histogram vphi (histogramdd)               2.18       2.18     1.00      239   0.9%
+velocity likelihood vphi (star loop)                0.10       0.10     1.00      239   0.0%
+velocity histogram vtheta (histogramdd)             2.23       2.22     1.00      239   0.9%
+velocity likelihood vtheta (star loop)              0.10       0.10     1.00      239   0.0%
+--------------------------------------------------------------------------------------------
+TOTAL (sum of steps)                              245.73
+peak RSS: 3481.84 GiB; process CPU total: 15276.8 s
+
+=== agama.orbit OpenMP thread scaling (orbit subset) ===
+subset orbits: 282
+threads= 112 wall=    0.26s
+threads=  56 wall=    0.32s
+threads=  28 wall=    0.34s
+threads=  14 wall=    0.47s
+threads=   1 wall=    4.76s
+
+threads    wall_s  speedup efficiency
+    112      0.26   18.04x      16.1%
+     56      0.32   14.91x      26.6%
+     28      0.34   13.82x      49.4%
+     14      0.47   10.09x      72.1%
+      1      4.76    1.00x     100.0%
+
+===== solve_breakdown.log =====
+OPENBLAS_NUM_THREADS=1
+grid shape (R,z,phi): (25, 25, 4)
+response matrix: (2500, 11250), nnz=1123039
+
+=== solve_density_weights breakdown ===
+wall=221.71s cpu=220.79s cpu/wall=1.00
+result: nit=3939 success=True optimality=1.556e-02 cost=236.745985
+solution: inner_obj=473.4920 iterations=3939 converged=True
+lsq_linear kwargs: {'bounds': (0.0, inf), 'method': 'trf', 'lsq_solver': 'lsmr', 'lsmr_tol': 1e-06, 'max_iter': 20000}
+design 7007x5967 = (1040 fit rows + 5967 reg rows) x 5967 orbits; regularization=1e-06
+design nnz=389250 density=9.310e-03 storage=4.5 MiB avg nnz/col=65.2
+
+matvec  :   207811 calls   107.80s ( 48.6% of wall)   518.7 us/call
+rmatvec :   198446 calls    81.02s ( 36.5% of wall)   408.3 us/call
+other   :                   32.89s ( 14.8% of wall)  (TRF bookkeeping + LSMR vector ops + Python dispatch)
+inner LSMR iterations (approx, calls/2): 203128 -> 51.6 per outer TRF iteration
+
+microbench: matvec=446.7us (9.7 GiB/s effective), rmatvec=387.5us (11.2 GiB/s effective)
+
+===== solve_scale_test.log =====
+OPENBLAS_NUM_THREADS=1
+
+=== solver-knob comparison (identical design matrix) ===
+default   : wall=  222.81s nit=  3939 matvec= 406257 cost=236.745985 optimality=1.556e-02 status=2 success=True
+           message: The relative change of the cost function is less than `tol`.
+colscaled : wall=  343.69s nit=  4221 matvec= 127997 cost=236.682763 optimality=4.445e-05 status=2 success=True
+           message: The relative change of the cost function is less than `tol`.
+lsmrmax15 : wall=  496.67s nit= 20000 matvec= 720361 cost=236.879293 optimality=1.882e-02 status=0 success=False
+           message: The maximum number of iterations is exceeded.
+colscaled : max|dw|=1.363e+00 (rel=5.024e+00) sum(w)=8.158602e+00 vs base 6.327707e+00 wall speedup=0.65x nit ratio=0.93x
+lsmrmax15 : max|dw|=1.866e-01 (rel=6.879e-01) sum(w)=9.731201e+00 vs base 6.327707e+00 wall speedup=0.45x nit ratio=0.20x
+pipeline solution inner_obj=473.4920
+
+===== solve_timing_default.log =====
+mode: default
+OPENBLAS_NUM_THREADS=None
+OMP_NUM_THREADS=None
+integration wall: 10.98 s
+response build wall: 1.72 s
+SOLVE wall=224.18s cpu=14278.33s cpu/wall=63.69 peak_threads=239 iterations=2309 converged=True inner_obj=473.4901
+
+===== solve_timing_openblas1.log =====
+mode: default
+OPENBLAS_NUM_THREADS=1
+OMP_NUM_THREADS=None
+integration wall: 11.20 s
+response build wall: 1.73 s
+SOLVE wall=220.11s cpu=219.39s cpu/wall=1.00 peak_threads=113 iterations=3939 converged=True inner_obj=473.4920
+
+===== solve_timing_agama1.log =====
+mode: agama1
+OPENBLAS_NUM_THREADS=None
+OMP_NUM_THREADS=None
+integration wall: 10.83 s
+response build wall: 1.65 s
+agama.setNumThreads(1) active for the solve
+SOLVE wall=244.35s cpu=15569.60s cpu/wall=63.72 peak_threads=239 iterations=2309 converged=True inner_obj=473.4901
