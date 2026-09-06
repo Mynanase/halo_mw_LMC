@@ -58,7 +58,8 @@ scripts/run_density_solved_r8_40_weight_solvers.sh
 ```
 
 The comparison is written to
-`.agent-local/benchmarks/r8_40_weight_solver_comparison.json`. The comparator
+`.agent-local/benchmarks/r8_40_weight_solver_comparison.json` (curated
+committed copy: `docs/benchmarks/r8_40_weight_solver_comparison.json`). The comparator
 requires exactly three distinct one-point runs per backend. All three backends,
 including the current baseline, enter speed selection only when every repeated
 solve is finite, non-negative, converged, below its normalized KKT threshold,

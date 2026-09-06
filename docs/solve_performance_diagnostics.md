@@ -5,7 +5,7 @@ pipeline code was changed; this file preserves the findings and the
 recommended fixes so they survive outside `.agent-local/`. The measurement
 scripts and raw logs live in `.agent-local/benchmarks/` (untracked by
 design): `step_timing_profile.py`, `solve_timing.py`, `solve_breakdown.py`,
-`solve_scale_test.py`.
+`solve_scale_test.py`; curated summaries are committed under `docs/benchmarks/`.
 
 ## Measurement setup
 
@@ -83,7 +83,8 @@ conditions on the identical design matrix:
 `agama_omp_scan.py` repeated the measurement at production scale (full
 `halo_clean_N.txt`, `periods=10`, `samples_per_orbit=1000`, agama.setNumThreads,
 OPENBLAS pinned to 1, round-robin ordering, 2 repeats; results in
-`.agent-local/benchmarks/agama_omp_scan_results.json`, local-only). Wall times
+`.agent-local/benchmarks/agama_omp_scan_results.json`; committed copy in
+`docs/benchmarks/agama_omp_scan_results.json`). Wall times
 are best-of-repeats; the 1-thread baseline is a 10% seed subsample linearly
 extrapolated (orbits are independent).
 
@@ -165,8 +166,9 @@ project experience that loose inner tolerances stall the outer loop.
 A full `python -m halo_mw_lmc run` (single paper-best trial, solver-benchmark
 configuration, disposable output dir) under `OPENBLAS_NUM_THREADS=1` measured
 **209.4 s wall / 1288 s CPU** under cProfile, against **541 s wall / 32878 s
-CPU** for the same case unpinned (`.agent-local/benchmarks/r8_40/*/time-v.txt`,
-profile artifacts in `.agent-local/tmp/`, local-only).
+CPU** for the same case unpinned (`.agent-local/benchmarks/r8_40/*/time-v.txt`;
+curated evidence committed under `docs/benchmarks/full_run_wall_budget.txt`,
+profile artifacts local-only in `.agent-local/tmp/`).
 
 Two corrections to the earlier bookkeeping:
 

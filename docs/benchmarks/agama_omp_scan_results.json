@@ -1,0 +1,208 @@
+{
+  "timestamp_utc": "2026-09-04T20:40:38.585549+00:00",
+  "catalogue": "/home/tqiu/halo_mw_LMC/data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt",
+  "seed_count": 11250,
+  "periods": 10.0,
+  "samples_per_orbit": 1000,
+  "potential": "zhu_2026 paper-best (ZhuHaloParameters)",
+  "agama_setNumThreads": true,
+  "openblas_num_threads": "1",
+  "omp_num_threads_env": null,
+  "subsample_for_small_counts": 10,
+  "repeats": 2,
+  "records": [
+    {
+      "threads": 4,
+      "seed_count": 11250,
+      "sample_count": 11250000,
+      "wall_seconds": 52.239,
+      "cpu_seconds": 204.18,
+      "cpu_wall_ratio": 3.91,
+      "repeat": 0,
+      "extrapolated_to_full_problem": false,
+      "problem_matches_warmup": true
+    },
+    {
+      "threads": 8,
+      "seed_count": 11250,
+      "sample_count": 11250000,
+      "wall_seconds": 29.708,
+      "cpu_seconds": 227.782,
+      "cpu_wall_ratio": 7.67,
+      "repeat": 0,
+      "extrapolated_to_full_problem": false,
+      "problem_matches_warmup": true
+    },
+    {
+      "threads": 16,
+      "seed_count": 11250,
+      "sample_count": 11250000,
+      "wall_seconds": 18.766,
+      "cpu_seconds": 283.11,
+      "cpu_wall_ratio": 15.09,
+      "repeat": 0,
+      "extrapolated_to_full_problem": false,
+      "problem_matches_warmup": true
+    },
+    {
+      "threads": 32,
+      "seed_count": 11250,
+      "sample_count": 11250000,
+      "wall_seconds": 15.211,
+      "cpu_seconds": 444.429,
+      "cpu_wall_ratio": 29.22,
+      "repeat": 0,
+      "extrapolated_to_full_problem": false,
+      "problem_matches_warmup": true
+    },
+    {
+      "threads": 64,
+      "seed_count": 11250,
+      "sample_count": 11250000,
+      "wall_seconds": 13.874,
+      "cpu_seconds": 802.53,
+      "cpu_wall_ratio": 57.84,
+      "repeat": 0,
+      "extrapolated_to_full_problem": false,
+      "problem_matches_warmup": true
+    },
+    {
+      "threads": 112,
+      "seed_count": 11250,
+      "sample_count": 11250000,
+      "wall_seconds": 11.631,
+      "cpu_seconds": 1130.351,
+      "cpu_wall_ratio": 97.19,
+      "repeat": 0,
+      "extrapolated_to_full_problem": false,
+      "problem_matches_warmup": true
+    },
+    {
+      "threads": 1,
+      "seed_count": 1125,
+      "sample_count": 1125000,
+      "wall_seconds": 18.276,
+      "cpu_seconds": 18.217,
+      "cpu_wall_ratio": 1.0,
+      "repeat": 0,
+      "extrapolated_to_full_problem": true,
+      "problem_matches_warmup": false
+    },
+    {
+      "threads": 4,
+      "seed_count": 11250,
+      "sample_count": 11250000,
+      "wall_seconds": 51.871,
+      "cpu_seconds": 203.077,
+      "cpu_wall_ratio": 3.92,
+      "repeat": 1,
+      "extrapolated_to_full_problem": false,
+      "problem_matches_warmup": true
+    },
+    {
+      "threads": 8,
+      "seed_count": 11250,
+      "sample_count": 11250000,
+      "wall_seconds": 29.543,
+      "cpu_seconds": 226.61,
+      "cpu_wall_ratio": 7.67,
+      "repeat": 1,
+      "extrapolated_to_full_problem": false,
+      "problem_matches_warmup": true
+    },
+    {
+      "threads": 16,
+      "seed_count": 11250,
+      "sample_count": 11250000,
+      "wall_seconds": 18.808,
+      "cpu_seconds": 280.044,
+      "cpu_wall_ratio": 14.89,
+      "repeat": 1,
+      "extrapolated_to_full_problem": false,
+      "problem_matches_warmup": true
+    },
+    {
+      "threads": 32,
+      "seed_count": 11250,
+      "sample_count": 11250000,
+      "wall_seconds": 14.74,
+      "cpu_seconds": 432.382,
+      "cpu_wall_ratio": 29.33,
+      "repeat": 1,
+      "extrapolated_to_full_problem": false,
+      "problem_matches_warmup": true
+    },
+    {
+      "threads": 64,
+      "seed_count": 11250,
+      "sample_count": 11250000,
+      "wall_seconds": 13.627,
+      "cpu_seconds": 787.343,
+      "cpu_wall_ratio": 57.78,
+      "repeat": 1,
+      "extrapolated_to_full_problem": false,
+      "problem_matches_warmup": true
+    },
+    {
+      "threads": 112,
+      "seed_count": 11250,
+      "sample_count": 11250000,
+      "wall_seconds": 11.142,
+      "cpu_seconds": 1091.556,
+      "cpu_wall_ratio": 97.97,
+      "repeat": 1,
+      "extrapolated_to_full_problem": false,
+      "problem_matches_warmup": true
+    },
+    {
+      "threads": 1,
+      "seed_count": 1125,
+      "sample_count": 1125000,
+      "wall_seconds": 18.158,
+      "cpu_seconds": 18.105,
+      "cpu_wall_ratio": 1.0,
+      "repeat": 1,
+      "extrapolated_to_full_problem": true,
+      "problem_matches_warmup": false
+    }
+  ],
+  "summary": {
+    "1": {
+      "best_wall_seconds_full_problem_est": 181.6,
+      "measured": "subsample, linearly extrapolated",
+      "subsample_fraction": "1/10",
+      "speedup_vs_baseline": 1.0
+    },
+    "4": {
+      "best_wall_seconds": 51.871,
+      "measured": "full problem",
+      "speedup_vs_baseline": 3.501
+    },
+    "8": {
+      "best_wall_seconds": 29.543,
+      "measured": "full problem",
+      "speedup_vs_baseline": 6.146
+    },
+    "16": {
+      "best_wall_seconds": 18.766,
+      "measured": "full problem",
+      "speedup_vs_baseline": 9.676
+    },
+    "32": {
+      "best_wall_seconds": 14.74,
+      "measured": "full problem",
+      "speedup_vs_baseline": 12.319
+    },
+    "64": {
+      "best_wall_seconds": 13.627,
+      "measured": "full problem",
+      "speedup_vs_baseline": 13.325
+    },
+    "112": {
+      "best_wall_seconds": 11.142,
+      "measured": "full problem",
+      "speedup_vs_baseline": 16.297
+    },
+    "_baseline_note": "baseline = smallest measured count (1 thread if present), full-problem scale"
+  }
+}

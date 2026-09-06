@@ -1,0 +1,107 @@
+{
+  "inner_objective_agreement_passed": true,
+  "inner_objective_max_relative_difference": null,
+  "production_blocker": "paper-best timing must be followed by the five fixed-potential ranking validation before changing the active recipe",
+  "production_ready": false,
+  "runs": {
+    "dense_nnls": {
+      "backend": "dense_nnls",
+      "density_gates_passed": true,
+      "finite": true,
+      "individual_qualified": true,
+      "maximum_kkt_residual": 9.56550197e-16,
+      "maximum_rss_kib": 4008964,
+      "median_active_orbit_count": 995.0,
+      "median_density_chi2_per_bin": 0.421511783,
+      "median_effective_orbit_count": 87.6429679,
+      "median_inner_objective": 483.895527,
+      "median_maximum_weight_fraction": 0.0793923222,
+      "median_selected_objective": 134171.261,
+      "median_velocity_objective": 134171.261,
+      "median_wall_seconds": 994.963988,
+      "median_zero_weight_fraction": 0.911555556,
+      "problem_fingerprint": "49e43d88f2319ad5db5b5a01c67784db9828b8030b542b9f6156cfbee0f159da",
+      "qualified_for_speed_selection": true,
+      "repeats": 3,
+      "run_directories": [
+        "/home/tqiu/halo_mw_LMC/runs/density-solved-r8-40-solver-dense-nnls-benchmark",
+        "/home/tqiu/halo_mw_LMC/runs/density-solved-r8-40-solver-dense-nnls-repeat2",
+        "/home/tqiu/halo_mw_LMC/runs/density-solved-r8-40-solver-dense-nnls-repeat3"
+      ],
+      "solver_converged": true,
+      "solver_tolerance": 1e-08,
+      "wall_seconds": [
+        934.802626,
+        1026.91377,
+        994.963988
+      ]
+    },
+    "dual_ridge": {
+      "backend": "dual_ridge",
+      "density_gates_passed": false,
+      "finite": false,
+      "individual_qualified": false,
+      "maximum_kkt_residual": 12.7340834,
+      "maximum_rss_kib": 2962792,
+      "median_active_orbit_count": 1016.0,
+      "median_density_chi2_per_bin": 388601.386,
+      "median_effective_orbit_count": 45.9456259,
+      "median_inner_objective": 446114391.0,
+      "median_maximum_weight_fraction": 0.0646663388,
+      "median_selected_objective": 1e+30,
+      "median_velocity_objective": 139854.241,
+      "median_wall_seconds": 2329.11124,
+      "median_zero_weight_fraction": 0.909688889,
+      "problem_fingerprint": "49e43d88f2319ad5db5b5a01c67784db9828b8030b542b9f6156cfbee0f159da",
+      "qualified_for_speed_selection": false,
+      "repeats": 3,
+      "run_directories": [
+        "/home/tqiu/halo_mw_LMC/runs/density-solved-r8-40-solver-dual-ridge-benchmark",
+        "/home/tqiu/halo_mw_LMC/runs/density-solved-r8-40-solver-dual-ridge-repeat2",
+        "/home/tqiu/halo_mw_LMC/runs/density-solved-r8-40-solver-dual-ridge-repeat3"
+      ],
+      "solver_converged": false,
+      "solver_tolerance": 1e-08,
+      "wall_seconds": [
+        2361.83992,
+        2329.11124,
+        2293.91772
+      ]
+    },
+    "lsq_linear": {
+      "backend": "lsq_linear",
+      "density_gates_passed": true,
+      "finite": true,
+      "individual_qualified": false,
+      "maximum_kkt_residual": 5.88281492e-05,
+      "maximum_rss_kib": 2873308,
+      "median_active_orbit_count": 6676.0,
+      "median_density_chi2_per_bin": 0.421692202,
+      "median_effective_orbit_count": 111.412289,
+      "median_inner_objective": 484.102648,
+      "median_maximum_weight_fraction": 0.0612211561,
+      "median_selected_objective": 133666.961,
+      "median_velocity_objective": 133666.961,
+      "median_wall_seconds": 498.068075,
+      "median_zero_weight_fraction": 0.148711111,
+      "problem_fingerprint": "49e43d88f2319ad5db5b5a01c67784db9828b8030b542b9f6156cfbee0f159da",
+      "qualified_for_speed_selection": false,
+      "repeats": 3,
+      "run_directories": [
+        "/home/tqiu/halo_mw_LMC/runs/density-solved-r8-40-solver-lsq-linear-benchmark",
+        "/home/tqiu/halo_mw_LMC/runs/density-solved-r8-40-solver-lsq-linear-repeat2",
+        "/home/tqiu/halo_mw_LMC/runs/density-solved-r8-40-solver-lsq-linear-repeat3"
+      ],
+      "solver_converged": true,
+      "solver_tolerance": 1e-08,
+      "wall_seconds": [
+        498.068075,
+        493.073367,
+        499.146129
+      ]
+    }
+  },
+  "same_problem_fingerprint": true,
+  "selection_reason": "selected fastest qualified backend",
+  "winner": "dense_nnls"
+}
