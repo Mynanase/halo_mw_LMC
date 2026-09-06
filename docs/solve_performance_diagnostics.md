@@ -204,6 +204,48 @@ lottery spanning >3x. Cross-run comparisons must therefore fix the thread
 environment AND re-baseline objectives; the 133667 vs 133680 pair above shows
 the same trial can shift by ~1e-4 relative across thread settings.
 
+## Finding 9 - the solve path is deterministic under the pin; regularization is not a speed lever (2026-09-07)
+
+Two disposable reg=1e-5 probe repeats under `OPENBLAS_NUM_THREADS=1`
+(`.agent-local/tmp/reg1e5_probe_repeat{1,2}.*`, local-only) produced
+**bit-identical results**: 208 TRF iterations, KKT 2.15e-4, velocity objective
+133680.14990521898, density chi2/bin 0.42166, solve wall 170/176 s. The pin
+removes the solve trajectory lottery within an environment: same problem,
+same path, every time.
+
+Iteration-count survey at the same problem scale (paper-best point unless
+noted; solve-only wall from metadata, whole-case wall from `/usr/bin/time`):
+
+| environment | reg | lsmr_tol | iters | solve wall |
+|---|---|---:|---:|---:|
+| unpinned | 1e-6 | 1e-6 | 5788 | 498 s |
+| pinned | 1e-6 | 1e-6 | 193 | 152 s |
+| unpinned | 1e-5 | 1e-6 | 139 | (not recorded) |
+| pinned | 1e-5 | 1e-6 | 208 | ~170 s |
+| unpinned, ranking tol1e8 | 1e-6 | 1e-8 | 12277 | - |
+| unpinned, wide-scan best | 1e-6 | 1e-6 | 14115 | - |
+
+Conclusions:
+
+1. **The reg=1e-5 hypothesis is dead as a speed lever.** 208 vs 193 pinned
+   iterations is no collapse; the 139-iteration old run was an unpinned
+   trajectory, not a regularization effect. reg=1e-5 is nevertheless
+   scientifically harmless here (velocity objective within 0.3 of the reg=1e-6
+   pinned value; density chi2 identical to 5 digits), so the contract default
+   reg=1e-6 stays.
+2. The iteration collapse 5788 -> 193 between unpinned and pinned defaults is
+   a BLAS rounding-path effect, not physics. It cannot be steered by model
+   knobs; it can only be fixed by fixing the environment (the pin).
+3. Per-iteration cost is ~0.8 s under the pin and ~0.09 s unpinned; the pinned
+   path wins on total wall because it takes ~30x fewer iterations.
+4. Practical speed conclusion: the pinned whole-case run is **209-218 s wall
+   (~58 s of it non-solve)** and reproducible. If more is ever needed, the only
+   remaining contract-compatible knob is capping `weight_model.max_iter`
+   near ~300 (bounds the walk at ~200-240 s; observed objectives at ~200
+   iterations differ from converged values by ~1e-4 relative, within the
+   tolerance noise already documented for the 5-point ranking), which would
+   need its own validation pass before production use.
+
 ## Related known issue - objective bimodality (wide-scan review)
 
 From the `density-solved-r8-40-wide-scan` sample review: objectives are
