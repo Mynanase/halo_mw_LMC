@@ -1,0 +1,35 @@
+# Stage-1 screening shard 04/12: fixed-point joint-objective screen.
+# Design: scripts/generate_density_solved_r8_40_stage1_design.py
+# (45 scrambled Sobol points, scipy seed 0, + 3 anchors; box qhalo [0.80,1.28],
+#  phalo [0.70,0.96], rho0 [5.55,6.55], rho0_plus_2logrs [9.25,10.20],
+#  gamma [0.70,1.45]). Parallel resource cap: 12 shards x OMP_NUM_THREADS=4.
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved_r8_40_joint.toml"
+
+[run]
+id = "density-solved-r8-40-stage1-screen-shard04"
+output_dir = "../../runs/density-solved-r8-40-stage1-screen-shard04"
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz"
+
+[optimizer]
+iterations = 4
+random_seed = 0
+# Coordinate order: qhalo, phalo, rho0, rho0_plus_2logrs, gamma.
+fixed_points = [
+  [1.208, 0.942, 5.913, 9.596, 0.805],  # sobol_000,
+  [1.100, 0.922, 5.775, 9.844, 1.270],  # sobol_012,
+  [1.252, 0.906, 6.208, 10.106, 1.396],  # sobol_024,
+  [1.081, 0.896, 5.840, 9.415, 0.993],  # sobol_036
+]
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../../data_coverage-density-solved-r8-40-stage1-screen-shard04"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0
