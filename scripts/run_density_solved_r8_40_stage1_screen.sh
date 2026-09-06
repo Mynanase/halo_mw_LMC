@@ -68,7 +68,9 @@ for config in "${CONFIGS[@]}"; do
     {
       conda run -n halo_lmc python -c \
         "import sys; print(sys.version); import numpy, scipy; print('numpy', numpy.__version__); print('scipy', scipy.__version__)"
-      printenv OPENBLAS_NUM_THREADS OMP_NUM_THREADS
+      # printenv exits 1 for unset names, which would trip `set -e`.
+      printenv OPENBLAS_NUM_THREADS OMP_NUM_THREADS || true
+      echo "OMP_NUM_THREADS(effective)=${THREADS_PER_SHARD}"
     } > "$shard_staging/environment.txt"
 
     echo "run $config"

@@ -98,6 +98,9 @@ def main() -> int:
     points, labels = build_points(total - len(ANCHORS))
     check_box(points)
     groups = shard(points, args.shards, args.points_per_shard)
+    unique = {tuple(point) for point in points}
+    if len(unique) != len(points):
+        raise SystemExit("duplicate points in the generated design")
 
     for number, group in enumerate(groups, start=1):
         shard_id = f"{number:02d}"

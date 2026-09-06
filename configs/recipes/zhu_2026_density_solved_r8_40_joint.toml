@@ -1,7 +1,10 @@
 # Joint density+velocity objective variant of zhu_2026_density_solved_r8_40.
-# Identical to zhu_2026_density_solved_r8_40 except the objective mode: the
-# density term enters the objective (J = chi2/2 + objective_velocity) instead
-# of gating validity, so no trial is starved to the 1e30 penalty. Both
+# Differs from zhu_2026_density_solved_r8_40 in the objective mode (density
+# enters the objective J = chi2/2 + objective_velocity instead of gating
+# validity, so no trial is starved to the 1e30 penalty) and in widened
+# [search.bounds] (qhalo upper 1.30, rho0_plus_2logrs lower 9.20, gamma upper
+# 2.00) so fixed-point screening may include the wide-scan best anchor
+# (qhalo 1.222, rho0_plus_2logrs 9.353) that the base bounds reject. Both
 # objective_velocity and objective_density_velocity are persisted per sample,
 # so either ranking can be reconstructed post hoc.
 schema_version = 1
