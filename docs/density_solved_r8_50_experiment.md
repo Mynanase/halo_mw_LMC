@@ -38,15 +38,12 @@ Use the production environment and the vendored AGAMA checkout:
 ```bash
 export PYTHONPATH="$PWD/Agama-master"
 conda run -n halo_lmc python -c "import agama, skopt, scipy, matplotlib"
-conda run -n halo_lmc python -m halo_mw_lmc \
-  -v configs/runs/density_solved_r8_50_benchmark.toml
-conda run -n halo_lmc python -m halo_mw_lmc \
-  -c configs/runs/density_solved_r8_50_benchmark.toml
+conda run -n halo_lmc python -m halo_mw_lmc validate configs/runs/density_solved_r8_50_benchmark.toml
+conda run -n halo_lmc python -m halo_mw_lmc coverage configs/runs/density_solved_r8_50_benchmark.toml
 mkdir -p .agent-local/benchmarks
 /usr/bin/time -v \
   -o .agent-local/benchmarks/density_solved_r8_50_paper_best.time.txt \
-  conda run -n halo_lmc python -m halo_mw_lmc \
-  configs/runs/density_solved_r8_50_benchmark.toml
+  conda run -n halo_lmc python -m halo_mw_lmc run configs/runs/density_solved_r8_50_benchmark.toml
 ```
 
 Coverage and optimization are cold-start operations. Use new output paths if

@@ -4,22 +4,9 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 from pathlib import Path
 
 from .configuration import ConfigurationError, load_run_configuration
-
-
-COMMANDS = {
-    "run",
-    "optimize",
-    "evaluate",
-    "coverage",
-    "validate",
-    "preflight",
-    "report",
-    "inspect",
-}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -58,20 +45,6 @@ def build_parser() -> argparse.ArgumentParser:
     inspect.add_argument("run_dir", type=Path)
     inspect.add_argument("--json", action="store_true", dest="json_output")
     inspect.add_argument("--save", action="store_true")
-    return parser
-
-
-def build_legacy_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="python -m halo_mw_lmc",
-        description="Compatibility entry point; prefer halo-mw-lmc subcommands.",
-    )
-    parser.add_argument("config", type=Path)
-    modes = parser.add_mutually_exclusive_group()
-    modes.add_argument("-v", action="store_const", const="validate", dest="mode")
-    modes.add_argument("-c", action="store_const", const="coverage", dest="mode")
-    modes.add_argument("-o", action="store_const", const="numerical", dest="mode")
-    parser.set_defaults(mode="run")
     return parser
 
 
@@ -237,45 +210,10 @@ def _run_command(args) -> int:
     raise AssertionError(f"unhandled command: {args.command}")
 
 
-def _run_legacy(argv: list[str]) -> int:
-    args = build_legacy_parser().parse_args(argv)
-    configuration = load_run_configuration(args.config)
-    if args.mode == "validate":
-        _print_validation(_validation_document(configuration))
-        return 0
-    if args.mode == "coverage":
-        namespace = argparse.Namespace(command="coverage", config=args.config)
-        return _run_command(namespace)
-    if args.mode == "numerical":
-        stage = (
-            "evaluate"
-            if configuration.fixed_optimizer_points is not None
-            else "optimize"
-        )
-        output = _execute_numerical(configuration, stage)
-        print(f"wrote run artifacts to {output}")
-        return 0
-    namespace = argparse.Namespace(command="run", config=args.config)
-    return _run_command(namespace)
-
-
 def main(argv=None) -> int:
-    arguments = list(sys.argv[1:] if argv is None else argv)
     parsed = None
     try:
-        legacy = bool(
-            arguments
-            and (
-                arguments[0] in {"-v", "-c", "-o"}
-                or (
-                    not arguments[0].startswith("-")
-                    and arguments[0] not in COMMANDS
-                )
-            )
-        )
-        if legacy:
-            return _run_legacy(arguments)
-        parsed = build_parser().parse_args(arguments)
+        parsed = build_parser().parse_args(argv)
         return _run_command(parsed)
     except (
         ConfigurationError,

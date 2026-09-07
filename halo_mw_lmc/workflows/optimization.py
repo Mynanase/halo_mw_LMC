@@ -547,20 +547,4 @@ def run_optimization(
                 else optimizer.ask()
             )
 
-    return _run_trials(
-        configuration,
-        prepared,
-        suggestions(),
-        tell=optimizer.tell,
-    )
-
-
-def run_configured_numerical_stage(
-    configuration: RunConfiguration,
-    prepared: PreparedExecution | None = None,
-) -> Path:
-    """Compatibility dispatch used by the historical ``-o`` entry point."""
-
-    if configuration.fixed_optimizer_points is not None:
-        return run_fixed_evaluation(configuration, prepared)
-    return run_optimization(configuration, prepared)
+    return _run_trials(configuration, prepared, suggestions(), tell=optimizer.tell)

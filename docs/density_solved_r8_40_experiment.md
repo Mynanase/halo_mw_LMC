@@ -90,10 +90,8 @@ from the baseline configuration:
 
 ```bash
 export PYTHONPATH="$PWD/Agama-master${PYTHONPATH:+:$PYTHONPATH}"
-conda run -n halo_lmc python -m halo_mw_lmc \
-  -v configs/runs/density_solved_r8_40_benchmark.toml
-conda run -n halo_lmc python -m halo_mw_lmc \
-  -c configs/runs/density_solved_r8_40_benchmark.toml
+conda run -n halo_lmc python -m halo_mw_lmc validate configs/runs/density_solved_r8_40_benchmark.toml
+conda run -n halo_lmc python -m halo_mw_lmc coverage configs/runs/density_solved_r8_40_benchmark.toml
 ```
 
 Run the cases sequentially in this order. The optional preflight-only pass does
@@ -355,15 +353,13 @@ The scan runs 50 adaptive iterations at `lsmr_tol = 1e-6` (the recipe default,
 Validate without integration:
 
 ```bash
-PYTHONPATH="$PWD/Agama-master" conda run -n halo_lmc python -m halo_mw_lmc \
-  -v configs/runs/density_solved_r8_40_wide_scan.toml
+PYTHONPATH="$PWD/Agama-master" conda run -n halo_lmc python -m halo_mw_lmc validate configs/runs/density_solved_r8_40_wide_scan.toml
 ```
 
 Run optimization only (no static report):
 
 ```bash
-PYTHONPATH="$PWD/Agama-master" conda run -n halo_lmc python -m halo_mw_lmc \
-  -o configs/runs/density_solved_r8_40_wide_scan.toml
+PYTHONPATH="$PWD/Agama-master" conda run -n halo_lmc python -m halo_mw_lmc optimize configs/runs/density_solved_r8_40_wide_scan.toml
 ```
 
 Expected outputs:

@@ -92,6 +92,17 @@ conda run -n halo_lmc python -m compileall -q halo_mw_lmc apps/results.py
    configuration contracts.
 6. Separate local evidence from production or real-catalogue validation.
 
+## Code style
+
+Write active Python as linear imperative research code. Keep the main data flow
+visible from top to bottom, use direct variables and array operations, and
+inline one-use helpers that do not name a scientific equation, algorithm,
+public interface, persistence boundary, or framework callback. Keep simple
+calls and data selections on one line when they remain easy to read; do not
+apply Black-style forced wrapping or introduce a formatter. Retain validation
+at file, configuration, array-shape/unit, artifact, solver, and output
+boundaries, but avoid repeating the same checks inside already validated code.
+
 ## Repository hygiene
 
 - Preserve unrelated tracked and untracked work; ignored data may still exist.

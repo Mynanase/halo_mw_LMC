@@ -83,8 +83,8 @@ conda run -n dp-jax python scripts/generate_synthetic_density.py \
 ```
 
 The script is the recommended low-frequency interface. The installed
-`halo-mw-lmc-density` command and `python -m halo_mw_lmc.generate_density`
-remain compatibility entry points and call the same strict loader/workflow.
+The repository script above is the only supported command-line entry point;
+the strict loader and reusable workflow remain inside the package.
 
 The generated file is
 `data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz`. It is ignored by Git

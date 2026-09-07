@@ -87,6 +87,12 @@ class AnalyticTracerDensityTests(unittest.TestCase):
 
 
 class SyntheticDensityWorkflowTests(unittest.TestCase):
+    def test_repository_script_is_the_only_density_generator_cli(self):
+        repository = Path(__file__).resolve().parents[1]
+        self.assertTrue((repository / "scripts/generate_synthetic_density.py").is_file())
+        self.assertFalse((repository / "halo_mw_lmc/generate_density.py").exists())
+        self.assertNotIn("halo-mw-lmc-density", (repository / "pyproject.toml").read_text())
+
     def test_repository_generator_configuration_resolves_source_and_output(self):
         configuration = load_synthetic_density_configuration(GENERATOR_CONFIG)
 

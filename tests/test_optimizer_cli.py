@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import numpy as np
 
-from halo_mw_lmc.cli import build_legacy_parser, build_parser
+from halo_mw_lmc.cli import build_parser, main
 from halo_mw_lmc.configuration import load_run_configuration
 from halo_mw_lmc.core.grids import CylindricalGrid
 from halo_mw_lmc.core.potentials import (
@@ -47,22 +47,11 @@ class OptimizerCliTests(unittest.TestCase):
             "inspect",
         )
 
-    def test_legacy_cli_defaults_to_full_run_with_only_a_config(self):
-        args = build_legacy_parser().parse_args([str(RUN_CONFIG)])
-        self.assertEqual(args.mode, "run")
-        self.assertEqual(args.config, RUN_CONFIG)
-
-    def test_legacy_short_flags_select_isolated_modes(self):
-        cases = (("-v", "validate"), ("-c", "coverage"), ("-o", "numerical"))
-        for flag, expected in cases:
-            with self.subTest(flag=flag):
-                args = build_legacy_parser().parse_args([flag, str(RUN_CONFIG)])
-                self.assertEqual(args.mode, expected)
-                self.assertEqual(args.config, RUN_CONFIG)
-
-    def test_legacy_cli_modes_are_mutually_exclusive(self):
+    def test_removed_legacy_cli_requires_a_subcommand(self):
         with self.assertRaises(SystemExit):
-            build_legacy_parser().parse_args(["-v", "-c", str(RUN_CONFIG)])
+            main([str(RUN_CONFIG)])
+        with self.assertRaises(SystemExit):
+            main(["-v", str(RUN_CONFIG)])
 
     def test_json_and_preflight_stage_options(self):
         validate = build_parser().parse_args(

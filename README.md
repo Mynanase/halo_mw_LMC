@@ -18,7 +18,7 @@ halo_mw_lmc/
   visualization/    Matplotlib 图形构建与批量输出
   configuration.py  严格 TOML 解析与类型化配置
   artifacts.py      可移植运行产物的读写与校验
-  cli.py             八个日常运行生命周期命令及兼容入口
+  cli.py             八个日常运行生命周期命令
   inspection.py      从权威 artifacts 重建运行与报告状态
 configs/
   recipes/          可复用科学模型配置
@@ -130,8 +130,8 @@ halo-mw-lmc inspect RUN_DIR [--json] [--save]
 `coverage` 只读取 catalogue，输出仍解释为未校正 selection function 的原始
 sampling density。
 
-旧入口继续兼容：`python -m halo_mw_lmc CONFIG`、`-v`、`-c` 和 `-o`；其中
-`-o` 按配置自动选择 fixed 或 adaptive 数值路径。它们不再是文档推荐入口。
+也可以通过 `python -m halo_mw_lmc SUBCOMMAND ...` 调用同一组正式子命令。
+旧的无子命令入口以及 `-v`、`-c`、`-o` 短参数不再支持。
 所有 cold-start 数值命令和 coverage 都要求配置的输出目录尚不存在。
 
 运行优化需要 NumPy、scikit-optimize 和单独安装的 AGAMA；No-Fixed 权重求解

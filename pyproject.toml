@@ -31,7 +31,6 @@ analysis = [
 
 [project.scripts]
 halo-mw-lmc = "halo_mw_lmc.cli:main"
-halo-mw-lmc-density = "halo_mw_lmc.generate_density:main"
 
 [tool.setuptools.packages.find]
 include = ["halo_mw_lmc*"]
