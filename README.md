@@ -185,10 +185,17 @@ wheel package data 分发；安装后的 CLI 可以读取用户自行保存的 T
 ## 测试
 
 ```bash
-python -m unittest discover -s tests -v
-python -m compileall -q halo_mw_lmc apps/results.py
+conda run -n dp-jax python -m unittest discover -s tests -v
+conda run -n dp-jax python -m compileall -q halo_mw_lmc apps/results.py scripts tests
 ```
 
 测试包括核心科学行为、旧密度轴序适配、TOML 严格校验、artifact 往返、固定
 权重语义、稀疏轨道响应、非负密度权重求解、解析 tracer density 的柱坐标
 体积积分、Marimo 只读边界和核心依赖方向。
+
+## 代码风格
+
+活跃 Python 使用线性、命令式的研究脚本风格：主要数据流从上到下展开，简单
+调用和数组操作保持在一行，只为公开接口、科学公式、独立算法、持久化边界和
+框架回调保留函数。外部输入与科学数组边界继续严格校验；项目不使用 Black
+式强制换行，也不把历史 `archive/` 快照重新格式化。

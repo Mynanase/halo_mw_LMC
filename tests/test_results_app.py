@@ -13,11 +13,7 @@ class ResultsAppBoundaryTests(unittest.TestCase):
         cls.tree = ast.parse(cls.source, filename=str(APP_PATH))
 
     def test_app_uses_only_the_read_side_of_the_artifact_api(self):
-        for api_name in (
-            "discover_runs",
-            "load_run_summary",
-            "load_best_evaluation",
-        ):
+        for api_name in ("discover_runs", "load_run_summary", "load_best_evaluation"):
             self.assertIn(api_name, self.source)
 
     def test_app_does_not_import_execution_or_physics_modules(self):

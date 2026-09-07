@@ -5,7 +5,9 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from halo_mw_lmc.configuration import load_synthetic_density_configuration
 from halo_mw_lmc.workflows.synthetic_density import generate_synthetic_density
 

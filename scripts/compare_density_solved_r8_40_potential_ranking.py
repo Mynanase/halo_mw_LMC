@@ -6,9 +6,11 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 import numpy as np
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from halo_mw_lmc.artifacts import load_sample_table
 
 

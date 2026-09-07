@@ -117,30 +117,28 @@ class RunArtifactTests(unittest.TestCase):
             0,
         )
 
-    def test_best_loader_accepts_legacy_v2_without_shell_diagnostics(self):
-        with tempfile.TemporaryDirectory() as directory:
-            save_best_evaluation(
-                directory,
-                self._evaluation(),
-                ZhuHaloParameters(6.2, 1.8, 0.8, 0.92, 1.0),
-                iteration=0,
-                objective=1.0,
-            )
-            best = Path(directory) / "best"
-            metadata_path = best / "metadata.json"
-            metadata = json.loads(metadata_path.read_text())
-            metadata["schema_version"] = 2
-            metadata_path.write_text(json.dumps(metadata))
-            evaluation_path = best / "evaluation.npz"
-            with np.load(evaluation_path, allow_pickle=False) as source:
-                arrays = {name: source[name].copy() for name in source.files}
-            arrays["schema_version"] = np.asarray(2)
-            np.savez_compressed(evaluation_path, **arrays)
+    def test_best_loader_accepts_legacy_v2_and_v3(self):
+        for schema in (2, 3):
+            with self.subTest(schema=schema), tempfile.TemporaryDirectory() as directory:
+                save_best_evaluation(directory, self._evaluation(), ZhuHaloParameters(6.2, 1.8, 0.8, 0.92, 1.0), iteration=0, objective=1.0)
+                best = Path(directory) / "best"
+                metadata_path = best / "metadata.json"
+                metadata = json.loads(metadata_path.read_text())
+                metadata["schema_version"] = schema
+                metadata_path.write_text(json.dumps(metadata))
+                evaluation_path = best / "evaluation.npz"
+                with np.load(evaluation_path, allow_pickle=False) as source:
+                    arrays = {name: source[name].copy() for name in source.files}
+                arrays["schema_version"] = np.asarray(schema)
+                np.savez_compressed(evaluation_path, **arrays)
+                stored = load_best_evaluation(directory)
 
-            stored = load_best_evaluation(directory)
-
-        self.assertIsNone(stored.density_shells)
-        self.assertIsNone(stored.orbit_support_audit)
+            if schema == 2:
+                self.assertIsNone(stored.density_shells)
+                self.assertIsNone(stored.orbit_support_audit)
+            else:
+                self.assertIsNotNone(stored.density_shells)
+                self.assertIsNotNone(stored.orbit_support_audit)
 
     def test_run_summary_is_portable_and_discoverable(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -222,17 +220,14 @@ class RunArtifactTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "resolved-config schema"):
                 load_run_summary(run)
 
-    def test_summary_accepts_legacy_resolved_config_v4(self):
-        with tempfile.TemporaryDirectory() as directory:
-            run = Path(directory)
-            (run / "resolved_config.json").write_text(
-                json.dumps({"schema_version": 4})
-            )
-            (run / "sample.dat").write_text("# iteration objective\n0 1.0\n")
-
-            summary = load_run_summary(run)
-
-        self.assertEqual(summary.config["schema_version"], 4)
+    def test_summary_accepts_legacy_resolved_config_schemas(self):
+        for schema in (4, 5, 6):
+            with self.subTest(schema=schema), tempfile.TemporaryDirectory() as directory:
+                run = Path(directory)
+                (run / "resolved_config.json").write_text(json.dumps({"schema_version": schema}))
+                (run / "sample.dat").write_text("# iteration objective\n0 1.0\n")
+                summary = load_run_summary(run)
+            self.assertEqual(summary.config["schema_version"], schema)
 
 
 if __name__ == "__main__":

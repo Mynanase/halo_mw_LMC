@@ -1,3 +1,5 @@
+import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -89,9 +91,12 @@ class AnalyticTracerDensityTests(unittest.TestCase):
 class SyntheticDensityWorkflowTests(unittest.TestCase):
     def test_repository_script_is_the_only_density_generator_cli(self):
         repository = Path(__file__).resolve().parents[1]
-        self.assertTrue((repository / "scripts/generate_synthetic_density.py").is_file())
+        script = repository / "scripts/generate_synthetic_density.py"
+        self.assertTrue(script.is_file())
         self.assertFalse((repository / "halo_mw_lmc/generate_density.py").exists())
         self.assertNotIn("halo-mw-lmc-density", (repository / "pyproject.toml").read_text())
+        completed = subprocess.run([sys.executable, str(script), "--help"], cwd=repository, capture_output=True, text=True)
+        self.assertEqual(completed.returncode, 0, completed.stderr)
 
     def test_repository_generator_configuration_resolves_source_and_output(self):
         configuration = load_synthetic_density_configuration(GENERATOR_CONFIG)
