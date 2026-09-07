@@ -559,19 +559,6 @@ def profile_surrogate_surface(
     )
 
 
-def _panel_sample_coordinates(
-    panel: PanelSpec,
-    coordinates: np.ndarray,
-) -> tuple[np.ndarray, np.ndarray]:
-    if panel.name == "gamma_rho0":
-        return coordinates[:, 4], coordinates[:, 2]
-    if panel.name == "rs_rho0":
-        return scale_radius_kpc(coordinates), coordinates[:, 2]
-    if panel.name == "qhalo_phalo":
-        return coordinates[:, 0], coordinates[:, 1]
-    raise ValueError(f"unknown parameter-constraint panel: {panel.name}")
-
-
 def _draw_profile_contour(
     axis,
     surface: ProfileSurface,
@@ -592,19 +579,6 @@ def _draw_profile_contour(
         linestyles=[linestyle],
         linewidths=2.0,
     )
-
-
-def _fallback_reason(data: ConstraintSamples, settings: ProfileSettings) -> str | None:
-    if data.coordinates.shape[0] < settings.minimum_samples:
-        return (
-            f"GP profile unavailable: {data.coordinates.shape[0]} valid unique trials; "
-            f"at least {settings.minimum_samples} required"
-        )
-    variation = np.ptp(data.normalized_coordinates, axis=0)
-    constant = [name for name, span in zip(PARAMETER_NAMES, variation) if span < 1e-8]
-    if constant:
-        return "GP profile unavailable: insufficient variation in " + ", ".join(constant)
-    return None
 
 
 def build_parameter_constraints_figure(
@@ -651,7 +625,14 @@ def build_parameter_constraints_figure(
             y=1.08,
         )
         return figure
-    failure = _fallback_reason(data, settings)
+    failure = None
+    if data.coordinates.shape[0] < settings.minimum_samples:
+        failure = f"GP profile unavailable: {data.coordinates.shape[0]} valid unique trials; at least {settings.minimum_samples} required"
+    else:
+        variation = np.ptp(data.normalized_coordinates, axis=0)
+        constant = [name for name, span in zip(PARAMETER_NAMES, variation) if span < 1e-8]
+        if constant:
+            failure = "GP profile unavailable: insufficient variation in " + ", ".join(constant)
     surfaces: dict[str, dict[str, ProfileSurface]] = {}
     if failure is None:
         try:
@@ -684,10 +665,14 @@ def build_parameter_constraints_figure(
     )
     scatter = None
     for axis, panel in zip(axes, PANELS):
-        sample_x, sample_y = _panel_sample_coordinates(
-            panel,
-            data.display_coordinates,
-        )
+        if panel.name == "gamma_rho0":
+            sample_x, sample_y = data.display_coordinates[:, 4], data.display_coordinates[:, 2]
+        elif panel.name == "rs_rho0":
+            sample_x, sample_y = scale_radius_kpc(data.display_coordinates), data.display_coordinates[:, 2]
+        elif panel.name == "qhalo_phalo":
+            sample_x, sample_y = data.display_coordinates[:, 0], data.display_coordinates[:, 1]
+        else:
+            raise ValueError(f"unknown parameter-constraint panel: {panel.name}")
         scatter = axis.scatter(
             sample_x,
             sample_y,

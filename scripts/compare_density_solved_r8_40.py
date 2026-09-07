@@ -22,33 +22,6 @@ RUN_NAMES = {
 }
 
 
-def _normalized_weights(weights: np.ndarray) -> np.ndarray:
-    values = np.asarray(weights, dtype=float)
-    total = float(np.sum(values))
-    return values / total if total > 0 else np.zeros_like(values)
-
-
-def _relative_difference(left: float, right: float) -> float:
-    return abs(left - right) / max(1.0, abs(left), abs(right))
-
-
-def _time_metrics(run: Path) -> dict[str, object]:
-    path = run / "benchmark_metadata" / "time-v.txt"
-    if not path.is_file():
-        return {"available": False, "wall_clock": None, "maximum_rss_kbytes": None}
-    text = path.read_text()
-    wall = re.search(
-        r"Elapsed \(wall clock\) time \(h:mm:ss or m:ss\):\s*(\S+)",
-        text,
-    )
-    rss = re.search(r"Maximum resident set size \(kbytes\):\s*(\d+)", text)
-    return {
-        "available": True,
-        "wall_clock": wall.group(1) if wall else None,
-        "maximum_rss_kbytes": int(rss.group(1)) if rss else None,
-    }
-
-
 def compare_runs(runs_root: str | Path) -> dict[str, object]:
     root = Path(runs_root).expanduser().resolve()
     results: dict[str, dict[str, object]] = {}
@@ -62,9 +35,20 @@ def compare_runs(runs_root: str | Path) -> dict[str, object]:
         if stored.density_shells is None:
             raise ValueError(f"run lacks shell diagnostics: {run}")
         objective = float(row["objective"])
-        weights[case] = _normalized_weights(stored.weight_solution.seed_weights)
+        case_weights = np.asarray(stored.weight_solution.seed_weights, dtype=float)
+        total_weight = float(np.sum(case_weights))
+        weights[case] = case_weights / total_weight if total_weight > 0 else np.zeros_like(case_weights)
         shell_phi[case] = stored.density_shells.chi2_per_bin_by_shell_phi
         weight_config = summary.config.get("weight_model", {})
+
+        time_path = run / "benchmark_metadata" / "time-v.txt"
+        performance = {"available": False, "wall_clock": None, "maximum_rss_kbytes": None}
+        if time_path.is_file():
+            time_text = time_path.read_text()
+            wall = re.search(r"Elapsed \(wall clock\) time \(h:mm:ss or m:ss\):\s*(\S+)", time_text)
+            rss = re.search(r"Maximum resident set size \(kbytes\):\s*(\d+)", time_text)
+            performance = {"available": True, "wall_clock": wall.group(1) if wall else None, "maximum_rss_kbytes": int(rss.group(1)) if rss else None}
+
         results[case] = {
             "run_directory": str(run),
             "git_commit": summary.config.get("git_commit"),
@@ -85,7 +69,7 @@ def compare_runs(runs_root: str | Path) -> dict[str, object]:
             "active_orbit_count": int(stored.weight_solution.active_orbit_count),
             "regularization_strength": weight_config.get("regularization_strength"),
             "lsmr_tol": weight_config.get("lsmr_tol"),
-            "performance": _time_metrics(run),
+            "performance": performance,
         }
 
     baseline = weights["baseline"]
@@ -98,10 +82,9 @@ def compare_runs(runs_root: str | Path) -> dict[str, object]:
 
     left = "tol-1e-7"
     right = "tol-1e-8"
-    objective_delta = _relative_difference(
-        float(results[left]["objective"]),
-        float(results[right]["objective"]),
-    )
+    left_objective = float(results[left]["objective"])
+    right_objective = float(results[right]["objective"])
+    objective_delta = abs(left_objective - right_objective) / max(1.0, abs(left_objective), abs(right_objective))
     shell_delta = float(np.max(np.abs(shell_phi[left] - shell_phi[right])))
     weight_delta = float(np.sum(np.abs(weights[left] - weights[right])))
     stability = {

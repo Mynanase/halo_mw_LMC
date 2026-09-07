@@ -46,27 +46,7 @@ def _():
         else:
             artifact_api_error = None
 
-    def discover_run_artifacts(root):
-        if artifact_api is None or artifact_api_error is not None:
-            return []
-        return artifact_api.discover_runs(root)
-
-    def read_run_summary(run_dir):
-        if artifact_api is None or artifact_api_error is not None:
-            raise RuntimeError(artifact_api_error or "Artifact reader is unavailable")
-        return artifact_api.load_run_summary(run_dir)
-
-    def read_best_evaluation(run_dir):
-        if artifact_api is None or artifact_api_error is not None:
-            raise RuntimeError(artifact_api_error or "Artifact reader is unavailable")
-        return artifact_api.load_best_evaluation(run_dir)
-
-    return (
-        artifact_api_error,
-        discover_run_artifacts,
-        read_best_evaluation,
-        read_run_summary,
-    )
+    return artifact_api, artifact_api_error
 
 
 @app.cell
@@ -178,33 +158,24 @@ def _(Mapping, np):
 def _(Path, mo):
     project_root = Path(__file__).resolve().parents[1]
     configured_runs_root = project_root / "runs"
-    default_runs_root = (
-        configured_runs_root if configured_runs_root.is_dir() else project_root
-    )
-    runs_root_input = mo.ui.text(
-        value=str(default_runs_root),
-        label="Runs root",
-        full_width=True,
-    )
-    direct_run_input = mo.ui.text(
-        value="",
-        label="Run path override (optional)",
-        full_width=True,
-    )
+    default_runs_root = configured_runs_root if configured_runs_root.is_dir() else project_root
+    runs_root_input = mo.ui.text(value=str(default_runs_root), label="Runs root", full_width=True)
+    direct_run_input = mo.ui.text(value="", label="Run path override (optional)", full_width=True)
     return direct_run_input, runs_root_input
 
 
 @app.cell
 def _(
     Path,
-    discover_run_artifacts,
+    artifact_api,
+    artifact_api_error,
     mo,
     runs_root_input,
     value_from,
 ):
     runs_root = Path(runs_root_input.value).expanduser()
     try:
-        discovered = discover_run_artifacts(runs_root)
+        discovered = [] if artifact_api_error is not None else artifact_api.discover_runs(runs_root)
         discovery_error = None
     except Exception as exc:
         discovered = []
@@ -222,12 +193,7 @@ def _(
     discovered_paths.sort(key=lambda path: path.name)
 
     run_options = [str(path) for path in discovered_paths]
-    run_dropdown = mo.ui.dropdown(
-        options=run_options or [""],
-        value=run_options[0] if run_options else "",
-        label="Discovered run",
-        full_width=True,
-    )
+    run_dropdown = mo.ui.dropdown(options=run_options or [""], value=run_options[0] if run_options else "", label="Discovered run", full_width=True)
     return discovery_error, run_dropdown, runs_root
 
 
@@ -236,9 +202,7 @@ def _(Path, direct_run_input, run_dropdown):
     direct_value = direct_run_input.value.strip()
     selected_value = direct_value or (run_dropdown.value or "").strip()
     try:
-        selected_run_dir = (
-            Path(selected_value).expanduser().resolve() if selected_value else None
-        )
+        selected_run_dir = Path(selected_value).expanduser().resolve() if selected_value else None
         selection_error = None
     except (OSError, ValueError) as exc:
         selected_run_dir = None
@@ -247,7 +211,7 @@ def _(Path, direct_run_input, run_dropdown):
 
 
 @app.cell
-def _(read_best_evaluation, read_run_summary, selected_run_dir):
+def _(artifact_api, artifact_api_error, selected_run_dir):
     if selected_run_dir is None:
         run_summary = None
         summary_error = "Select a saved run to view its results."
@@ -255,7 +219,9 @@ def _(read_best_evaluation, read_run_summary, selected_run_dir):
         best_evaluation_error = None
     else:
         try:
-            run_summary = read_run_summary(selected_run_dir)
+            if artifact_api_error is not None:
+                raise RuntimeError(artifact_api_error)
+            run_summary = artifact_api.load_run_summary(selected_run_dir)
             summary_error = None
         except Exception as exc:
             run_summary = None
@@ -269,7 +235,7 @@ def _(read_best_evaluation, read_run_summary, selected_run_dir):
             )
         else:
             try:
-                best_evaluation = read_best_evaluation(selected_run_dir)
+                best_evaluation = artifact_api.load_best_evaluation(selected_run_dir)
                 best_evaluation_error = None
             except Exception as exc:
                 best_evaluation = None
@@ -277,37 +243,14 @@ def _(read_best_evaluation, read_run_summary, selected_run_dir):
                     "No readable best-evaluation snapshot is available. "
                     f"Density comparison is shown only when already saved ({exc})."
                 )
-    return (
-        best_evaluation,
-        best_evaluation_error,
-        run_summary,
-        summary_error,
-    )
+    return best_evaluation, best_evaluation_error, run_summary, summary_error
 
 
 @app.cell
 def _(best_row_from, column_from, run_summary, value_from):
-    run_config = value_from(
-        run_summary,
-        "run_config",
-        "config",
-        "resolved_config",
-        default={},
-    )
-    samples = value_from(
-        run_summary,
-        "samples",
-        "sample_table",
-        "trials",
-        default=None,
-    )
-    weight_audit = value_from(
-        run_summary,
-        "weight_audit",
-        "fixed_weight_audit",
-        "fixed_weights",
-        default=None,
-    )
+    run_config = value_from(run_summary, "run_config", "config", "resolved_config", default={})
+    samples = value_from(run_summary, "samples", "sample_table", "trials", default=None)
+    weight_audit = value_from(run_summary, "weight_audit", "fixed_weight_audit", "fixed_weights", default=None)
     best_row = value_from(run_summary, "best_sample", "best_row", default=None)
     if best_row is None:
         best_row = best_row_from(samples)

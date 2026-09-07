@@ -34,18 +34,6 @@ def _weights_from_npz(source) -> np.ndarray:
         return np.asarray(archive["weight_seed_weights"], dtype=float).copy()
 
 
-def _weights_from_tar(archive_path: Path, member_name: str) -> np.ndarray | None:
-    with tarfile.open(archive_path, mode="r:gz") as archive:
-        try:
-            member = archive.getmember(member_name)
-        except KeyError:
-            return None
-        stream = archive.extractfile(member)
-        if stream is None:
-            raise ValueError(f"cannot read {member_name} from {archive_path}")
-        return _weights_from_npz(BytesIO(stream.read()))
-
-
 def load_case_weights(
     runs_root: Path,
     archive_paths: tuple[Path, ...],
@@ -62,10 +50,16 @@ def load_case_weights(
         for archive_path in archive_paths:
             if not archive_path.is_file():
                 continue
-            weights = _weights_from_tar(archive_path, member)
-            if weights is not None:
-                result[label] = weights
-                break
+            with tarfile.open(archive_path, mode="r:gz") as archive:
+                try:
+                    archived_evaluation = archive.getmember(member)
+                except KeyError:
+                    continue
+                stream = archive.extractfile(archived_evaluation)
+                if stream is None:
+                    raise ValueError(f"cannot read {member} from {archive_path}")
+                result[label] = _weights_from_npz(BytesIO(stream.read()))
+            break
         else:
             checked = ", ".join(str(path) for path in archive_paths)
             raise FileNotFoundError(

@@ -11,9 +11,7 @@ from halo_mw_lmc.workflows.synthetic_density import generate_synthetic_density
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(
-        description="Generate one synthetic target from a strict TOML configuration."
-    )
+    parser = argparse.ArgumentParser(description="Generate one synthetic target from a strict TOML configuration.")
     parser.add_argument("config", type=Path)
     args = parser.parse_args(argv)
     configuration = load_synthetic_density_configuration(args.config)

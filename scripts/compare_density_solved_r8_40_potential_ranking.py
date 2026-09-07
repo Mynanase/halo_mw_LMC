@@ -12,20 +12,8 @@ import numpy as np
 from halo_mw_lmc.artifacts import load_sample_table
 
 
-COORDINATE_COLUMNS = (
-    "qhalo",
-    "phalo",
-    "rho0",
-    "rho0_plus_2logrs",
-    "gamma",
-)
-POINT_LABELS = (
-    "paper_best",
-    "flatter_more_triaxial",
-    "rounder",
-    "more_concentrated",
-    "more_extended",
-)
+COORDINATE_COLUMNS = ("qhalo", "phalo", "rho0", "rho0_plus_2logrs", "gamma")
+POINT_LABELS = ("paper_best", "flatter_more_triaxial", "rounder", "more_concentrated", "more_extended")
 RUN_NAMES = {
     "tol1e7": "density-solved-r8-40-potential-ranking-tol1e7",
     "tol1e8": "density-solved-r8-40-potential-ranking-tol1e8",
@@ -71,9 +59,7 @@ def _load_run(
     iterations = np.asarray(samples["iteration"], dtype=int)
     if not np.array_equal(iterations, np.arange(len(POINT_LABELS))):
         raise ValueError(f"unexpected iteration order in {run}")
-    coordinates = np.column_stack(
-        [np.asarray(samples[name], dtype=float) for name in COORDINATE_COLUMNS]
-    )
+    coordinates = np.column_stack([np.asarray(samples[name], dtype=float) for name in COORDINATE_COLUMNS])
     resolved = json.loads((run / "resolved_config.json").read_text())
     optimizer = resolved.get("optimizer", {})
     configured_points = np.asarray(optimizer.get("fixed_points"), dtype=float)
@@ -84,10 +70,7 @@ def _load_run(
         coordinates,
     ):
         raise ValueError(f"sample coordinates do not match resolved fixed points: {run}")
-    objective_column = (
-        "objective_density_velocity"
-        if objective_mode == "density_velocity" else "objective_velocity"
-    )
+    objective_column = "objective_density_velocity" if objective_mode == "density_velocity" else "objective_velocity"
     objective = np.asarray(samples[objective_column], dtype=float)
     density_term = None
     if objective_mode == "density_velocity":
@@ -119,9 +102,7 @@ def _load_run(
         "objective_column": objective_column,
         "density_gate_applied": objective_mode == "velocity_only",
         "recorded_density_gate_by_point": gates.tolist(),
-        "input_sha256": (
-            run / "benchmark_metadata/input-sha256.txt"
-        ).read_text(),
+        "input_sha256": (run / "benchmark_metadata/input-sha256.txt").read_text(),
         "all_points_valid": bool(np.all(valid)),
         "valid_by_point": valid.tolist(),
     }
@@ -137,12 +118,8 @@ def compare_runs(
     if objective_mode not in {"velocity_only", "density_velocity"}:
         raise ValueError(f"unknown objective mode: {objective_mode}")
     root = Path(runs_root).expanduser().resolve()
-    left_coordinates, left, left_metadata = _load_run(
-        root / RUN_NAMES["tol1e7"], objective_mode
-    )
-    right_coordinates, right, right_metadata = _load_run(
-        root / RUN_NAMES["tol1e8"], objective_mode
-    )
+    left_coordinates, left, left_metadata = _load_run(root / RUN_NAMES["tol1e7"], objective_mode)
+    right_coordinates, right, right_metadata = _load_run(root / RUN_NAMES["tol1e8"], objective_mode)
     if left_metadata["lsmr_tol"] != 1e-7 or right_metadata["lsmr_tol"] != 1e-8:
         raise ValueError("paired runs do not record the expected LSMR tolerances")
     if not np.array_equal(left_coordinates, right_coordinates):
@@ -163,15 +140,9 @@ def compare_runs(
     right_span = float(np.ptp(right))
     comparison_span = max(left_span, right_span)
     max_differential_shift = float(np.max(np.abs(differential_shift)))
-    shift_fraction = (
-        max_differential_shift / comparison_span
-        if comparison_span > 0
-        else float("inf")
-    )
+    shift_fraction = max_differential_shift / comparison_span if comparison_span > 0 else float("inf")
     same_best = int(np.argmin(left)) == int(np.argmin(right))
-    all_valid = bool(
-        left_metadata["all_points_valid"] and right_metadata["all_points_valid"]
-    )
+    all_valid = bool(left_metadata["all_points_valid"] and right_metadata["all_points_valid"])
     criteria = {
         "all_points_valid": all_valid,
         "same_best_point": same_best,

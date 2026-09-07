@@ -13,10 +13,7 @@ def main() -> None:
     parser.add_argument("run_directories", nargs="+")
     parser.add_argument("--output", required=True)
     arguments = parser.parse_args()
-    result = write_solver_comparison(
-        arguments.run_directories,
-        arguments.output,
-    )
+    result = write_solver_comparison(arguments.run_directories, arguments.output)
     print(f"winner={result['winner']}")
     print(f"production_ready={result['production_ready']}")
     print(f"output={arguments.output}")

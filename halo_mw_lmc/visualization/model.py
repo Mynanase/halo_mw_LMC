@@ -219,16 +219,6 @@ def _azimuthal_density_average(
     return np.sum(np.asarray(values) * weights[None, None, :], axis=2)
 
 
-def _azimuthal_density_error(comparison: DensityComparison) -> np.ndarray:
-    weights = np.diff(comparison.grid.phi_edges) / (2 * np.pi)
-    return np.sqrt(
-        np.sum(
-            (comparison.data_error * weights[None, None, :]) ** 2,
-            axis=2,
-        )
-    )
-
-
 def _density_fit_display_mask(
     comparison: DensityComparison,
     phi_index: int | None,
@@ -310,7 +300,8 @@ def plot_density_comparison(
         comparison.model_density,
         comparison,
     )
-    average_error = _azimuthal_density_error(comparison)
+    phi_weights = np.diff(comparison.grid.phi_edges) / (2 * np.pi)
+    average_error = np.sqrt(np.sum((comparison.data_error * phi_weights[None, None, :]) ** 2, axis=2))
     average_relative_error = np.divide(
         average_error,
         average_data,
@@ -709,13 +700,6 @@ def plot_density_shell_gate(
     plt.close(figure)
 
 
-def _selected_indices(size: int, preferred: tuple[int, ...]) -> list[int]:
-    selected = [index for index in preferred if index < size]
-    if selected:
-        return selected
-    return list(range(size))
-
-
 def _velocity_panel_values(
     comparison: VelocityDistributionComparison,
     radius_index: int,
@@ -827,7 +811,9 @@ def plot_velocity_distributions(
     ]
     if not radial_indices:
         radial_indices = list(range(grid.shape[0]))
-    selected_theta = _selected_indices(grid.shape[1], theta_indices)
+    selected_theta = [index for index in theta_indices if index < grid.shape[1]]
+    if not selected_theta:
+        selected_theta = list(range(grid.shape[1]))
     nrows = len(radial_indices)
     ntheta = len(selected_theta)
     ncolumns = len(required) * ntheta

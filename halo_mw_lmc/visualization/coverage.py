@@ -195,19 +195,6 @@ def plot_velocity_projections(
     return path
 
 
-def _phi_titles(phi_edges: np.ndarray) -> list[str]:
-    return [
-        "All φ",
-        *[
-            f"{lower:.0f}° ≤ φ < {upper:.0f}°"
-            for lower, upper in zip(
-                np.rad2deg(phi_edges[:-1]),
-                np.rad2deg(phi_edges[1:]),
-            )
-        ],
-    ]
-
-
 def _plot_spatial_occupancy(
     *,
     x_edges: np.ndarray,
@@ -261,7 +248,8 @@ def _plot_spatial_occupancy(
     wrapped_phi = (point_phi - phi_edges[0]) % (2 * np.pi) + phi_edges[0]
     count_image = None
     density_image = None
-    for column, panel_title in enumerate(_phi_titles(phi_edges)):
+    phi_titles = ["All φ", *[f"{lower:.0f}° ≤ φ < {upper:.0f}°" for lower, upper in zip(np.rad2deg(phi_edges[:-1]), np.rad2deg(phi_edges[1:]))]]
+    for column, panel_title in enumerate(phi_titles):
         phi_mask = np.ones(point_phi.shape, dtype=bool)
         if column > 0:
             lower, upper = phi_edges[column - 1 : column + 1]
