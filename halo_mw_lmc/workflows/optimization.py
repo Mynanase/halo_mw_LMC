@@ -492,11 +492,7 @@ def run_fixed_evaluation(
     points = configuration.fixed_optimizer_points
     if points is None:
         raise ValueError("evaluate requires optimizer.fixed_points")
-    prepared = _prepared_execution(
-        configuration,
-        prepared,
-        stage="evaluate",
-    )
+    prepared = _prepared_execution(configuration, prepared, stage="evaluate")
     return _run_trials(configuration, prepared, points)
 
 
@@ -508,11 +504,7 @@ def run_optimization(
 
     if configuration.fixed_optimizer_points is not None:
         raise ValueError("optimize accepts adaptive configurations only")
-    prepared = _prepared_execution(
-        configuration,
-        prepared,
-        stage="optimize",
-    )
+    prepared = _prepared_execution(configuration, prepared, stage="optimize")
     try:
         from skopt import Optimizer
         from skopt.space import Real
@@ -522,13 +514,8 @@ def run_optimization(
         ) from exc
 
     bounds = configuration.search_bounds
-    parameter_space = [
-        Real(*bounds[name], name=name) for name in OPTIMIZER_COORDINATES
-    ]
-    optimizer = Optimizer(
-        parameter_space,
-        random_state=configuration.random_seed,
-    )
+    parameter_space = [Real(*bounds[name], name=name) for name in OPTIMIZER_COORDINATES]
+    optimizer = Optimizer(parameter_space, random_state=configuration.random_seed)
     paper_point = paper_best_optimizer_point()
     use_paper_first = configuration.recipe.search.initial_point == "paper_best"
     if use_paper_first and not all(

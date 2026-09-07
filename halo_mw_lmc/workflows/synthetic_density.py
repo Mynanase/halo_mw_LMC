@@ -30,12 +30,6 @@ class SyntheticDensityResult:
     median_quadrature_relative_difference: float
 
 
-def _selected_model(name: str):
-    if name == "desi_year1_kgiants_3d":
-        return DESI_YEAR1_KGIANTS_DENSITY
-    raise ValueError(f"unsupported synthetic density model: {name!r}")
-
-
 def generate_synthetic_density(
     configuration: SyntheticDensityConfiguration,
 ) -> SyntheticDensityResult:
@@ -51,7 +45,9 @@ def generate_synthetic_density(
             f"synthetic density output already exists: {output_path}"
         )
 
-    model = _selected_model(configuration.model_name)
+    if configuration.model_name != "desi_year1_kgiants_3d":
+        raise ValueError(f"unsupported synthetic density model: {configuration.model_name!r}")
+    model = DESI_YEAR1_KGIANTS_DENSITY
     grid = configuration.grid
     lower_order = cell_average_cylindrical_density(
         model,

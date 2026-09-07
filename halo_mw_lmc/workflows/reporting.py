@@ -216,13 +216,6 @@ def _render_report(run: Path, staging: Path) -> dict[str, object]:
     return manifest
 
 
-def _read_manifest(path: Path) -> dict[str, object]:
-    document = json.loads(path.read_text())
-    if not isinstance(document, dict) or document.get("schema_version") != 1:
-        raise ValueError(f"invalid report manifest: {path}")
-    return document
-
-
 def generate_report_from_run(
     run_directory: str | Path,
     *,
@@ -257,7 +250,10 @@ def generate_report_from_run(
             shutil.rmtree(staging)
         raise
     save_inspection(inspect_run(run))
-    manifest = _read_manifest(destination / "manifest.json")
+    manifest_path = destination / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    if not isinstance(manifest, dict) or manifest.get("schema_version") != 1:
+        raise ValueError(f"invalid report manifest: {manifest_path}")
     return [destination / relative for relative in manifest["files"]]
 
 

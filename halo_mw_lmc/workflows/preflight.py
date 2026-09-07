@@ -92,22 +92,6 @@ def _dependency_check(name: str, *, required: bool) -> PreflightCheck:
     )
 
 
-def _numerical_stage(
-    configuration: RunConfiguration,
-    stage: PreflightStage,
-) -> Literal["optimize", "evaluate"] | None:
-    fixed = configuration.fixed_optimizer_points is not None
-    if stage == "coverage":
-        return None
-    if stage == "evaluate" and not fixed:
-        raise PreflightError("evaluate requires optimizer.fixed_points")
-    if stage == "optimize" and fixed:
-        raise PreflightError("optimize accepts adaptive configurations only")
-    if stage == "run":
-        return "evaluate" if fixed else "optimize"
-    return stage
-
-
 def preflight_and_prepare(
     configuration: RunConfiguration,
     *,
@@ -117,14 +101,20 @@ def preflight_and_prepare(
 
     if stage not in {"run", "optimize", "evaluate", "coverage"}:
         raise ValueError(f"unsupported preflight stage: {stage}")
-    numerical_stage = _numerical_stage(configuration, stage)
+    fixed = configuration.fixed_optimizer_points is not None
+    if stage == "evaluate" and not fixed:
+        raise PreflightError("evaluate requires optimizer.fixed_points")
+    if stage == "optimize" and fixed:
+        raise PreflightError("optimize accepts adaptive configurations only")
+    if stage == "coverage":
+        numerical_stage = None
+    elif stage == "run":
+        numerical_stage = "evaluate" if fixed else "optimize"
+    else:
+        numerical_stage = stage
     checks: list[PreflightCheck] = []
 
-    output = (
-        configuration.coverage.output_dir
-        if stage == "coverage"
-        else configuration.output_dir
-    )
+    output = configuration.coverage.output_dir if stage == "coverage" else configuration.output_dir
     checks.append(
         PreflightCheck(
             "output_directory",
@@ -188,10 +178,7 @@ def preflight_and_prepare(
             coverage=payload if not failed_dependencies else None,
         )
 
-    missing = [
-        ("catalogue", configuration.data.catalog),
-        ("target_density", configuration.data.target_density),
-    ]
+    missing = [("catalogue", configuration.data.catalog), ("target_density", configuration.data.target_density)]
     for name, path in missing:
         checks.append(
             PreflightCheck(
@@ -205,11 +192,7 @@ def preflight_and_prepare(
 
     try:
         comparison = configuration.to_comparison_config()
-        prepared = prepare_model_data(
-            configuration.data.catalog,
-            configuration.data.target_density,
-            comparison,
-        )
+        prepared = prepare_model_data(configuration.data.catalog, configuration.data.target_density, comparison)
         audit = None
         if comparison.weight_model.mode == "catalogue_fixed":
             audit = catalogue_weight_audit(

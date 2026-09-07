@@ -67,58 +67,6 @@ def _safe_float(value) -> float | None:
     return result if np.isfinite(result) else None
 
 
-def _report_state(
-    run: Path,
-    *,
-    best_generation: str | None,
-    transient_failure: str | None,
-) -> tuple[str, dict[str, object], list[str]]:
-    if transient_failure is not None:
-        return (
-            "failed",
-            {"directory": str(run / "report"), "error": transient_failure},
-            [],
-        )
-    report = run / "report"
-    if not report.exists():
-        return "missing", {"directory": str(report)}, []
-    manifest_path = report / "manifest.json"
-    if not manifest_path.exists():
-        return (
-            "invalid",
-            {"directory": str(report), "manifest": str(manifest_path)},
-            ["report directory has no manifest.json"],
-        )
-    try:
-        manifest = _read_json(manifest_path)
-    except ValueError as exc:
-        return "invalid", {"directory": str(report)}, [str(exc)]
-    if manifest.get("schema_version") != 1:
-        return "invalid", {"manifest": manifest}, ["unsupported report manifest schema"]
-    manifest_generation = manifest.get("best_generation")
-    if best_generation is None or manifest_generation != best_generation:
-        return "stale", {"manifest": manifest}, []
-    files = manifest.get("files")
-    if not isinstance(files, list) or not all(isinstance(item, str) for item in files):
-        return "invalid", {"manifest": manifest}, ["report manifest files must be a list"]
-    invalid_files = []
-    for relative in files:
-        relative_path = Path(relative)
-        if relative_path.is_absolute() or ".." in relative_path.parts:
-            invalid_files.append(relative)
-            continue
-        candidate = report / relative
-        if not candidate.is_file() or candidate.stat().st_size == 0:
-            invalid_files.append(relative)
-    if invalid_files:
-        return (
-            "invalid",
-            {"manifest": manifest, "invalid_files": invalid_files},
-            ["report manifest names missing or empty files"],
-        )
-    return "current", {"manifest": manifest}, []
-
-
 def inspect_run(
     run_directory: str | Path,
     *,
@@ -241,12 +189,51 @@ def inspect_run(
     )
 
     best_generation = str(metadata.get("generation")) if metadata else None
-    report_status, report, report_warnings = _report_state(
-        run,
-        best_generation=best_generation,
-        transient_failure=report_failure,
-    )
-    warnings.extend(report_warnings)
+    report_directory = run / "report"
+    if report_failure is not None:
+        report_status = "failed"
+        report = {"directory": str(report_directory), "error": report_failure}
+    elif not report_directory.exists():
+        report_status = "missing"
+        report = {"directory": str(report_directory)}
+    else:
+        manifest_path = report_directory / "manifest.json"
+        manifest = None
+        if not manifest_path.exists():
+            report_status = "invalid"
+            report = {"directory": str(report_directory), "manifest": str(manifest_path)}
+            warnings.append("report directory has no manifest.json")
+        else:
+            try:
+                manifest = _read_json(manifest_path)
+            except ValueError as exc:
+                report_status = "invalid"
+                report = {"directory": str(report_directory)}
+                warnings.append(str(exc))
+            else:
+                report = {"manifest": manifest}
+                files = manifest.get("files")
+                if manifest.get("schema_version") != 1:
+                    report_status = "invalid"
+                    warnings.append("unsupported report manifest schema")
+                elif best_generation is None or manifest.get("best_generation") != best_generation:
+                    report_status = "stale"
+                elif not isinstance(files, list) or not all(isinstance(item, str) for item in files):
+                    report_status = "invalid"
+                    warnings.append("report manifest files must be a list")
+                else:
+                    invalid_files = []
+                    for relative in files:
+                        relative_path = Path(relative)
+                        candidate = report_directory / relative
+                        if relative_path.is_absolute() or ".." in relative_path.parts or not candidate.is_file() or candidate.stat().st_size == 0:
+                            invalid_files.append(relative)
+                    if invalid_files:
+                        report_status = "invalid"
+                        report["invalid_files"] = invalid_files
+                        warnings.append("report manifest names missing or empty files")
+                    else:
+                        report_status = "current"
 
     best_document = None
     density_document = None

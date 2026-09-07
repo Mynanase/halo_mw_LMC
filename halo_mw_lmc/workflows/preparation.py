@@ -49,35 +49,6 @@ class PreparedModelData:
         return self.catalogue.seed_weights
 
 
-def _observed_velocity_histograms(
-    phase_space: SphericalPhaseSpace,
-    config: ZhuComparisonConfig,
-) -> dict[str, VelocityHistogramSummary]:
-    velocities = {
-        "vr": phase_space.radial_velocity,
-        "vphi": phase_space.azimuthal_velocity,
-        "vtheta": phase_space.polar_velocity,
-    }
-    result: dict[str, VelocityHistogramSummary] = {}
-    for name, values in velocities.items():
-        probability, occupancy = conditional_velocity_histogram(
-            phase_space.radius,
-            phase_space.theta,
-            phase_space.phi,
-            values,
-            config.velocity_grid,
-        )
-        result[name] = VelocityHistogramSummary(
-            probability=probability,
-            uncertainty=multinomial_histogram_uncertainty(
-                probability,
-                occupancy,
-            ),
-            occupancy=occupancy,
-        )
-    return result
-
-
 def prepare_model_data(
     catalog_path: str | Path,
     density_path: str | Path,
@@ -87,25 +58,19 @@ def prepare_model_data(
 
     catalog_source = Path(catalog_path).expanduser().resolve()
     density_source = Path(density_path).expanduser().resolve()
-    catalogue = read_seed_catalogue(
-        catalog_source,
-        include_velocity=comparison_config.include_velocity,
-        require_weights=(
-            comparison_config.weight_model.mode == "catalogue_fixed"
-        ),
-    )
-    phase_space = cartesian_to_spherical_phase_space(
-        *[catalogue.initial_conditions[:, index] for index in range(6)]
-    )
-    observed_histograms = (
-        _observed_velocity_histograms(phase_space, comparison_config)
-        if comparison_config.include_velocity
-        else {}
-    )
-    target_density, target_error = read_target_density(
-        density_source,
-        comparison_config.density_grid,
-    )
+    catalogue = read_seed_catalogue(catalog_source, include_velocity=comparison_config.include_velocity, require_weights=comparison_config.weight_model.mode == "catalogue_fixed")
+    initial = catalogue.initial_conditions
+    phase_space = cartesian_to_spherical_phase_space(initial[:, 0], initial[:, 1], initial[:, 2], initial[:, 3], initial[:, 4], initial[:, 5])
+
+    observed_histograms: dict[str, VelocityHistogramSummary] = {}
+    if comparison_config.include_velocity:
+        velocities = {"vr": phase_space.radial_velocity, "vphi": phase_space.azimuthal_velocity, "vtheta": phase_space.polar_velocity}
+        for name, values in velocities.items():
+            probability, occupancy = conditional_velocity_histogram(phase_space.radius, phase_space.theta, phase_space.phi, values, comparison_config.velocity_grid)
+            uncertainty = multinomial_histogram_uncertainty(probability, occupancy)
+            observed_histograms[name] = VelocityHistogramSummary(probability=probability, uncertainty=uncertainty, occupancy=occupancy)
+
+    target_density, target_error = read_target_density(density_source, comparison_config.density_grid)
     return PreparedModelData(
         catalogue=catalogue,
         target_density=target_density,

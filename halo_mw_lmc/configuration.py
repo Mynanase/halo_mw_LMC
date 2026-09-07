@@ -877,17 +877,11 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
                 "recipe.search.initial_point='paper_best' lies outside bounds for: "
                 + ", ".join(outside)
             )
-    search = SearchConfiguration(
-        initial_point=initial_point,
-        round_decimals=round_decimals,
-        bounds=bounds,
-    )
+    search = SearchConfiguration(initial_point=initial_point, round_decimals=round_decimals, bounds=bounds)
 
     return RecipeConfiguration(
         source_path=source,
-        schema_version=_schema_version(
-            document["schema_version"], "recipe.schema_version"
-        ),
+        schema_version=_schema_version(document["schema_version"], "recipe.schema_version"),
         name=_string(document["name"], "recipe.name"),
         potential=potential,
         density_grid=density_grid,
@@ -922,26 +916,13 @@ def load_run_configuration(path: str | Path) -> RunConfiguration:
 
     run_table = _table(document, "run", "run configuration")
     _require_exact_fields(run_table, {"id", "output_dir"}, "run configuration.run")
-    run = RunIdentityConfiguration(
-        id=_string(run_table["id"], "run configuration.run.id"),
-        output_dir=_resolved_path(
-            run_table["output_dir"], source, "run configuration.run.output_dir"
-        ),
-    )
+    run = RunIdentityConfiguration(id=_string(run_table["id"], "run configuration.run.id"), output_dir=_resolved_path(run_table["output_dir"], source, "run configuration.run.output_dir"))
 
     data_table = _table(document, "data", "run configuration")
-    _require_exact_fields(
-        data_table, {"catalog", "target_density"}, "run configuration.data"
-    )
+    _require_exact_fields(data_table, {"catalog", "target_density"}, "run configuration.data")
     data = DataConfiguration(
-        catalog=_resolved_path(
-            data_table["catalog"], source, "run configuration.data.catalog"
-        ),
-        target_density=_resolved_path(
-            data_table["target_density"],
-            source,
-            "run configuration.data.target_density",
-        ),
+        catalog=_resolved_path(data_table["catalog"], source, "run configuration.data.catalog"),
+        target_density=_resolved_path(data_table["target_density"], source, "run configuration.data.target_density"),
     )
 
     optimizer_table = _table(document, "optimizer", "run configuration")
@@ -951,11 +932,7 @@ def load_run_configuration(path: str | Path) -> RunConfiguration:
         "run configuration.optimizer",
         optional={"fixed_points"},
     )
-    optimizer_iterations = _integer(
-        optimizer_table["iterations"],
-        "run configuration.optimizer.iterations",
-        minimum=1,
-    )
+    optimizer_iterations = _integer(optimizer_table["iterations"], "run configuration.optimizer.iterations", minimum=1)
     fixed_points = None
     if "fixed_points" in optimizer_table:
         fixed_points = _fixed_optimizer_points(
@@ -971,25 +948,13 @@ def load_run_configuration(path: str | Path) -> RunConfiguration:
             )
     optimizer = OptimizerConfiguration(
         iterations=optimizer_iterations,
-        random_seed=_integer(
-            optimizer_table["random_seed"],
-            "run configuration.optimizer.random_seed",
-            minimum=0,
-        ),
+        random_seed=_integer(optimizer_table["random_seed"], "run configuration.optimizer.random_seed", minimum=0),
         fixed_points=fixed_points,
     )
 
     report_table = _table(document, "report", "run configuration")
-    _require_exact_fields(
-        report_table, {"velocity_bin_factor"}, "run configuration.report"
-    )
-    report = ReportConfiguration(
-        velocity_bin_factor=_integer(
-            report_table["velocity_bin_factor"],
-            "run configuration.report.velocity_bin_factor",
-            minimum=1,
-        )
-    )
+    _require_exact_fields(report_table, {"velocity_bin_factor"}, "run configuration.report")
+    report = ReportConfiguration(velocity_bin_factor=_integer(report_table["velocity_bin_factor"], "run configuration.report.velocity_bin_factor", minimum=1))
 
     coverage_table = _table(document, "coverage", "run configuration")
     _require_exact_fields(
@@ -998,32 +963,15 @@ def load_run_configuration(path: str | Path) -> RunConfiguration:
         "run configuration.coverage",
     )
     coverage = CoverageConfiguration(
-        output_dir=_resolved_path(
-            coverage_table["output_dir"],
-            source,
-            "run configuration.coverage.output_dir",
-        ),
-        maximum_points=_integer(
-            coverage_table["maximum_points"],
-            "run configuration.coverage.maximum_points",
-            minimum=1,
-        ),
-        velocity_limit_km_s=_positive_number(
-            coverage_table["velocity_limit_km_s"],
-            "run configuration.coverage.velocity_limit_km_s",
-        ),
-        random_seed=_integer(
-            coverage_table["random_seed"],
-            "run configuration.coverage.random_seed",
-            minimum=0,
-        ),
+        output_dir=_resolved_path(coverage_table["output_dir"], source, "run configuration.coverage.output_dir"),
+        maximum_points=_integer(coverage_table["maximum_points"], "run configuration.coverage.maximum_points", minimum=1),
+        velocity_limit_km_s=_positive_number(coverage_table["velocity_limit_km_s"], "run configuration.coverage.velocity_limit_km_s"),
+        random_seed=_integer(coverage_table["random_seed"], "run configuration.coverage.random_seed", minimum=0),
     )
 
     return RunConfiguration(
         source_path=source,
-        schema_version=_schema_version(
-            document["schema_version"], "run configuration.schema_version"
-        ),
+        schema_version=_schema_version(document["schema_version"], "run configuration.schema_version"),
         recipe=recipe,
         run=run,
         data=data,
@@ -1051,11 +999,7 @@ def load_synthetic_density_configuration(
         },
         "synthetic density configuration",
     )
-    recipe_path = _resolved_path(
-        document["recipe"],
-        source,
-        "synthetic density configuration.recipe",
-    )
+    recipe_path = _resolved_path(document["recipe"], source, "synthetic density configuration.recipe")
     recipe = load_recipe_configuration(recipe_path)
 
     model_table = _table(document, "model", "synthetic density configuration")
@@ -1064,55 +1008,33 @@ def load_synthetic_density_configuration(
         {"name", "source"},
         "synthetic density configuration.model",
     )
-    model_name = _string(
-        model_table["name"],
-        "synthetic density configuration.model.name",
-    )
+    model_name = _string(model_table["name"], "synthetic density configuration.model.name")
     if model_name not in SYNTHETIC_DENSITY_MODEL_NAMES:
         raise ConfigurationError(
             f"unsupported synthetic density model: {model_name!r}; expected one of "
             + ", ".join(SYNTHETIC_DENSITY_MODEL_NAMES)
         )
 
-    quadrature_table = _table(
-        document,
-        "quadrature",
-        "synthetic density configuration",
-    )
+    quadrature_table = _table(document, "quadrature", "synthetic density configuration")
     _require_exact_fields(
         quadrature_table,
         {"order", "validation_order"},
         "synthetic density configuration.quadrature",
     )
-    quadrature_order = _integer(
-        quadrature_table["order"],
-        "synthetic density configuration.quadrature.order",
-        minimum=1,
-    )
-    validation_order = _integer(
-        quadrature_table["validation_order"],
-        "synthetic density configuration.quadrature.validation_order",
-        minimum=1,
-    )
+    quadrature_order = _integer(quadrature_table["order"], "synthetic density configuration.quadrature.order", minimum=1)
+    validation_order = _integer(quadrature_table["validation_order"], "synthetic density configuration.quadrature.validation_order", minimum=1)
     if validation_order <= quadrature_order:
         raise ConfigurationError(
             "synthetic density validation_order must exceed quadrature order"
         )
 
-    uncertainty_table = _table(
-        document,
-        "uncertainty",
-        "synthetic density configuration",
-    )
+    uncertainty_table = _table(document, "uncertainty", "synthetic density configuration")
     _require_exact_fields(
         uncertainty_table,
         {"fractional"},
         "synthetic density configuration.uncertainty",
     )
-    fractional_uncertainty = _positive_number(
-        uncertainty_table["fractional"],
-        "synthetic density configuration.uncertainty.fractional",
-    )
+    fractional_uncertainty = _positive_number(uncertainty_table["fractional"], "synthetic density configuration.uncertainty.fractional")
 
     output_table = _table(document, "output", "synthetic density configuration")
     _require_exact_fields(
@@ -1120,27 +1042,16 @@ def load_synthetic_density_configuration(
         {"path"},
         "synthetic density configuration.output",
     )
-    output_path = _resolved_path(
-        output_table["path"],
-        source,
-        "synthetic density configuration.output.path",
-    )
+    output_path = _resolved_path(output_table["path"], source, "synthetic density configuration.output.path")
     if output_path.suffix.lower() != ".npz":
         raise ConfigurationError("synthetic density output.path must end in .npz")
 
     return SyntheticDensityConfiguration(
         source_path=source,
-        schema_version=_schema_version(
-            document["schema_version"],
-            "synthetic density configuration.schema_version",
-        ),
+        schema_version=_schema_version(document["schema_version"], "synthetic density configuration.schema_version"),
         recipe=recipe,
         model_name=model_name,
-        model_source=_resolved_path(
-            model_table["source"],
-            source,
-            "synthetic density configuration.model.source",
-        ),
+        model_source=_resolved_path(model_table["source"], source, "synthetic density configuration.model.source"),
         quadrature_order=quadrature_order,
         validation_order=validation_order,
         fractional_uncertainty=fractional_uncertainty,

@@ -53,8 +53,4 @@ def run_full_workflow(configuration: RunConfiguration) -> FullRunResult:
         save_inspection(inspect_run(run_directory, report_failure=str(exc)))
         raise
     inspection_path = save_inspection(inspect_run(run_directory))
-    return FullRunResult(
-        run_directory=run_directory,
-        report_paths=report_paths,
-        inspection_path=inspection_path,
-    )
+    return FullRunResult(run_directory=run_directory, report_paths=report_paths, inspection_path=inspection_path)
