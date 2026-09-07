@@ -1,3 +1,4 @@
+from dataclasses import replace
 import tempfile
 import unittest
 from pathlib import Path
@@ -233,6 +234,44 @@ class ConfigurationTests(unittest.TestCase):
                 self.assertEqual(
                     comparison.weight_model.regularization_strength,
                     expected_regularization,
+                )
+
+    def test_joint_r8_40_runs_change_only_outer_objective_and_run_identity(self):
+        for suffix in ("benchmark", "wide_scan"):
+            with self.subTest(suffix=suffix):
+                baseline = load_run_configuration(
+                    REPOSITORY / "configs/runs"
+                    / f"density_solved_r8_40_{suffix}.toml"
+                )
+                joint = load_run_configuration(
+                    REPOSITORY / "configs/runs"
+                    / f"density_solved_r8_40_joint_{suffix}.toml"
+                )
+                self.assertEqual(baseline.recipe.objective.mode, "velocity_only")
+                self.assertEqual(joint.recipe.objective.mode, "density_velocity")
+                self.assertIsNone(joint.recipe.objective.density_max_chi2_per_bin)
+                self.assertIsNone(joint.recipe.objective.density_shell_edges)
+                self.assertIsNone(
+                    joint.recipe.objective.density_shell_phi_max_chi2_per_bin
+                )
+                self.assertTrue(joint.to_comparison_config().include_velocity)
+                self.assertEqual(
+                    replace(
+                        joint.recipe,
+                        source_path=baseline.recipe.source_path,
+                        name=baseline.recipe.name,
+                        objective=baseline.recipe.objective,
+                    ),
+                    baseline.recipe,
+                )
+                self.assertEqual(joint.data, baseline.data)
+                self.assertEqual(joint.iterations, baseline.iterations)
+                self.assertEqual(joint.random_seed, baseline.random_seed)
+                self.assertIsNone(joint.fixed_optimizer_points)
+                self.assertNotEqual(joint.run_id, baseline.run_id)
+                self.assertNotEqual(joint.output_dir, baseline.output_dir)
+                self.assertNotEqual(
+                    joint.coverage.output_dir, baseline.coverage.output_dir
                 )
 
     def test_r8_40_ranking_cases_use_identical_fixed_points(self):

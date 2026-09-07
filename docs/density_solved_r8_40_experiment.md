@@ -209,7 +209,120 @@ pairwise agreement at least 0.9, and differential shift no more than 10% of the
 paired objective span. These thresholds are a small-sample screening rule, not
 a posterior-accuracy statement.
 
-## Wide adaptive scan
+## Joint density--velocity outer objective (2026-09-07)
+
+The next experiment adds density fit quality directly to potential selection:
+
+```text
+w_hat(theta) = density-only non-negative least-squares solution
+J(theta) = 0.5 * chi2_density(theta, w_hat) - log L_velocity(theta, w_hat)
+```
+
+This is the configured `density_velocity` mode. The question is whether ranking
+potentials by both residual density and velocity fit improves the inference when
+the inner weights are only approximate. Weights need not be individually
+recovered to high precision; their resulting predictions and potential rankings
+must still be checked for numerical sensitivity.
+
+The joint mode replaces the earlier global and shell/phi density hard gates with
+the continuous density loss. Inner solver failures still receive `1e30`; a
+successful cost-stall exit is evaluated with both terms. The solver, L2 strength,
+target/error normalization, orbit sampling, radial and vertical masks, velocity
+bins, and fixed seed remain as in the corresponding velocity-only baseline.
+There is no extra outer regularization term or arbitrary density multiplier.
+
+| Run | Comparison baseline | Purpose |
+| --- | --- | --- |
+| `configs/runs/density_solved_r8_40_joint_benchmark.toml` | `density_solved_r8_40_benchmark.toml` | One paper-best trial, unchanged local bounds |
+| `configs/runs/density_solved_r8_40_joint_wide_scan.toml` | `density_solved_r8_40_wide_scan.toml` | 50 iterations, unchanged wide bounds and optimizer-generated start |
+
+Both runs have separate identities and fresh output directories containing
+`joint`. Earlier configurations and their velocity-only results are retained.
+Use the ordinary lifecycle CLI; the historical named-benchmark launcher does
+not accept these new configurations.
+
+Validate and run the single-potential case first on the production server:
+
+```bash
+conda run -n halo_lmc python -m halo_mw_lmc validate configs/runs/density_solved_r8_40_joint_benchmark.toml
+OPENBLAS_NUM_THREADS=1 PYTHONPATH="$PWD/Agama-master${PYTHONPATH:+:$PYTHONPATH}" \
+  conda run -n halo_lmc python -m halo_mw_lmc run configs/runs/density_solved_r8_40_joint_benchmark.toml
+```
+
+Check `objective = objective_density_velocity = 0.5 * chi2 +
+objective_velocity` in the saved samples, along with the solver diagnostics and
+density/velocity predictions. Before running the joint wide scan, complete the
+full-catalogue benchmark and compare identical fixed potentials across solver
+accuracy settings using the joint objective. Historical velocity-only ranking
+results do not establish joint-objective stability. Production execution,
+potential-ranking stability, and scientific recovery require separate evidence
+for this new objective selection.
+
+### Rescore the existing paired fixed-point artifacts
+
+The historical five-point runs already persist `objective_density_velocity`,
+`objective_velocity`, and `chi2`. Reuse these columns to compare the joint
+objective at the same saved weights without reintegration or solver replay:
+
+```bash
+PYTHONPATH="$PWD${PYTHONPATH:+:$PYTHONPATH}" conda run -n dp-jax python \
+  scripts/compare_density_solved_r8_40_potential_ranking.py \
+  PATH_TO_SAVED_RUNS --objective density_velocity --output joint_ranking.json
+```
+
+The default `--objective velocity_only` preserves the historical comparison.
+Joint rescoring checks the saved loss decomposition, ignores the historical
+density gate, and retains the existing finite-score, solver-convergence and
+failed-orbit checks. The original `objective` can therefore be `1e30` for a point
+whose joint score is usable; the reason for the old rejection must be the density
+gate rather than solver failure. Input hashes, model settings and source
+provenance must be reviewed before interpreting the comparison.
+
+The screening thresholds remain the same: all ten points valid, same best point,
+Spearman and pairwise agreement at least 0.9, and maximum offset-corrected shift
+at most 10% of the paired objective span. Passing permits one discordant pair
+among five points; it does not mean identical ranking or calibrated inference.
+A smaller shift/span ratio may also reflect a larger objective span rather than
+smaller numerical shifts, so inspect the absolute shifts and each loss component.
+
+### Saved five-point joint rescoring result (2026-09-07)
+
+The two historical runs were retrieved and rescored without reintegration.
+Both record clean commit `aa9cd5d707c96b019d7df4e4ad0664979893cf70`, identical
+input hashes, model settings apart from `lsmr_tol`, fixed-point schedules and
+dependency versions. Thread-pool settings were not recorded, so this is not
+validation of the newer pinned-BLAS execution baseline.
+
+| Point | Joint objective, `1e-7` | Joint objective, `1e-8` | Rank, `1e-7` / `1e-8` |
+| --- | ---: | ---: | ---: |
+| paper-best | 133893.006 | 134094.153 | 2 / 3 |
+| flatter/more triaxial | 134025.377 | 134045.821 | 3 / 2 |
+| rounder | 134481.241 | 134561.068 | 4 / 4 |
+| more concentrated | 135367.328 | 135539.789 | 5 / 5 |
+| more extended | 133171.250 | 133184.022 | 1 / 1 |
+
+All ten points are valid under joint rescoring: the solvers report success and
+no orbits failed; the two formerly density-gated potentials now receive their
+finite joint scores. `more_extended` remains best. Spearman and pairwise
+agreement are both 0.9, with one discordant pair (paper-best versus flatter).
+The maximum shift after subtracting the paper-best tolerance offset is 188.375,
+or 7.9963% of the larger joint span (2355.767). The existing screening rule
+therefore passes, but the complete ranking is not identical.
+
+The velocity-only comparison has maximum differential shift 188.385 and span
+1943.608 (9.6925%). The joint ratio is smaller mostly because its span is larger;
+the absolute numerical sensitivity has barely changed. All weight solves have
+status 2 (cost-change termination), not a strict KKT certificate. These five
+points support a coarse ranking screen, not calibrated uncertainty or a claim
+that individual orbit weights have been recovered.
+
+Source files, SHA-256 manifests, configuration audit, comparison JSONs, a plot
+and the reproducible report are kept locally under
+`.agent-local/benchmarks/joint-ranking-20260907/`. The raw records remain outside
+Git. The next production benchmark must use the chosen thread setting and the
+joint recipe; historical rescoring is not a new adaptive optimization run.
+
+## Historical velocity-only wide adaptive scan
 
 The fixed-point ranking test confirmed ranking stability: Spearman = 1.0,
 pairwise order agreement = 1.0, same best point (`more_extended`), and maximum

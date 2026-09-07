@@ -81,6 +81,32 @@ The L2 penalty chooses a stable solution among density-compatible orbit
 mixtures. It is recorded independently and is not added again to either outer
 statistical objective.
 
+### Joint outer objective for the next r8--40 experiment (2026-09-07)
+
+The next r8--40 experiment uses `density_velocity`: every numerically accepted
+trial is ranked by `0.5 * chi2_density(theta, w_hat) - log L_velocity(theta, w_hat)`.
+This lets the remaining density residual contribute continuously to potential
+selection, including when the inner solve terminates successfully before strict
+KKT convergence. Individual orbit-weight recovery is not the scientific target.
+
+The inner problem remains density-only NNLS with its existing L2 penalty and
+termination settings. The outer objective evaluates both terms using the same
+returned weights; it neither refits the weights with velocity data nor adds the
+inner regularization penalty to the likelihood. A backend failure still receives
+the invalid-trial penalty. The existing joint mode replaces density hard gates
+with the density chi-square term; it does not retain the velocity-only shell/phi
+acceptance rule.
+
+Use the separate `density_solved_r8_40_joint_benchmark.toml` and
+`density_solved_r8_40_joint_wide_scan.toml` runs described in
+[density_solved_r8_40_experiment.md](density_solved_r8_40_experiment.md).
+Historical velocity-only recipes and results remain their comparison baseline.
+The density term uses the target's configured synthetic errors, as documented in
+[desi_density_model.md](desi_density_model.md); no additional relative loss weight
+or per-bin averaging is introduced. Adding this term makes density residuals
+visible to the outer optimizer but does not guarantee correction of numerical
+weight errors or unbiased potential recovery.
+
 ## Density normalization
 
 `absolute` treats the target density amplitude as physical and lets it determine

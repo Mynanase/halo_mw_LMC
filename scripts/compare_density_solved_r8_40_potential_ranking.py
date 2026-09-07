@@ -49,7 +49,9 @@ def _pairwise_order_agreement(left: np.ndarray, right: np.ndarray) -> float:
     return float(np.mean(agreements)) if agreements else 1.0
 
 
-def _load_run(run: Path) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
+def _load_run(
+    run: Path, objective_mode: str = "velocity_only"
+) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
     required = (
         "iteration",
         *COORDINATE_COLUMNS,
@@ -59,6 +61,8 @@ def _load_run(run: Path) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
         "weight_solver_converged",
         "failed_orbits",
     )
+    if objective_mode == "density_velocity":
+        required += ("objective_density_velocity", "chi2")
     samples = load_sample_table(run / "sample.dat", required_columns=required)
     if samples.size != len(POINT_LABELS):
         raise ValueError(
@@ -80,30 +84,65 @@ def _load_run(run: Path) -> tuple[np.ndarray, np.ndarray, dict[str, object]]:
         coordinates,
     ):
         raise ValueError(f"sample coordinates do not match resolved fixed points: {run}")
-    objective = np.asarray(samples["objective_velocity"], dtype=float)
+    objective_column = (
+        "objective_density_velocity"
+        if objective_mode == "density_velocity" else "objective_velocity"
+    )
+    objective = np.asarray(samples[objective_column], dtype=float)
+    density_term = None
+    if objective_mode == "density_velocity":
+        density_term = 0.5 * np.asarray(samples["chi2"], dtype=float)
+        velocity = np.asarray(samples["objective_velocity"], dtype=float)
+        if not (
+            np.all(np.isfinite(density_term))
+            and np.all(density_term >= 0)
+            and np.all(np.isfinite(velocity))
+            and np.all(np.isfinite(objective))
+        ):
+            raise ValueError(f"non-finite or negative density/loss components in {run}")
+        # sample.dat stores rounded decimals; compare at its output precision.
+        if not np.allclose(objective, density_term + velocity, rtol=1e-8, atol=1e-8):
+            raise ValueError(f"joint objective does not equal chi2/2 + velocity in {run}")
     finite = np.isfinite(objective) & (objective < 1e30)
     gates = np.asarray(samples["density_shell_phi_gate_passed"], dtype=int) == 1
     converged = np.asarray(samples["weight_solver_converged"], dtype=int) == 1
     no_failed_orbits = np.asarray(samples["failed_orbits"], dtype=int) == 0
-    valid = finite & gates & converged & no_failed_orbits
+    valid = finite & converged & no_failed_orbits
+    if objective_mode == "velocity_only":
+        valid &= gates
     metadata = {
         "run_directory": str(run),
         "git_commit": resolved.get("git_commit"),
         "git_dirty": resolved.get("git_dirty"),
         "lsmr_tol": resolved.get("weight_model", {}).get("lsmr_tol"),
+        "recorded_objective_mode": resolved.get("objective", {}).get("mode"),
+        "objective_column": objective_column,
+        "density_gate_applied": objective_mode == "velocity_only",
+        "recorded_density_gate_by_point": gates.tolist(),
         "input_sha256": (
             run / "benchmark_metadata/input-sha256.txt"
         ).read_text(),
         "all_points_valid": bool(np.all(valid)),
         "valid_by_point": valid.tolist(),
     }
+    if density_term is not None:
+        metadata["density_term_by_point"] = density_term.tolist()
+        metadata["velocity_objective_by_point"] = velocity.tolist()
     return coordinates, objective, metadata
 
 
-def compare_runs(runs_root: str | Path) -> dict[str, object]:
+def compare_runs(
+    runs_root: str | Path, *, objective_mode: str = "velocity_only"
+) -> dict[str, object]:
+    if objective_mode not in {"velocity_only", "density_velocity"}:
+        raise ValueError(f"unknown objective mode: {objective_mode}")
     root = Path(runs_root).expanduser().resolve()
-    left_coordinates, left, left_metadata = _load_run(root / RUN_NAMES["tol1e7"])
-    right_coordinates, right, right_metadata = _load_run(root / RUN_NAMES["tol1e8"])
+    left_coordinates, left, left_metadata = _load_run(
+        root / RUN_NAMES["tol1e7"], objective_mode
+    )
+    right_coordinates, right, right_metadata = _load_run(
+        root / RUN_NAMES["tol1e8"], objective_mode
+    )
     if left_metadata["lsmr_tol"] != 1e-7 or right_metadata["lsmr_tol"] != 1e-8:
         raise ValueError("paired runs do not record the expected LSMR tolerances")
     if not np.array_equal(left_coordinates, right_coordinates):
@@ -111,7 +150,12 @@ def compare_runs(runs_root: str | Path) -> dict[str, object]:
 
     left_rank = _rank(left)
     right_rank = _rank(right)
-    spearman = float(np.corrcoef(left_rank, right_rank)[0, 1])
+    # Closed form for the ordinal ranks avoids rounding an exact 0.9 below
+    # the screening threshold, as a floating-point correlation can do.
+    rank_difference = left_rank - right_rank
+    spearman = 1.0 - 6.0 * float(np.dot(rank_difference, rank_difference)) / (
+        left.size * (left.size**2 - 1)
+    )
     pairwise = _pairwise_order_agreement(left, right)
     absolute_offset = right - left
     differential_shift = absolute_offset - absolute_offset[0]
@@ -169,8 +213,19 @@ def compare_runs(runs_root: str | Path) -> dict[str, object]:
                 "rank_tol1e8": int(right_rank[index]),
             }
         )
+        if objective_mode == "density_velocity":
+            for tag, metadata in (
+                ("tol1e7", left_metadata), ("tol1e8", right_metadata)
+            ):
+                points[-1][f"density_term_{tag}"] = metadata[
+                    "density_term_by_point"
+                ][index]
+                points[-1][f"velocity_objective_{tag}"] = metadata[
+                    "velocity_objective_by_point"
+                ][index]
     return {
         "schema_version": 1,
+        "objective_mode": objective_mode,
         "runs": {"tol1e7": left_metadata, "tol1e8": right_metadata},
         "points": points,
         "objective_span": {"tol1e7": left_span, "tol1e8": right_span},
@@ -190,9 +245,13 @@ def compare_runs(runs_root: str | Path) -> dict[str, object]:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("runs_root", nargs="?", default="runs")
+    parser.add_argument(
+        "--objective", choices=("velocity_only", "density_velocity"),
+        default="velocity_only", help="score saved fixed points without reintegration",
+    )
     parser.add_argument("--output", type=Path)
     arguments = parser.parse_args()
-    document = compare_runs(arguments.runs_root)
+    document = compare_runs(arguments.runs_root, objective_mode=arguments.objective)
     rendered = json.dumps(document, indent=2, sort_keys=True) + "\n"
     if arguments.output is None:
         print(rendered, end="")

@@ -1,3 +1,4 @@
+from dataclasses import replace
 import unittest
 
 import numpy as np
@@ -22,6 +23,7 @@ class ProfileObjectiveTests(unittest.TestCase):
         shell_values=None,
         shell_counts=None,
         shell_limit=None,
+        model_density=None,
     ):
         grid = CylindricalGrid.uniform(
             n_r=1,
@@ -31,7 +33,10 @@ class ProfileObjectiveTests(unittest.TestCase):
             n_phi=2,
         )
         data = np.array([[[2.0, 4.0]]])
-        model = np.array([[[1.0, 2.0]]])
+        model = (
+            np.array([[[1.0, 2.0]]])
+            if model_density is None else np.asarray(model_density, dtype=float)
+        )
         density = compare_density(
             data,
             np.ones_like(data),
@@ -91,6 +96,36 @@ class ProfileObjectiveTests(unittest.TestCase):
         self.assertEqual(evaluation.objective_velocity, 6.0)
         self.assertEqual(evaluation.objective_density_velocity, 8.5)
         self.assertEqual(evaluation.selected_objective, 8.5)
+
+    def test_joint_objective_scores_successful_cost_stall_weights(self):
+        evaluation = self._evaluation(mode="density_velocity")
+        approximate = replace(
+            evaluation.weight_solution,
+            solver_backend="lsq_linear",
+            status=2,
+            optimality=1e-2,
+            kkt_residual=1e-3,
+            regularization_penalty=10.0,
+            inner_objective=evaluation.density.chi2 + 10.0,
+        )
+        evaluation = replace(evaluation, weight_solution=approximate)
+
+        # A finite, accepted approximate solve contributes its actual density
+        # residual. Neither a strict KKT gate nor the inner L2 term is added.
+        self.assertEqual(evaluation.density_chi2_per_bin, 2.5)
+        self.assertEqual(evaluation.selected_objective, 8.5)
+
+    def test_density_residual_can_reverse_velocity_only_preference(self):
+        balanced = self._evaluation(mode="density_velocity")
+        poor_density = self._evaluation(
+            mode="density_velocity", model_density=[[[0.0, 0.0]]]
+        )
+        poor_density = replace(poor_density, velocity_loglike={"vr": -1.0})
+
+        self.assertLess(poor_density.objective_velocity, balanced.objective_velocity)
+        self.assertEqual(poor_density.selected_objective, 11.0)
+        self.assertEqual(balanced.selected_objective, 8.5)
+        self.assertLess(balanced.selected_objective, poor_density.selected_objective)
 
     def test_velocity_only_rejects_a_poor_density_profile(self):
         evaluation = self._evaluation(
