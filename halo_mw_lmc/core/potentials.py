@@ -58,12 +58,6 @@ def build_potential_from_parameters(parameters: ZhuHaloParameters):
     return build_zhu_2026_potential(**parameters.as_dict())
 
 
-def _require_finite(**values: float) -> None:
-    invalid = sorted(name for name, value in values.items() if not math.isfinite(value))
-    if invalid:
-        raise ValueError(f"potential parameters must be finite: {', '.join(invalid)}")
-
-
 def zhu_2026_component_parameters(
     rho0: float,
     log_rs: float,
@@ -79,15 +73,10 @@ def zhu_2026_component_parameters(
     The fiducial paper model fixes the two halo-orientation angles to zero.
     """
 
-    _require_finite(
-        rho0=rho0,
-        log_rs=log_rs,
-        phalo=phalo,
-        qhalo=qhalo,
-        gamma=gamma,
-        alpha_halo=alpha_halo,
-        beta_halo=beta_halo,
-    )
+    values = {"rho0": rho0, "log_rs": log_rs, "phalo": phalo, "qhalo": qhalo, "gamma": gamma, "alpha_halo": alpha_halo, "beta_halo": beta_halo}
+    invalid = sorted(name for name, value in values.items() if not math.isfinite(value))
+    if invalid:
+        raise ValueError(f"potential parameters must be finite: {', '.join(invalid)}")
     if phalo <= 0 or qhalo <= 0:
         raise ValueError("halo axis ratios p and q must be positive")
     if not 0 <= gamma < 3:

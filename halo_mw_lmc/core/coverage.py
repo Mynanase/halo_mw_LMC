@@ -15,13 +15,8 @@ from .phase_space import SphericalPhaseSpace, cartesian_to_spherical_phase_space
 FloatArray = NDArray[np.float64]
 
 PHASE_SPACE_COLUMNS = ("x_gc", "y_gc", "z_gc", "vx_gc", "vy_gc", "vz_gc")
-DEFAULT_SPHERICAL_RADIUS_EDGES = np.array(
-    [4, 6, 8, 10, 12, 15, 20, 30, 50],
-    dtype=float,
-)
-DEFAULT_THETA_EDGES = np.deg2rad(
-    np.array([0, 15, 30, 45, 60, 90], dtype=float)
-)
+DEFAULT_SPHERICAL_RADIUS_EDGES = np.array([4, 6, 8, 10, 12, 15, 20, 30, 50], dtype=float)
+DEFAULT_THETA_EDGES = np.deg2rad(np.array([0, 15, 30, 45, 60, 90], dtype=float))
 
 
 def _validated_edges(values: ArrayLike, name: str) -> FloatArray:
@@ -170,18 +165,12 @@ def build_data_coverage(
         raise ValueError("initial_conditions must have shape (N, 6)")
 
     grid = rzphi_grid or CylindricalGrid.uniform()
-    radius_edges = _validated_edges(
-        spherical_radius_edges,
-        "spherical_radius_edges",
-    )
+    radius_edges = _validated_edges(spherical_radius_edges, "spherical_radius_edges")
     latitude_edges = _validated_edges(theta_edges, "theta_edges")
     if latitude_edges[0] < -np.pi / 2 or latitude_edges[-1] > np.pi / 2:
         raise ValueError("theta_edges must lie within [-pi/2, pi/2]")
 
-    finite_by_column = tuple(
-        int(np.count_nonzero(np.isfinite(initial[:, index])))
-        for index in range(initial.shape[1])
-    )
+    finite_by_column = tuple(int(value) for value in np.count_nonzero(np.isfinite(initial), axis=0))
     position_mask = np.all(np.isfinite(initial[:, :3]), axis=1)
     complete_mask = np.all(np.isfinite(initial), axis=1)
     positions = initial[position_mask, :3]
@@ -189,15 +178,9 @@ def build_data_coverage(
     if complete.shape[0] == 0:
         raise ValueError("catalogue contains no complete finite 6D rows")
 
-    phase = cartesian_to_spherical_phase_space(
-        *[complete[:, index] for index in range(6)]
-    )
+    phase = cartesian_to_spherical_phase_space(complete[:, 0], complete[:, 1], complete[:, 2], complete[:, 3], complete[:, 4], complete[:, 5])
     cylindrical_radius = np.hypot(complete[:, 0], complete[:, 1])
-    rzphi_counts = grid.histogram(
-        cylindrical_radius,
-        complete[:, 2],
-        phase.phi,
-    )
+    rzphi_counts = grid.histogram(cylindrical_radius, complete[:, 2], phase.phi)
 
     wrapped_phi = grid.wrap_phi(phase.phi)
     rtheta_phi_counts, _ = np.histogramdd(

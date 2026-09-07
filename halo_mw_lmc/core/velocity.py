@@ -51,15 +51,7 @@ class SphericalVelocityGrid:
 
     @property
     def shape(self) -> tuple[int, int, int, int]:
-        return tuple(
-            edges.size - 1
-            for edges in (
-                self.radius_edges,
-                self.theta_edges,
-                self.phi_edges,
-                self.velocity_edges,
-            )
-        )
+        return self.radius_edges.size - 1, self.theta_edges.size - 1, self.phi_edges.size - 1, self.velocity_edges.size - 1
 
     @property
     def velocity_centers(self) -> FloatArray:

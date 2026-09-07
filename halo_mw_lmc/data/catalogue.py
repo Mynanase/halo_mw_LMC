@@ -52,18 +52,5 @@ def read_seed_catalogue(
     columns = read_named_columns(path, required)
     initial = np.column_stack([columns[name] for name in PHASE_SPACE_COLUMNS])
     weights = catalogue_seed_weights(columns["w"]) if require_weights else None
-    if weights is not None and weights.shape[0] != initial.shape[0]:
-        raise ValueError("catalogue phase-space and weight columns have different lengths")
-    errors = (
-        {
-            component: np.asarray(columns[column], dtype=float)
-            for component, column in VELOCITY_ERROR_COLUMNS.items()
-        }
-        if include_velocity
-        else {}
-    )
-    return SeedCatalogue(
-        initial_conditions=np.asarray(initial, dtype=float),
-        seed_weights=weights,
-        velocity_errors=errors,
-    )
+    errors = {component: np.asarray(columns[column], dtype=float) for component, column in VELOCITY_ERROR_COLUMNS.items()} if include_velocity else {}
+    return SeedCatalogue(initial_conditions=np.asarray(initial, dtype=float), seed_weights=weights, velocity_errors=errors)

@@ -155,25 +155,6 @@ def _shape_checked(values: ArrayLike, grid: CylindricalGrid, name: str) -> Float
     return result
 
 
-def _base_validity(
-    data: FloatArray,
-    error: FloatArray,
-    model: FloatArray,
-    *,
-    require_positive_data: bool,
-) -> BoolArray:
-    valid = (
-        np.isfinite(data)
-        & np.isfinite(error)
-        & (error > 0)
-        & np.isfinite(model)
-        & (model >= 0)
-    )
-    if require_positive_data:
-        valid &= data > 0
-    return valid
-
-
 def density_fit_mask(
     data_density: ArrayLike,
     data_error: ArrayLike,
@@ -222,12 +203,9 @@ def compare_density(
 
     radius, z, _ = grid.center_mesh
     spherical_radius = np.hypot(radius, z)
-    valid = _base_validity(
-        data,
-        error,
-        model,
-        require_positive_data=settings.require_positive_data,
-    )
+    valid = np.isfinite(data) & np.isfinite(error) & (error > 0) & np.isfinite(model) & (model >= 0)
+    if settings.require_positive_data:
+        valid &= data > 0
 
     normalization_mask = valid & (
         spherical_radius >= settings.normalization_min_radius
