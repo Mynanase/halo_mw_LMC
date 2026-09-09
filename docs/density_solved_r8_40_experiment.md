@@ -423,7 +423,8 @@ rho0_plus_2logrs = 9.354, but the authoritative wide-scan record is 9.353
 in stage 2; the 0.001 offset is negligible at the reported objective precision
 but is recorded here for provenance.
 
-Results (48/48 points finite under the joint objective; measured from
+Results (48/48 raw diagnostic joint scores finite, but only 39 accepted by the
+existing solver rule; the other 9 retain a formal objective of `1e30`; measured from
 `.agent-local/tmp/analyze_stage1_v2.py`):
 
 - convergence: 39 points reach cost-stall (status 2); 9 points stop at
@@ -447,8 +448,10 @@ Results (48/48 points finite under the joint objective; measured from
 - solve iterations: median ≈3009.5 over all 48 points (9 truncated at 20000),
   2185 over the 39 converged points.
 
-Interpretation caveats: truncated solves make their J a lower bound (rank 1 is
-one such point); exact-density-fit points make the density term
+Interpretation caveats: truncated solves leave their raw J unvalidated (rank 1 is
+one such point), not a proven lower bound, because the density-only inner problem
+does not minimize the joint outer objective; exact-density-fit points make the
+density term
 non-discriminating; failed-orbit points would have failed the old gate. The
 screen identifies a region, not a converged posterior: rank 1 is a truncated
 solve, so the best converged point (0.985, 0.714, 6.099, 9.829, 0.751; overall rank 2, behind only the truncated solve)
@@ -459,6 +462,13 @@ Reproduction: `scripts/generate_density_solved_r8_40_stage1_design.py`;
 `.agent-local/tmp/analyze_stage1_v2.py`.
 
 ## Stage-2 protocol (approved, not yet executed at time of writing)
+
+2026-09-10 priority update: this heading records the original protocol status,
+not a live server check. Before launching any new adaptive run, complete the
+[solver-budget experiment](solver_budget_experiment.md), inspect existing server
+runs, and obtain a separate search go/no-go review. The
+[status summary](refactor_and_experiment_status.md) distinguishes historical
+accepted/capped results and pending production refactor validation.
 
 Stage 2 refines the active region with a bounded adaptive GP. It is a cold
 start: the GP surrogate starts from an `adaptive` schedule with

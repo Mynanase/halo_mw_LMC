@@ -120,6 +120,14 @@ particular, a density gate is not evidence of stable potential recovery.
 
 ## Current decision register
 
+2026-09-10 update: the refactor and remote screening infrastructure are merged;
+production refactor parity remains pending. Historical fixed-point screening
+exists, but uniform solver accuracy and search readiness are not established.
+See [current status](refactor_and_experiment_status.md) and the
+[staged solver-budget protocol](solver_budget_experiment.md). The next priority
+is the solver accuracy/runtime experiment; existing stage-2 configs do not
+authorize automatic launch.
+
 | Decision | Status | Owner and consequence |
 | --- | --- | --- |
 | Package dependency direction and artifact-only reporting | verified | [architecture.md](architecture.md); enforced by architecture and artifact tests |

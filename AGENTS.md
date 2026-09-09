@@ -18,8 +18,9 @@ halo-mw-lmc run configs/runs/fix_weight.toml
 ```
 
 Use `validate`, `preflight`, `coverage`, `evaluate`, `optimize`, `inspect`, and
-`report` for isolated lifecycle stages. Historical `python -m halo_mw_lmc`
-flags remain compatibility-only. Numerical code belongs in
+`report` for isolated lifecycle stages. `python -m halo_mw_lmc SUBCOMMAND`
+is also supported; the historical no-subcommand flags have been removed.
+Numerical code belongs in
 `halo_mw_lmc/core/`, file adapters in `halo_mw_lmc/data/`, expensive execution
 in `halo_mw_lmc/workflows/`, and figures in `halo_mw_lmc/visualization/`.
 Reports, inspection, and apps consume persisted artifacts.

@@ -38,6 +38,12 @@ archive/            重构前代码快照，不属于当前生产路径
 `AGENTS.md` 只保留跨任务稳定的仓库契约，具体实验阈值和运行状态由对应
 `docs/` 文档维护。
 
+本轮重构、远端合并及已有实验的证据边界见
+[`修改与实验状态摘要`](docs/refactor_and_experiment_status.md)。
+正式参数搜索前的下一优先事项是
+[`权重求解提速：逐步骤 Agent 实验方案`](docs/solver_budget_experiment.md)：
+先验证求解预算对预测与排序的影响，再评审是否启动搜索；方案发布不代表实验已运行。
+
 重大研究方向、实验设计或架构变化应显式调用
 `$scientific-project-blueprint`，先完成方案评审再修改科学代码。日常代码、
 配置、测试和图表修改由仓库级 `scientific-repo-maintainer` skill 按 blueprint
