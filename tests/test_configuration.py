@@ -274,6 +274,32 @@ class ConfigurationTests(unittest.TestCase):
                     joint.coverage.output_dir, baseline.coverage.output_dir
                 )
 
+    def test_stage1_screen_preserves_wide_bounds_and_fixed_anchors(self):
+        benchmark = load_run_configuration(REPOSITORY / "configs/runs/density_solved_r8_40_joint_benchmark.toml")
+        screen = load_recipe_configuration(REPOSITORY / "configs/recipes/zhu_2026_density_solved_r8_40_joint_screen.toml")
+        self.assertEqual(replace(screen, source_path=benchmark.recipe.source_path, name=benchmark.recipe.name, search=benchmark.recipe.search), benchmark.recipe)
+        self.assertEqual(screen.search.bounds.qhalo, (0.70, 1.30))
+        self.assertEqual(screen.search.bounds.rho0_plus_2logrs, (9.20, 10.30))
+        self.assertEqual(screen.search.bounds.gamma, (0.50, 2.00))
+        points = []
+        for number in range(1, 13):
+            run = load_run_configuration(REPOSITORY / f"configs/runs/density_solved_r8_40_stage1_screen_shard{number:02d}.toml")
+            self.assertEqual(run.recipe, screen)
+            self.assertEqual(run.iterations, 4)
+            self.assertEqual(run.random_seed, 0)
+            points.extend(run.fixed_optimizer_points)
+        self.assertEqual(len(points), 48)
+        self.assertEqual(len(set(points)), 48)
+        self.assertIn((1.222, 0.895, 5.616, 9.354, 1.330), points)
+
+    def test_stage2_side_runs_preserve_screen_settings(self):
+        anchor = load_run_configuration(REPOSITORY / "configs/runs/density_solved_r8_40_stage2_anchor_9353.toml")
+        converged = load_run_configuration(REPOSITORY / "configs/runs/density_solved_r8_40_stage2_rank1_converged.toml")
+        self.assertEqual(anchor.recipe.source_path.name, "zhu_2026_density_solved_r8_40_joint_screen.toml")
+        self.assertEqual(anchor.fixed_optimizer_points[0][3], 9.353)
+        self.assertEqual(converged.recipe.weight_model.max_iter, 60000)
+        self.assertEqual(replace(converged.recipe, source_path=anchor.recipe.source_path, name=anchor.recipe.name, weight_model=anchor.recipe.weight_model), anchor.recipe)
+
     def test_r8_40_ranking_cases_use_identical_fixed_points(self):
         for filename, expected_tol in R8_40_RANKING_CASES.items():
             with self.subTest(filename=filename):

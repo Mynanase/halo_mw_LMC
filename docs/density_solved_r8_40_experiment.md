@@ -380,3 +380,132 @@ Before drawing posterior conclusions from the scan, review:
 - weight concentration (effective orbit count, maximum weight fraction);
 - GP surrogate surface quality for `parameter_constraints.py` visualization;
 - whether the best point remains near `more_extended` or moves elsewhere.
+
+## Stage-1 joint-objective fixed-point screen
+
+This stage moves from a single adaptive scan to a two-stage search: first a
+parallel fixed-point screen to localize the active region, then a bounded GP
+refinement inside that region. It runs the `density_velocity` objective so the
+density term enters the objective (`J = chi2 / 2 + objective_velocity`) instead
+of gating validity, which eliminates the `1e30` starvation that invalidated 22
+of the 50 wide-scan points.
+
+| parameter | screen box |
+|---|---:|
+| qhalo | [0.80, 1.28] |
+| phalo | [0.70, 0.96] |
+| rho0 | [5.55, 6.55] |
+| rho0_plus_2logrs | [9.25, 10.20] |
+| gamma | [0.70, 1.45] |
+
+The design is 45 scrambled Sobol points (`scipy.stats.qmc.Sobol`, seed 0,
+sliced from 64 for balance) plus three anchors (`paper_best`, the tol1e7
+ranking best `more_extended`, and the wide-scan best). The box is the
+convex hull of those three anchors with margin. Recipe:
+`configs/recipes/zhu_2026_density_solved_r8_40_joint_screen.toml`; twelve shard run
+configs `configs/runs/density_solved_r8_40_stage1_screen_shard01..12.toml`;
+generator `scripts/generate_density_solved_r8_40_stage1_design.py`; driver
+`scripts/run_density_solved_r8_40_stage1_screen.sh`, which caps the shared
+server at 12 shards x `OMP_NUM_THREADS=4` = 48/112 cores (~43%) under `nice -n
+10` and `OPENBLAS_NUM_THREADS=1` (the solve path is single-threaded; the pin
+makes it deterministic per problem, Finding 9).
+
+The screening recipe was named `zhu_2026_density_solved_r8_40_joint.toml` in
+the original remote stage-1 commits. It is now named `joint_screen` to preserve
+both that screening box and the local joint benchmark's narrower bounds.
+Only its filename and recipe name changed; the twelve shard coordinates and
+all numerical settings are unchanged. Existing resolved artifacts retain their
+original recipe name. The stage-2 9.353 anchor also uses `joint_screen`.
+
+Provenance note: the committed `wide_scan_best` anchor uses
+rho0_plus_2logrs = 9.354, but the authoritative wide-scan record is 9.353
+(rho0 5.616 + 2*log_rs 1.8685). A corrected 9.353 re-evaluation is scheduled
+in stage 2; the 0.001 offset is negligible at the reported objective precision
+but is recorded here for provenance.
+
+Results (48/48 points finite under the joint objective; measured from
+`.agent-local/tmp/analyze_stage1_v2.py`):
+
+- convergence: 39 points reach cost-stall (status 2); 9 points stop at
+  `weight_model.max_iter = 20000` (status 0, truncated solves);
+- 7 points have density chi2 < 1e-6 (an exact density fit is achievable for
+  those potentials under the underdetermined weight problem);
+- 15 points carry 1--53 failed orbits; the old velocity-only validity gate
+  would have excluded them;
+- Spearman(joint, velocity) = 0.990, so the two objectives nearly agree on
+  this set and the density term adds little discrimination except at the
+  density-poor end;
+- best converged, zero-failed-orbit point: J = 132834.861
+  (qhalo 0.985, phalo 0.714, rho0 6.099, rho0_plus_2logrs 9.829, gamma 0.751),
+  which improves on the wide-scan best objective 132872.5796;
+- anchors: `wide_scan_best` ranks 5/48, `more_extended` ranks 9/48,
+  `paper_best` ranks 26/48 (the fiducial potential is outside the active
+  region);
+- low-rho0_plus_2logrs edge signal: points with rho0_plus_2logrs in
+  [9.28, 9.41] occupy ranks 3, 5, 8, 10, 12, 15, 16; points above 10.0
+  settle in ranks 17, 27, 36, 41, 44--48 (except `more_extended` at rank 9);
+- solve iterations: median ≈3009.5 over all 48 points (9 truncated at 20000),
+  2185 over the 39 converged points.
+
+Interpretation caveats: truncated solves make their J a lower bound (rank 1 is
+one such point); exact-density-fit points make the density term
+non-discriminating; failed-orbit points would have failed the old gate. The
+screen identifies a region, not a converged posterior: rank 1 is a truncated
+solve, so the best converged point (0.985, 0.714, 6.099, 9.829, 0.751; overall rank 2, behind only the truncated solve)
+is the most reliable current optimum.
+
+Reproduction: `scripts/generate_density_solved_r8_40_stage1_design.py`;
+`scripts/run_density_solved_r8_40_stage1_screen.sh`; analysis
+`.agent-local/tmp/analyze_stage1_v2.py`.
+
+## Stage-2 protocol (approved, not yet executed at time of writing)
+
+Stage 2 refines the active region with a bounded adaptive GP. It is a cold
+start: the GP surrogate starts from an `adaptive` schedule with
+`random_seed = 0` and `initial_point = "optimizer"`, and no stage-1 evaluation
+is injected as a prior. Restricting the search box to the stage-1 active region
+is experiment design (bound narrowing), not warm-start or historical-point
+injection, so it is consistent with the cold-start contract. Unconverged
+(truncated) stage-1 points are not reused as GP observations.
+
+| parameter | stage-2 box |
+|---|---:|
+| qhalo | [0.93, 1.27] |
+| phalo | [0.70, 0.96] |
+| rho0 | [5.55, 6.42] |
+| rho0_plus_2logrs | [9.20, 9.95] |
+| gamma | [0.70, 1.40] |
+
+60 iterations. Two side re-evaluations run independently: the exact anchor
+rho0_plus_2logrs = 9.353 (correcting the 9.354 provenance offset), and the
+stage-1 rank-1 point re-evaluated at `weight_model.max_iter = 60000` to check
+whether its truncated objective improves materially.
+
+Resource plan (respecting the shared-server cap): GP single process with
+`OMP_NUM_THREADS = 24`; the two side runs at `OMP_NUM_THREADS = 16` each;
+worst-case simultaneous 56/112 cores (50%). All runs keep
+`OPENBLAS_NUM_THREADS = 1`.
+
+Reproduction (configs authored by the stage-2 infrastructure work, to be
+committed alongside this protocol): recipe
+`configs/recipes/zhu_2026_density_solved_r8_40_joint_stage2.toml`; run config
+`configs/runs/density_solved_r8_40_stage2_gp.toml`; side-run configs
+`density_solved_r8_40_stage2_anchor_9353.toml` and
+`density_solved_r8_40_stage2_rank1_converged.toml` (the latter uses recipe
+`configs/recipes/zhu_2026_density_solved_r8_40_joint_maxiter60k.toml`).
+
+## Corner constraint figure interpretation
+
+The five-parameter corner figure
+(`halo_mw_lmc/visualization/parameter_constraints.py`,
+`build_parameter_constraints_corner_figure`) shows only `rho0`, `rs`, `gamma`,
+`qhalo`, and `phalo`. Each off-diagonal panel draws the profiled
+`delta_chi2 = 2.30` contours on GP-surrogate chi-square surfaces for the total
+and density objectives, clipped to trial support and GP-uncertainty masks, with
+the actual adaptive trials overlaid as points. Interpretation boundary: the
+contours are a projection of the set of five-dimensional models compatible with
+the data, not a posterior or calibrated uncertainty. `rho0` and `rs` are
+coupled through the persisted `rho0_plus_2logrs` coordinate, so an elongated
+band across `rho0`-`rs` is a degeneracy direction (compensating `rho0` and
+`rs`), not independent freedom; the density term (`chi2`) is what pins the
+three-dimensional DM distribution within `r <~ 50 kpc`.

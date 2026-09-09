@@ -117,6 +117,13 @@ in the persisted full-catalogue weight vector.
   existing target NPZ contract; source catalogues and plotting scripts never
   become core runtime dependencies.
 - A new figure belongs in `visualization/`; the optimizer must not import it.
+- The five-parameter corner constraint figure (`parameter_constraints.py`,
+  `build_parameter_constraints_corner_figure`) reads only the persisted
+  `sample.dat` trial table and resolved-config search bounds, and is
+  display-only: it never re-runs orbit integration or mutates solver weights.
+  It writes the report artifact `parameter_constraints_corner.pdf` plus a
+  `parameter_constraints_corner_surfaces.npz` of profiled GP surfaces for
+  re-plotting without recomputation.
 - A new interactive view reads artifacts from `apps/` and must not trigger
   model evaluation.
 - Historical code stays under `archive/` and is never used as a compatibility

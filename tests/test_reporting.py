@@ -25,6 +25,7 @@ class ManagedReportTests(unittest.TestCase):
             expected = (
                 run / "report/convergence.pdf",
                 run / "report/parameter_constraints.pdf",
+                run / "report/parameter_constraints_corner.pdf",
                 run / "report/density/overview.pdf",
                 run / "report/density/flattening.pdf",
                 run / "report/density/shell_phi_gate.pdf",

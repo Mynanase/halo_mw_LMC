@@ -1,0 +1,27 @@
+# Corner-constraint scan: same wide recipe as density-solved-r8-40-wide-scan
+# but with 80 cold-start iterations so that at least 50 converged, unique
+# trials survive the GP-profiling gates (wide-scan left only 40).
+# New output directory; never append to the existing wide-scan sample.dat.
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved_r8_40_wide.toml"
+
+[run]
+id = "density-solved-r8-40-wide-scan-80"
+output_dir = "../../runs/density-solved-r8-40-wide-scan-80"
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz"
+
+[optimizer]
+iterations = 80
+random_seed = 0
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../../data_coverage-density-solved-r8-40-wide-scan-80"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0

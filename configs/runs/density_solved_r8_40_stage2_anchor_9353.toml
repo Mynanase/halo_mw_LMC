@@ -1,0 +1,28 @@
+# Exact wide-scan best anchor re-evaluation under the joint objective.
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved_r8_40_joint_screen.toml"
+
+[run]
+id = "density-solved-r8-40-stage2-anchor-9353"
+output_dir = "../../runs/density-solved-r8-40-stage2-anchor-9353"
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz"
+
+[optimizer]
+iterations = 1
+random_seed = 0
+# Coordinate order: qhalo, phalo, rho0, rho0_plus_2logrs, gamma.
+fixed_points = [
+  [1.222, 0.895, 5.616, 9.353, 1.330], # exact wide-scan best anchor (stage-1 used 9.354, authoritative 9.353)
+]
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../../data_coverage-density-solved-r8-40-stage2-anchor-9353"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0

@@ -133,6 +133,139 @@ PANELS = (
 )
 
 
+# Display order for the five-parameter corner figure, matching the paper caption.
+DISPLAY_ORDER = ("rho0", "rs", "gamma", "qhalo", "phalo")
+
+PARAM_LABELS = {
+    "rho0": r"$\log_{10}(\rho_0/[M_\odot\,\mathrm{kpc}^{-3}])$",
+    "rs": r"$r_s\ [\mathrm{kpc}]$",
+    "gamma": r"Inner slope $\gamma$",
+    "qhalo": r"$q_\mathrm{DM}=Z/X$",
+    "phalo": r"$p_\mathrm{DM}=Y/X$",
+}
+
+# Internal coordinate index for each direct (non-derived) logical parameter.
+_INTERNAL_INDEX = {"qhalo": 0, "phalo": 1, "rho0": 2, "gamma": 4}
+
+# Column and row parameter order are identical for the symmetric corner grid.
+_CORNER_NUISANCE_ORDER = DISPLAY_ORDER
+
+
+@dataclass(frozen=True)
+class CornerPanel:
+    """One displayed parameter pair of the lower-triangular corner figure."""
+
+    name: str
+    x_param: str
+    y_param: str
+    row_index: int
+    col_index: int
+
+    @property
+    def x_label(self) -> str:
+        return PARAM_LABELS[self.x_param]
+
+    @property
+    def y_label(self) -> str:
+        return PARAM_LABELS[self.y_param]
+
+
+def _corner_nuisance_params(panel: CornerPanel) -> tuple[str, str, str]:
+    """Return the three logical nuisance parameters for a corner panel."""
+
+    nuisance = tuple(
+        param for param in _CORNER_NUISANCE_ORDER if param not in (panel.x_param, panel.y_param)
+    )
+    if len(nuisance) != 3:
+        raise ValueError(f"corner panel {panel.name} must leave exactly three nuisances")
+    return nuisance
+
+
+CORNER_PANELS = tuple(
+    CornerPanel(
+        name=f"corner_{row}_{col}",
+        x_param=DISPLAY_ORDER[col],
+        y_param=DISPLAY_ORDER[row],
+        row_index=row,
+        col_index=col,
+    )
+    for row in range(len(DISPLAY_ORDER))
+    for col in range(row)
+)
+
+
+@dataclass(frozen=True)
+class CornerSettings(ProfileSettings):
+    """Profiling controls for the lower-cost five-parameter corner figure."""
+
+    grid_size: int = 40
+
+
+def _logical_to_internal_norm(
+    values: Mapping[str, float],
+    bounds: np.ndarray,
+) -> np.ndarray | None:
+    """Map logical ``(rho0, rs, gamma, qhalo, phalo)`` to a normalized 5-D point.
+
+    ``rs`` is derived from the persisted ``rho0_plus_2logrs`` slot, so the
+    returned internal coordinate 3 is always ``rho0 + 2 log10(rs)``.  Returns
+    ``None`` when the point is non-finite, has a non-positive ``rs``, or falls
+    outside the search bounds.
+    """
+
+    required = ("rho0", "rs", "gamma", "qhalo", "phalo")
+    if any(name not in values for name in required):
+        return None
+    rho0 = float(values["rho0"])
+    rs = float(values["rs"])
+    gamma = float(values["gamma"])
+    qhalo = float(values["qhalo"])
+    phalo = float(values["phalo"])
+    if not (rs > 0.0 and np.isfinite([rho0, rs, gamma, qhalo, phalo]).all()):
+        return None
+    coordinates = np.asarray(
+        [qhalo, phalo, rho0, rho0 + 2.0 * np.log10(rs), gamma],
+        dtype=float,
+    )
+    normalized = (coordinates - bounds[:, 0]) / (bounds[:, 1] - bounds[:, 0])
+    if np.any(normalized < -1e-12) or np.any(normalized > 1.0 + 1e-12):
+        return None
+    return np.clip(normalized, 0.0, 1.0)
+
+
+def _corner_rs_log_limits(bounds: np.ndarray) -> np.ndarray:
+    """Return ``log10(r_s)`` display limits derived from the search bounds."""
+
+    return np.asarray(
+        [
+            (bounds[3, 0] - bounds[2, 1]) / 2.0,
+            (bounds[3, 1] - bounds[2, 0]) / 2.0,
+        ]
+    )
+
+
+def _corner_param_limits(param: str, bounds: np.ndarray) -> np.ndarray:
+    """Return the display limits for a logical corner parameter."""
+
+    if param == "rs":
+        return 10.0**_corner_rs_log_limits(bounds)
+    return bounds[_INTERNAL_INDEX[param]]
+
+
+def _corner_param_from_normalized(
+    param: str,
+    value: float,
+    bounds: np.ndarray,
+) -> float:
+    """Convert a normalized nuisance in ``[0, 1]`` to display units."""
+
+    if param == "rs":
+        log_lo, log_hi = _corner_rs_log_limits(bounds)
+        return 10.0 ** (log_lo + float(value) * (log_hi - log_lo))
+    index = _INTERNAL_INDEX[param]
+    return bounds[index, 0] + float(value) * (bounds[index, 1] - bounds[index, 0])
+
+
 def scale_radius_kpc(coordinates: np.ndarray) -> np.ndarray:
     """Return ``r_s`` from the persisted ``rho0 + 2 log10(r_s)`` coordinate."""
 
@@ -334,11 +467,14 @@ def _fit_surrogates(data: ConstraintSamples) -> dict[str, Surrogate]:
 
 
 def _panel_axes(
-    panel: PanelSpec,
+    panel: PanelSpec | CornerPanel,
     bounds: np.ndarray,
     grid_size: int,
 ) -> tuple[np.ndarray, np.ndarray]:
-    if panel.name == "gamma_rho0":
+    if isinstance(panel, CornerPanel):
+        x_limits = _corner_param_limits(panel.x_param, bounds)
+        y_limits = _corner_param_limits(panel.y_param, bounds)
+    elif panel.name == "gamma_rho0":
         x_limits = bounds[4]
         y_limits = bounds[2]
     elif panel.name == "rs_rho0":
@@ -365,13 +501,51 @@ def _normalize_fixed(value: float, index: int, bounds: np.ndarray) -> float:
     return (value - bounds[index, 0]) / (bounds[index, 1] - bounds[index, 0])
 
 
-def _embed_panel_points(
-    panel: PanelSpec,
+def _embed_corner_panel_points(
+    panel: CornerPanel,
     x_value: float,
     y_value: float,
     nuisance: np.ndarray,
     bounds: np.ndarray,
 ) -> np.ndarray | None:
+    """Embed one corner panel location into normalized 5-D coordinates.
+
+    The two displayed parameters are fixed; the remaining three logical
+    parameters come from the nuisance columns in ``_corner_nuisance_params``
+    order.  ``rs`` always contributes through ``rho0_plus_2logrs``, so any
+    displayed ``rs`` (or a nuisance ``rs``) is coupled to the chosen ``rho0``.
+    """
+
+    nuisance_values = np.atleast_2d(np.asarray(nuisance, dtype=float))
+    if nuisance_values.shape[1] != 3:
+        raise ValueError("each nuisance point must contain three coordinates")
+    nuisance_params = _corner_nuisance_params(panel)
+    embedded = np.full(
+        (nuisance_values.shape[0], len(PARAMETER_NAMES)),
+        np.nan,
+        dtype=float,
+    )
+    for row, nuisance_point in enumerate(nuisance_values):
+        values: dict[str, float] = {panel.x_param: x_value, panel.y_param: y_value}
+        for param, value in zip(nuisance_params, nuisance_point):
+            # Nuisance columns are normalized [0, 1] design points (the Sobol
+            # sequence), so convert each to display units before embedding.
+            values[param] = _corner_param_from_normalized(param, value, bounds)
+        normalized = _logical_to_internal_norm(values, bounds)
+        if normalized is not None:
+            embedded[row] = normalized
+    return embedded
+
+
+def _embed_panel_points(
+    panel: PanelSpec | CornerPanel,
+    x_value: float,
+    y_value: float,
+    nuisance: np.ndarray,
+    bounds: np.ndarray,
+) -> np.ndarray | None:
+    if isinstance(panel, CornerPanel):
+        return _embed_corner_panel_points(panel, x_value, y_value, nuisance, bounds)
     nuisance_values = np.atleast_2d(np.asarray(nuisance, dtype=float))
     if nuisance_values.shape[1] != 3:
         raise ValueError("each nuisance point must contain three coordinates")
@@ -404,7 +578,7 @@ def _predict_mean(surrogate: Surrogate, points: np.ndarray) -> np.ndarray:
 
 def _bounded_local_minimum(
     surrogate: Surrogate,
-    panel: PanelSpec,
+    panel: PanelSpec | CornerPanel,
     x_value: float,
     y_value: float,
     starts: np.ndarray,
@@ -419,7 +593,7 @@ def _bounded_local_minimum(
 
     best_nuisance = np.asarray(starts[0], dtype=float)
     initial = _embed_panel_points(panel, x_value, y_value, best_nuisance, bounds)
-    if initial is None:
+    if initial is None or not np.all(np.isfinite(initial)):
         raise ValueError("cannot optimize an invalid displayed parameter point")
     best_value = float(_predict_mean(surrogate, initial)[0])
 
@@ -431,7 +605,7 @@ def _bounded_local_minimum(
             nuisance,
             bounds,
         )
-        if embedded is None:
+        if embedded is None or not np.all(np.isfinite(embedded)):
             return np.inf
         return float(_predict_mean(surrogate, embedded)[0])
 
@@ -467,7 +641,7 @@ def profile_surrogate_surface(
     surrogate: Surrogate,
     support_points: np.ndarray,
     bounds: np.ndarray,
-    panel: PanelSpec,
+    panel: PanelSpec | CornerPanel,
     sobol_points: np.ndarray,
     *,
     settings: ProfileSettings,
@@ -502,12 +676,21 @@ def profile_surrogate_surface(
             )
             if candidates is None:
                 continue
-            candidate_values = _predict_mean(surrogate, candidates)
+            # ``rs``-derived corner panels can produce out-of-domain nuisance
+            # points; drop them while preserving the sobol row correspondence
+            # so the local-minimum starts map back to real nuisance columns.
+            valid_rows = np.flatnonzero(np.all(np.isfinite(candidates), axis=1))
+            if valid_rows.size == 0:
+                continue
+            candidate_values = _predict_mean(surrogate, candidates[valid_rows])
             finite = np.flatnonzero(np.isfinite(candidate_values))
             if finite.size == 0:
                 continue
             count = min(settings.local_starts, finite.size)
-            ordering = finite[np.argsort(candidate_values[finite], kind="stable")[:count]]
+            start_rows = valid_rows[finite]
+            ordering = start_rows[
+                np.argsort(candidate_values[finite], kind="stable")[:count]
+            ]
             nuisance, value = _bounded_local_minimum(
                 surrogate,
                 panel,
@@ -524,7 +707,7 @@ def profile_surrogate_surface(
                 nuisance,
                 bounds,
             )
-            if best_point is None:
+            if best_point is None or not np.all(np.isfinite(best_point)):
                 continue
             prediction, std = surrogate.predict(best_point, return_std=True)
             values[y_index, x_index] = min(value, float(np.asarray(prediction)[0]))
@@ -559,6 +742,37 @@ def profile_surrogate_surface(
     )
 
 
+def _logical_from_internal(coordinates: np.ndarray) -> dict[str, np.ndarray]:
+    """Expand internal 5-D coordinates into logical parameter arrays."""
+
+    values = np.asarray(coordinates, dtype=float)
+    if values.ndim < 2 or values.shape[-1] != len(PARAMETER_NAMES):
+        raise ValueError("internal coordinates must have a final dimension of five")
+    return {
+        "rho0": values[..., 2],
+        "rs": scale_radius_kpc(values),
+        "gamma": values[..., 4],
+        "qhalo": values[..., 0],
+        "phalo": values[..., 1],
+    }
+
+
+def _panel_sample_coordinates(
+    panel: PanelSpec | CornerPanel,
+    coordinates: np.ndarray,
+) -> tuple[np.ndarray, np.ndarray]:
+    if isinstance(panel, CornerPanel):
+        logical = _logical_from_internal(coordinates)
+        return logical[panel.x_param], logical[panel.y_param]
+    if panel.name == "gamma_rho0":
+        return coordinates[:, 4], coordinates[:, 2]
+    if panel.name == "rs_rho0":
+        return scale_radius_kpc(coordinates), coordinates[:, 2]
+    if panel.name == "qhalo_phalo":
+        return coordinates[:, 0], coordinates[:, 1]
+    raise ValueError(f"unknown parameter-constraint panel: {panel.name}")
+
+
 def _draw_profile_contour(
     axis,
     surface: ProfileSurface,
@@ -579,6 +793,16 @@ def _draw_profile_contour(
         linestyles=[linestyle],
         linewidths=2.0,
     )
+
+
+def _fallback_reason(data: ConstraintSamples, settings: ProfileSettings) -> str | None:
+    if data.coordinates.shape[0] < settings.minimum_samples:
+        return f"GP profile unavailable: {data.coordinates.shape[0]} valid unique trials; at least {settings.minimum_samples} required"
+    variation = np.ptp(data.normalized_coordinates, axis=0)
+    constant = [name for name, span in zip(PARAMETER_NAMES, variation) if span < 1e-8]
+    if constant:
+        return "GP profile unavailable: insufficient variation in " + ", ".join(constant)
+    return None
 
 
 def build_parameter_constraints_figure(
@@ -625,14 +849,7 @@ def build_parameter_constraints_figure(
             y=1.08,
         )
         return figure
-    failure = None
-    if data.coordinates.shape[0] < settings.minimum_samples:
-        failure = f"GP profile unavailable: {data.coordinates.shape[0]} valid unique trials; at least {settings.minimum_samples} required"
-    else:
-        variation = np.ptp(data.normalized_coordinates, axis=0)
-        constant = [name for name, span in zip(PARAMETER_NAMES, variation) if span < 1e-8]
-        if constant:
-            failure = "GP profile unavailable: insufficient variation in " + ", ".join(constant)
+    failure = _fallback_reason(data, settings)
     surfaces: dict[str, dict[str, ProfileSurface]] = {}
     if failure is None:
         try:
@@ -665,14 +882,7 @@ def build_parameter_constraints_figure(
     )
     scatter = None
     for axis, panel in zip(axes, PANELS):
-        if panel.name == "gamma_rho0":
-            sample_x, sample_y = data.display_coordinates[:, 4], data.display_coordinates[:, 2]
-        elif panel.name == "rs_rho0":
-            sample_x, sample_y = scale_radius_kpc(data.display_coordinates), data.display_coordinates[:, 2]
-        elif panel.name == "qhalo_phalo":
-            sample_x, sample_y = data.display_coordinates[:, 0], data.display_coordinates[:, 1]
-        else:
-            raise ValueError(f"unknown parameter-constraint panel: {panel.name}")
+        sample_x, sample_y = _panel_sample_coordinates(panel, data.display_coordinates)
         scatter = axis.scatter(
             sample_x,
             sample_y,
@@ -778,6 +988,280 @@ def build_parameter_constraints_figure(
         "Five-dimensional GP profile constraints (adaptive trials shown as points)",
         y=1.08,
     )
+    return figure
+
+
+def _empty_corner_figure(message: str):
+    """Return a labelled 5x5 scatter-only corner figure for degraded runs."""
+
+    import matplotlib.pyplot as plt
+
+    figure, axes = plt.subplots(
+        5,
+        5,
+        figsize=(16.0, 15.0),
+        constrained_layout=True,
+    )
+    for row in range(len(DISPLAY_ORDER)):
+        for column in range(len(DISPLAY_ORDER)):
+            axis = axes[row, column]
+            if column > row:
+                axis.set_axis_off()
+            elif column == row:
+                axis.text(
+                    0.5,
+                    0.5,
+                    PARAM_LABELS[DISPLAY_ORDER[row]],
+                    ha="center",
+                    va="center",
+                    fontsize=12,
+                )
+                axis.set_axis_off()
+    for panel in CORNER_PANELS:
+        axis = axes[panel.row_index, panel.col_index]
+        if panel.col_index == 0:
+            axis.set_ylabel(panel.y_label)
+        if panel.row_index == len(DISPLAY_ORDER) - 1:
+            axis.set_xlabel(panel.x_label)
+        axis.grid(alpha=0.15)
+    figure.text(
+        0.5,
+        1.02,
+        f"parameter constraints unavailable: {message}",
+        ha="center",
+        va="top",
+        fontsize=9,
+        color="0.3",
+    )
+    figure.suptitle("Five-dimensional GP profile corner constraints", y=1.08)
+    return figure
+
+
+def persist_corner_surfaces(
+    surfaces: Mapping[str, Mapping[str, ProfileSurface]],
+    path,
+) -> None:
+    """Write profiled corner surfaces to a ``.npz`` for report re-use.
+
+    ``surfaces`` maps panel name to a mapping of objective name to
+    :class:`ProfileSurface`.  Stored arrays are ``x``, ``y``, ``delta_chi2``,
+    ``reliable``, ``predictive_std``, and ``support_distance`` for each panel
+    and objective, keyed ``<panel>__<objective>__<field>``, together with the
+    panel names and objective names used.
+    """
+
+    import numpy as np
+
+    panel_names: list[str] = []
+    objective_names: list[str] = []
+    arrays: dict[str, np.ndarray] = {}
+    for panel_name, by_objective in surfaces.items():
+        for objective, surface in by_objective.items():
+            panel_names.append(panel_name)
+            objective_names.append(objective)
+            base = f"{panel_name}__{objective}"
+            arrays[f"{base}__x"] = surface.x
+            arrays[f"{base}__y"] = surface.y
+            arrays[f"{base}__delta_chi2"] = surface.delta_chi2
+            arrays[f"{base}__reliable"] = surface.reliable
+            arrays[f"{base}__predictive_std"] = surface.predictive_std
+            arrays[f"{base}__support_distance"] = surface.support_distance
+    arrays.setdefault("panel_names", np.asarray(panel_names, dtype=str))
+    arrays.setdefault("objective_names", np.asarray(objective_names, dtype=str))
+    np.savez(path, **arrays)
+
+
+def build_parameter_constraints_corner_figure(
+    samples: np.ndarray,
+    bounds: Mapping[str, tuple[float, float] | list[float]],
+    *,
+    settings: ProfileSettings | None = None,
+    return_artifacts: bool = False,
+):
+    """Return the lower-triangular five-parameter profiled corner figure.
+
+    Each off-diagonal panel shows the profiled ``delta_chi2 = 2.30`` contours
+    for the total objective (solid) and the density objective (dashed) on the
+    GP surrogate, clipped to trial support and GP-uncertainty masks, with the
+    actual adaptive trials overlaid as small points.  A degraded, labelled
+    scatter-only figure is returned instead of raising.
+
+    When ``return_artifacts`` is true, return ``(figure, surfaces)`` where
+    ``surfaces`` maps panel name to objective name to a
+    :class:`ProfileSurface`, allowing the caller to persist them without
+    recomputing the surrogate profiling.
+    """
+
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    corner_settings = settings if settings is not None else CornerSettings()
+    corner_settings.validate()
+    try:
+        data = prepare_constraint_samples(samples, bounds, settings=corner_settings)
+    except Exception as exc:
+        figure = _empty_corner_figure(f"{type(exc).__name__}: {exc}")
+        if return_artifacts:
+            return figure, {}
+        return figure
+
+    failure = _fallback_reason(data, corner_settings)
+    surfaces: dict[str, dict[str, ProfileSurface]] = {}
+    if failure is None:
+        try:
+            surrogates = _fit_surrogates(data)
+            sobol = shared_sobol_points(corner_settings)
+            for panel in CORNER_PANELS:
+                surfaces[panel.name] = {
+                    objective: profile_surrogate_surface(
+                        surrogates[objective],
+                        data.display_normalized_coordinates,
+                        data.bounds,
+                        panel,
+                        sobol,
+                        settings=corner_settings,
+                    )
+                    for objective in ("total", "density")
+                }
+        except Exception as exc:
+            failure = f"GP profile unavailable: {type(exc).__name__}: {exc}"
+            surfaces = {}
+
+    figure, axes = plt.subplots(
+        5,
+        5,
+        figsize=(16.0, 15.0),
+        sharex="col",
+        sharey="row",
+        constrained_layout=True,
+    )
+    total_delta = data.display_objectives["total"] - np.min(
+        data.display_objectives["total"]
+    )
+    scatter = None
+    for row in range(len(DISPLAY_ORDER)):
+        for column in range(row + 1, len(DISPLAY_ORDER)):
+            axes[row, column].set_axis_off()
+    for panel in CORNER_PANELS:
+        axis = axes[panel.row_index, panel.col_index]
+        sample_x, sample_y = _panel_sample_coordinates(
+            panel,
+            data.display_coordinates,
+        )
+        scatter = axis.scatter(
+            sample_x,
+            sample_y,
+            c=np.clip(total_delta, 0.0, SCATTER_COLOR_MAXIMUM),
+            vmin=0.0,
+            vmax=SCATTER_COLOR_MAXIMUM,
+            cmap="Spectral",
+            s=10,
+            alpha=0.3,
+            linewidths=0.0,
+            rasterized=True,
+        )
+        if panel.name in surfaces:
+            _draw_profile_contour(
+                axis,
+                surfaces[panel.name]["total"],
+                color="#9b0000",
+                linestyle="solid",
+            )
+            _draw_profile_contour(
+                axis,
+                surfaces[panel.name]["density"],
+                color="#5573b7",
+                linestyle="dashed",
+            )
+        if {panel.x_param, panel.y_param} == {"qhalo", "phalo"}:
+            lower = max(data.bounds[0, 0], data.bounds[1, 0])
+            upper = min(data.bounds[0, 1], data.bounds[1, 1])
+            axis.plot([lower, upper], [lower, upper], "k:", linewidth=1.0)
+        if panel.col_index == 0:
+            axis.set_ylabel(panel.y_label)
+        if panel.row_index == len(DISPLAY_ORDER) - 1:
+            axis.set_xlabel(panel.x_label)
+        axis.grid(alpha=0.15)
+
+    for index, axis in enumerate(np.diag(axes)):
+        axis.text(
+            0.5,
+            0.5,
+            PARAM_LABELS[DISPLAY_ORDER[index]],
+            ha="center",
+            va="center",
+            fontsize=12,
+        )
+        axis.set_axis_off()
+
+    if scatter is not None:
+        colorbar = figure.colorbar(
+            scatter,
+            ax=axes,
+            location="top",
+            shrink=0.22,
+            pad=0.02,
+            extend="max",
+        )
+        colorbar.set_label(r"actual trial $\Delta\chi^2_\mathrm{tot}$")
+    legend_handles = [
+        Line2D(
+            [0],
+            [0],
+            color="#9b0000",
+            linewidth=2.0,
+            label=r"total $\Delta\chi^2=2.30$",
+        ),
+        Line2D(
+            [0],
+            [0],
+            color="#5573b7",
+            linewidth=2.0,
+            linestyle="--",
+            label=r"density $\Delta\chi^2=2.30$",
+        ),
+    ]
+    if failure is None:
+        figure.legend(
+            handles=legend_handles,
+            loc="upper left",
+            ncol=1,
+            bbox_to_anchor=(0.01, 1.01),
+            frameon=True,
+        )
+        figure.suptitle(
+            "Five-dimensional GP profile corner constraints "
+            "(adaptive trials shown as points)",
+            y=1.08,
+        )
+        figure.text(
+            0.5,
+            1.035,
+            "Profiled $\\Delta\\chi^2 = 2.30$ contours on GP-surrogate "
+            "$\\chi^2$ surfaces; contours clipped to GP support and "
+            "uncertainty masks.",
+            ha="center",
+            va="bottom",
+            fontsize=8,
+            color="0.35",
+        )
+    else:
+        figure.text(
+            0.5,
+            1.02,
+            failure,
+            ha="center",
+            va="top",
+            fontsize=9,
+            color="0.3",
+        )
+        figure.suptitle(
+            "Five-dimensional GP profile corner constraints (adaptive trials "
+            "shown as points)",
+            y=1.08,
+        )
+    if return_artifacts:
+        return figure, surfaces
     return figure
 
 
