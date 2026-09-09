@@ -28,7 +28,9 @@ from ..visualization.model import (
     plot_velocity_distributions,
 )
 from ..visualization.parameter_constraints import (
+    build_parameter_constraints_corner_figure,
     build_parameter_constraints_figure,
+    persist_corner_surfaces,
     search_bounds_from_resolved_config,
 )
 from ..visualization.weights import plot_orbit_weight_histograms
@@ -185,6 +187,30 @@ def _render_report(run: Path, staging: Path) -> dict[str, object]:
         bbox_inches="tight",
     )
     plt.close(constraints)
+    try:
+        corner, corner_surfaces = build_parameter_constraints_corner_figure(
+            samples,
+            search_bounds_from_resolved_config(config),
+            return_artifacts=True,
+        )
+        corner.savefig(
+            staging / "parameter_constraints_corner.pdf",
+            bbox_inches="tight",
+        )
+        plt.close(corner)
+        try:
+            if corner_surfaces:
+                persist_corner_surfaces(
+                    corner_surfaces,
+                    staging / "parameter_constraints_corner_surfaces.npz",
+                )
+        except Exception as exc:
+            omitted.append(
+                "parameter_constraints_corner_surfaces.npz: "
+                f"{type(exc).__name__}: {exc}"
+            )
+    except Exception as exc:
+        omitted.append(f"parameter_constraints_corner.pdf: {type(exc).__name__}: {exc}")
     (staging / "summary.md").write_text(
         _summary_markdown(run, config, best),
         encoding="utf-8",

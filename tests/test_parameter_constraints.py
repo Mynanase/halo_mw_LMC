@@ -3,12 +3,21 @@ import unittest
 import numpy as np
 
 from halo_mw_lmc.visualization.parameter_constraints import (
+    CORNER_PANELS,
+    DISPLAY_ORDER,
     PANELS,
     PARAMETER_NAMES,
     ProfileSettings,
+    ProfileSurface,
+    _corner_nuisance_params,
+    _corner_param_limits,
+    _embed_panel_points,
     _fit_surrogates,
+    _logical_to_internal_norm,
+    build_parameter_constraints_corner_figure,
     build_parameter_constraints_figure,
     deterministic_maximin_indices,
+    persist_corner_surfaces,
     prepare_constraint_samples,
     profile_surrogate_surface,
     scale_radius_kpc,
@@ -248,6 +257,187 @@ class ParameterConstraintTests(unittest.TestCase):
             }
         }
         self.assertEqual(search_bounds_from_resolved_config(document), BOUNDS)
+
+
+def _logical_center():
+    """A physically valid display-space center for the corner panels."""
+
+    return {
+        "rho0": 6.0,
+        "rs": 30.0,
+        "gamma": 1.0,
+        "qhalo": 0.8,
+        "phalo": 0.85,
+    }
+
+
+class CornerConstraintTests(unittest.TestCase):
+    def test_corner_panels_enumerate_all_unordered_pairs(self):
+        expected = {
+            frozenset((a, b)) for a in DISPLAY_ORDER for b in DISPLAY_ORDER if a != b
+        }
+        actual = {
+            frozenset((panel.x_param, panel.y_param)) for panel in CORNER_PANELS
+        }
+        self.assertEqual(len(CORNER_PANELS), 10)
+        self.assertEqual(actual, expected)
+
+    def test_corner_panel_row_col_match_display_order(self):
+        for panel in CORNER_PANELS:
+            self.assertEqual(panel.x_param, DISPLAY_ORDER[panel.col_index])
+            self.assertEqual(panel.y_param, DISPLAY_ORDER[panel.row_index])
+            self.assertGreater(panel.row_index, panel.col_index)
+
+    def test_logical_to_internal_couples_radius_and_rho0(self):
+        bound_array = np.asarray([BOUNDS[name] for name in PARAMETER_NAMES])
+        normalized = _logical_to_internal_norm(_logical_center(), bound_array)
+        self.assertIsNotNone(normalized)
+        internal = normalized * np.diff(bound_array, axis=1)[:, 0] + bound_array[:, 0]
+        self.assertAlmostEqual(
+            internal[3],
+            6.0 + 2.0 * np.log10(30.0),
+            places=9,
+        )
+
+    def test_corner_embed_round_trips_all_panels(self):
+        bound_array = np.asarray([BOUNDS[name] for name in PARAMETER_NAMES])
+        center = _logical_center()
+        for panel in CORNER_PANELS:
+            nuisance = [0.5, 0.5, 0.5]
+            embedded = _embed_panel_points(
+                panel,
+                center[panel.x_param],
+                center[panel.y_param],
+                np.asarray([nuisance], dtype=float),
+                bound_array,
+            )
+            self.assertIsNotNone(embedded, f"panel {panel.name} failed to embed")
+            self.assertEqual(embedded.shape, (1, len(PARAMETER_NAMES)))
+            self.assertTrue(np.all((embedded >= 0.0) & (embedded <= 1.0)))
+
+    def test_corner_surface_profiles_on_quadratic_surrogate(self):
+        settings = ProfileSettings(
+            grid_size=7,
+            sobol_count=16,
+            local_starts=2,
+            local_maxiter=30,
+            minimum_samples=1,
+            maximum_predictive_std=100.0,
+        )
+        bound_array = np.asarray([BOUNDS[name] for name in PARAMETER_NAMES])
+        center = np.array([0.5, 0.5, 0.5, 0.5, 0.5])
+        surrogate = QuadraticSurrogate(center, standard_deviation=0.05)
+        panel = next(
+            panel for panel in CORNER_PANELS
+            if {panel.x_param, panel.y_param} == {"gamma", "rho0"}
+        )
+        support = np.clip(
+            np.vstack(
+                (
+                    center,
+                    np.random.default_rng(3).normal(0.0, 0.03, size=(90, 5)) + center,
+                )
+            ),
+            0.0,
+            1.0,
+        )
+        surface = profile_surrogate_surface(
+            surrogate,
+            support,
+            bound_array,
+            panel,
+            shared_sobol_points(settings),
+            settings=settings,
+        )
+
+        self.assertTrue(np.any(np.isfinite(surface.delta_chi2)))
+        minimum = np.unravel_index(
+            np.nanargmin(surface.delta_chi2),
+            surface.delta_chi2.shape,
+        )
+        x_limits = _corner_param_limits(panel.x_param, bound_array)
+        y_limits = _corner_param_limits(panel.y_param, bound_array)
+        expected_x = x_limits[0] + 0.5 * (x_limits[1] - x_limits[0])
+        expected_y = y_limits[0] + 0.5 * (y_limits[1] - y_limits[0])
+        self.assertAlmostEqual(surface.x[minimum[1]], expected_x, delta=0.35)
+        self.assertAlmostEqual(surface.y[minimum[0]], expected_y, delta=0.35)
+
+    def test_corner_short_run_renders_degraded_figure(self):
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError:
+            self.skipTest("Matplotlib is unavailable")
+        rng = np.random.default_rng(16)
+        normalized = rng.random((12, 5))
+        bound_array = np.asarray([BOUNDS[name] for name in PARAMETER_NAMES])
+        coordinates = bound_array[:, 0] + normalized * np.diff(bound_array, axis=1)[:, 0]
+        figure = build_parameter_constraints_corner_figure(
+            sample_table(coordinates, np.arange(12.0)),
+            BOUNDS,
+        )
+
+        self.assertGreaterEqual(len(figure.axes), 25)
+        self.assertTrue(
+            any("at least 50 required" in text.get_text() for text in figure.texts)
+        )
+        plt.close(figure)
+
+    def test_corner_invalid_solver_samples_render_empty_figure(self):
+        try:
+            import matplotlib.pyplot as plt
+        except ImportError:
+            self.skipTest("Matplotlib is unavailable")
+        rng = np.random.default_rng(17)
+        normalized = rng.random((60, 5))
+        bound_array = np.asarray([BOUNDS[name] for name in PARAMETER_NAMES])
+        coordinates = bound_array[:, 0] + normalized * np.diff(bound_array, axis=1)[:, 0]
+        table = sample_table(coordinates, np.arange(60.0))
+        table["weight_solver_converged"] = 0
+        figure, surfaces = build_parameter_constraints_corner_figure(
+            table,
+            BOUNDS,
+            return_artifacts=True,
+        )
+
+        self.assertEqual(surfaces, {})
+        self.assertTrue(
+            any(
+                "parameter constraints unavailable" in text.get_text()
+                for text in figure.texts
+            )
+        )
+        plt.close(figure)
+
+    def test_persist_corner_surfaces_roundtrip(self):
+        import os
+        import tempfile
+
+        x = np.linspace(0.0, 1.0, 4)
+        y = np.linspace(0.0, 1.0, 4)
+        surface = ProfileSurface(
+            x=x,
+            y=y,
+            delta_chi2=np.zeros((4, 4)),
+            reliable=np.ones((4, 4), dtype=bool),
+            minimizers=np.zeros((4, 4, 5)),
+            predictive_std=np.zeros((4, 4)),
+            support_distance=np.zeros((4, 4)),
+        )
+        with tempfile.NamedTemporaryFile(suffix=".npz", delete=False) as handle:
+            handle.close()
+            path = handle.name
+        try:
+            persist_corner_surfaces({"corner_1_0": {"total": surface}}, path)
+            loaded = np.load(path)
+            np.testing.assert_array_equal(loaded["corner_1_0__total__x"], x)
+            np.testing.assert_array_equal(
+                loaded["corner_1_0__total__reliable"],
+                np.ones((4, 4), dtype=bool),
+            )
+            self.assertIn("panel_names", loaded)
+            self.assertIn("corner_1_0", set(loaded["panel_names"]))
+        finally:
+            os.remove(path)
 
 
 if __name__ == "__main__":
