@@ -5,10 +5,13 @@ import numpy as np
 from halo_mw_lmc.visualization.parameter_constraints import (
     CORNER_PANELS,
     DISPLAY_ORDER,
+    DIAGNOSTIC_LEVELS,
     PANELS,
     PARAMETER_NAMES,
     ProfileSettings,
     ProfileSurface,
+    _baseline_by_shared_reference,
+    _cleaned_reliable,
     _corner_nuisance_params,
     _corner_param_limits,
     _embed_panel_points,
@@ -195,12 +198,92 @@ class ParameterConstraintTests(unittest.TestCase):
             PANELS[0],
             shared_sobol_points(settings),
             settings=settings,
+            objective_scale=surrogate.scale,
         )
 
         self.assertTrue(np.any(np.isfinite(surface.delta_chi2)))
         minimum = np.unravel_index(np.nanargmin(surface.delta_chi2), surface.delta_chi2.shape)
         self.assertAlmostEqual(surface.x[minimum[1]], center[4] * 2.0, delta=0.55)
         self.assertAlmostEqual(surface.y[minimum[0]], 5.0 + center[2] * 2.0, delta=0.55)
+        # Pin the physical-unit restoration: the profiled surface must live on
+        # the training-objective scale, not the internal GP-fit scale (where
+        # the spread is 1).  GP overshoot far from the support may exceed the
+        # training spread, so only the lower bound is tight.
+        finite = surface.delta_chi2[np.isfinite(surface.delta_chi2)]
+        training_spread = float(np.std(prepared.objectives["total"] - np.min(prepared.objectives["total"])))
+        self.assertGreater(float(np.max(finite)), 0.2 * training_spread)
+
+    def test_fitted_scale_is_training_spread(self):
+        try:
+            import sklearn  # noqa: F401
+        except ImportError:
+            self.skipTest("scikit-learn is unavailable")
+        settings = ProfileSettings(minimum_samples=1)
+        rng = np.random.default_rng(23)
+        normalized = rng.random((40, 5))
+        bound_array = np.asarray([BOUNDS[name] for name in PARAMETER_NAMES])
+        coordinates = bound_array[:, 0] + normalized * np.diff(bound_array, axis=1)[:, 0]
+        objective = 120.0 * (0.5 + np.sum(normalized, axis=1)) + rng.normal(0.0, 3.0, 40)
+        prepared = prepare_constraint_samples(
+            sample_table(coordinates, objective),
+            BOUNDS,
+            settings=settings,
+        )
+        surrogate = _fit_surrogates(prepared)["total"]
+        expected_scale = float(
+            np.std(prepared.objectives["total"] - np.min(prepared.objectives["total"]))
+        )
+        self.assertGreater(surrogate.scale, 0.0)
+        self.assertAlmostEqual(surrogate.scale, expected_scale, delta=1e-6)
+
+    def test_predictive_std_mask_uses_scaled_units(self):
+        """The std mask interprets std as a multiple of the objective spread."""
+        settings = ProfileSettings(
+            grid_size=5,
+            sobol_count=8,
+            local_starts=1,
+            local_maxiter=20,
+            minimum_samples=1,
+            maximum_predictive_std=1.0,
+        )
+        bound_array = np.asarray([BOUNDS[name] for name in PARAMETER_NAMES])
+        center = np.full(5, 0.5)
+
+        class LargeStdSurrogate:
+            def __init__(self, std):
+                self.std = float(std)
+
+            def predict(self, points, *, return_std=False):
+                mean = 10.0 * np.sum((np.asarray(points) - center) ** 2, axis=1)
+                if return_std:
+                    return mean, np.full(points.shape[0], self.std)
+                return mean
+
+        support = np.clip(
+            np.vstack((center, np.random.default_rng(24).normal(0.0, 0.03, size=(80, 5)) + center)),
+            0.0,
+            1.0,
+        )
+        # std in absolute units may be far above the 1.0 threshold; only the
+        # scaled comparison against the objective_scale decides.
+        too_coarse = profile_surrogate_surface(
+            LargeStdSurrogate(std=50.0),
+            support,
+            bound_array,
+            PANELS[0],
+            shared_sobol_points(settings),
+            settings=settings,
+        )
+        self.assertFalse(np.any(too_coarse.reliable))
+        fine = profile_surrogate_surface(
+            LargeStdSurrogate(std=0.05),
+            support,
+            bound_array,
+            PANELS[0],
+            shared_sobol_points(settings),
+            settings=settings,
+        )
+        self.assertTrue(np.any(fine.reliable))
 
     def test_support_mask_rejects_profiled_extrapolation(self):
         settings = ProfileSettings(
@@ -438,6 +521,205 @@ class CornerConstraintTests(unittest.TestCase):
             self.assertIn("corner_1_0", set(loaded["panel_names"]))
         finally:
             os.remove(path)
+
+
+class _AdmissionTableBuilder:
+    """Build a valid sample table with an optional successful_orbits column."""
+
+    @staticmethod
+    def build(rows: int, *, with_successful: bool = True) -> np.ndarray:
+        rng = np.random.default_rng(42)
+        bound_array = np.asarray([BOUNDS[name] for name in PARAMETER_NAMES])
+        coordinates = bound_array[:, 0] + rng.random((rows, 5)) * np.diff(
+            bound_array, axis=1
+        )[:, 0]
+        dtype = [(name, "f8") for name in PARAMETER_NAMES] + [
+            ("objective_velocity", "f8"),
+            ("objective_density_velocity", "f8"),
+            ("chi2", "f8"),
+            ("weight_solver_converged", "i8"),
+            ("failed_orbits", "i8"),
+        ]
+        if with_successful:
+            dtype.append(("successful_orbits", "i8"))
+        table = np.zeros(rows, dtype=dtype)
+        for index, name in enumerate(PARAMETER_NAMES):
+            table[name] = coordinates[:, index]
+        table["objective_density_velocity"] = 100.0
+        table["objective_velocity"] = 40.0
+        table["chi2"] = 60.0
+        table["weight_solver_converged"] = 1
+        return table
+
+
+class FailedOrbitAdmissionTests(unittest.TestCase):
+    """Admission gate bounds orbit-library loss rather than solver success."""
+
+    def test_fraction_threshold_retains_small_loss_and_rejects_large_loss(self):
+        table = _AdmissionTableBuilder.build(20, with_successful=True)
+        kept = [0, 1, 2, 3, 4]  # failed / successful ~ 0.03 (within the 0.05 budget)
+        dropped = [5, 6, 7, 8, 9]  # failed / successful ~ 0.08 (over budget)
+        clean = [10, 11, 12, 13, 14, 15, 16, 17, 18, 19]  # zero failed
+
+        table["successful_orbits"] = 1000
+        table["failed_orbits"] = 0
+        table["failed_orbits"][kept] = 30
+        table["failed_orbits"][dropped] = 80
+
+        data = prepare_constraint_samples(table, BOUNDS)
+        retained = data.display_coordinates.shape[0]
+        # Clean rows plus the 3% rows survive; the 8% rows fail the gate.
+        self.assertEqual(retained, len(clean) + len(kept))
+
+    def test_missing_successful_orbits_falls_back_to_strict_rule(self):
+        table = _AdmissionTableBuilder.build(15, with_successful=False)
+        table["failed_orbits"] = 0
+        table["failed_orbits"][3] = 7  # no ratio available -> strict fallback
+        data = prepare_constraint_samples(table, BOUNDS)
+        self.assertEqual(data.display_coordinates.shape[0], 14)
+
+    def test_tighter_threshold_rejects_intermediate_loss(self):
+        table = _AdmissionTableBuilder.build(15, with_successful=True)
+        table["successful_orbits"] = 1000
+        table["failed_orbits"] = 0
+        table["failed_orbits"][:5] = 30  # 3% (intended to be kept)
+        table["failed_orbits"][5:10] = 30
+        settings = ProfileSettings(maximum_failed_orbit_fraction=0.01)
+        data = prepare_constraint_samples(table, BOUNDS, settings=settings)
+        # At 1% the 3% rows are rejected; only the five clean rows remain.
+        self.assertEqual(data.display_coordinates.shape[0], 5)
+
+    def test_validate_rejects_non_strict_fractions(self):
+        for value in (0.0, 1.0, -0.1, 1.2):
+            with self.assertRaises(ValueError):
+                ProfileSettings(maximum_failed_orbit_fraction=value).validate()
+        ProfileSettings(maximum_failed_orbit_fraction=0.05).validate()
+
+
+class DiagnosticLevelTests(unittest.TestCase):
+    """Diagnostic-level contouring and cross-panel zero-point behaviour."""
+
+    @staticmethod
+    def _surface(values: np.ndarray, reliable: np.ndarray | None = None) -> ProfileSurface:
+        """Build a small ProfileSurface with uniform x/y and a value grid."""
+
+        values = np.asarray(values, dtype=float)
+        if values.ndim == 1:
+            values = values.reshape((int(np.sqrt(values.size)), -1))
+        rows, cols = values.shape
+        if reliable is None:
+            reliable = np.isfinite(values)
+        else:
+            reliable = np.asarray(reliable, dtype=bool)
+        return ProfileSurface(
+            x=np.linspace(0.0, 1.0, cols),
+            y=np.linspace(0.0, 1.0, rows),
+            delta_chi2=values,
+            reliable=reliable,
+            minimizers=np.zeros((rows, cols, 5)),
+            predictive_std=np.zeros((rows, cols)),
+            support_distance=np.zeros((rows, cols)),
+        )
+
+    def test_level_selection_skips_out_of_range_levels(self):
+        # Values form a Manhattan bowl centred in the grid (so the minimum
+        # survives neighbour cleaning); after cleaning the surviving maximum is
+        # about 9100, so 230 and 2300 cross while 2.30 stays well below the
+        # minimum.
+        drawn = self._draw_bowl(base=100.0, scale=1000.0)
+        self.assertTrue(drawn[230.0])
+        self.assertTrue(drawn[2300.0])
+        self.assertFalse(drawn[2.30])
+
+    def test_level_selection_when_only_2_30_crosses(self):
+        # A shallow bowl spanning about [1, 6]: only 2.30 crosses.
+        drawn = self._draw_bowl(base=1.0, scale=1.0)
+        self.assertTrue(drawn[2.30])
+        self.assertFalse(drawn[230.0])
+        self.assertFalse(drawn[2300.0])
+
+    def _draw_bowl(self, *, base: float, scale: float):
+        from halo_mw_lmc.visualization.parameter_constraints import _draw_profile_contour
+
+        class Axis:
+            def __init__(self):
+                self.calls = []
+
+            def contour(self, *args, **kwargs):
+                self.calls.append(kwargs.get("levels"))
+
+        n = 11
+        center = (n - 1) / 2.0
+        rows, cols = np.mgrid[0:n, 0:n]
+        values = base + scale * (
+            np.abs(rows - center) + np.abs(cols - center)
+        )
+        surface = self._surface(values)
+        axis = Axis()
+        drawn = _draw_profile_contour(
+            axis, surface, color="#9b0000", linestyle="solid"
+        )
+        self.assertTrue(hasattr(axis, "calls"))
+        return drawn
+
+    def test_neighbour_cleaning_removes_isolated_pixels(self):
+        # A 5x5 reliable block should survive; an isolated pixel alone drops.
+        reliable = np.zeros((10, 10), dtype=bool)
+        reliable[1:6, 1:6] = True  # 5x5 block (interior pixels have >= 5 neighbours)
+        reliable[8, 8] = True  # isolated single pixel
+        clean = _cleaned_reliable(reliable)
+        self.assertTrue(clean[3, 3])
+        self.assertTrue(clean[2, 2])
+        self.assertFalse(clean[8, 8])
+
+    def test_neighbour_cleaning_drops_thin_crossing_centre(self):
+        # The centre of a 5-pixel plus/cross shape has exactly four reliable
+        # neighbours and must be dropped: the filter counts eight neighbours,
+        # never the centre pixel itself.
+        reliable = np.zeros((9, 9), dtype=bool)
+        reliable[4, 3:6] = True
+        reliable[3:6, 4] = True
+        clean = _cleaned_reliable(reliable)
+        self.assertFalse(clean[4, 4])
+        self.assertFalse(clean.any())
+
+    def test_shared_reference_uses_global_reliable_min(self):
+        panel_a = self._surface(np.array([[10.0, 20.0], [30.0, 40.0]]), np.ones((2, 2), dtype=bool))
+        panel_b = self._surface(np.array([[110.0, 120.0], [130.0, 140.0]]), np.ones((2, 2), dtype=bool))
+        surfaces = {"a": {"total": panel_a}, "b": {"total": panel_b}}
+        baselined = _baseline_by_shared_reference(surfaces)
+        # The shared reference is the global reliable minimum (10.0); subtract it.
+        np.testing.assert_allclose(baselined["a"]["total"].delta_chi2, panel_a.delta_chi2 - 10.0)
+        np.testing.assert_allclose(baselined["b"]["total"].delta_chi2, panel_b.delta_chi2 - 10.0)
+        # The input mapping is left unchanged.
+        np.testing.assert_allclose(surfaces["a"]["total"].delta_chi2, np.array([[10.0, 20.0], [30.0, 40.0]]))
+        # New instances: other frozen fields are preserved unchanged.
+        self.assertIs(baselined["a"]["total"].reliable, panel_a.reliable)
+        self.assertIs(baselined["a"]["total"].minimizers, panel_a.minimizers)
+        self.assertIs(baselined["a"]["total"].x, panel_a.x)
+        self.assertIsNot(baselined["a"]["total"], panel_a)
+
+    def test_unresolved_annotation_present_when_2_30_not_crossed(self):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+
+        surfaces = {"corner_1_0": {"total": self._surface(np.linspace(100.0, 5000.0, 49))}}
+        figure, axes = plt.subplots()
+        from halo_mw_lmc.visualization.parameter_constraints import (
+            _contour_touches_boundary,
+            _draw_panel_annotations,
+            _draw_profile_contour,
+        )
+
+        drawn = _draw_profile_contour(axes, surfaces["corner_1_0"]["total"], color="#9b0000", linestyle="solid")
+        _draw_panel_annotations(axes, drawn, truncated=_contour_touches_boundary(surfaces["corner_1_0"]["total"]))
+        texts = [text.get_text() for text in axes.texts]
+        self.assertTrue(any("2.30 unresolved" in text for text in texts))
+        plt.close(figure)
+
+    def test_diagnostic_levels_constant(self):
+        self.assertEqual(DIAGNOSTIC_LEVELS, (2.30, 230.0, 2300.0))
 
 
 if __name__ == "__main__":

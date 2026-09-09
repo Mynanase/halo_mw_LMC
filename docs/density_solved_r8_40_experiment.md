@@ -504,18 +504,56 @@ committed alongside this protocol): recipe
 `density_solved_r8_40_stage2_rank1_converged.toml` (the latter uses recipe
 `configs/recipes/zhu_2026_density_solved_r8_40_joint_maxiter60k.toml`).
 
-## Corner constraint figure interpretation
+## Corner objective-difference diagnostics
 
 The five-parameter corner figure
 (`halo_mw_lmc/visualization/parameter_constraints.py`,
 `build_parameter_constraints_corner_figure`) shows only `rho0`, `rs`, `gamma`,
-`qhalo`, and `phalo`. Each off-diagonal panel draws the profiled
-`delta_chi2 = 2.30` contours on GP-surrogate chi-square surfaces for the total
-and density objectives, clipped to trial support and GP-uncertainty masks, with
-the actual adaptive trials overlaid as points. Interpretation boundary: the
-contours are a projection of the set of five-dimensional models compatible with
-the data, not a posterior or calibrated uncertainty. `rho0` and `rs` are
-coupled through the persisted `rho0_plus_2logrs` coordinate, so an elongated
-band across `rho0`-`rs` is a degeneracy direction (compensating `rho0` and
-`rs`), not independent freedom; the density term (`chi2`) is what pins the
-three-dimensional DM distribution within `r <~ 50 kpc`.
+`qhalo`, and `phalo`. Each off-diagonal panel draws the profiled objective
+differences on GP-surrogate objective surfaces for the total and density
+objectives, with the actual adaptive trials overlaid as points. Along a panel
+axis the raw profiled values are minimized over the other three parameters; the
+drawn contours are the candidate diagnostic levels
+(`Delta Q` = 2.30, 230, 2300), each drawn only where its value is crossed in the
+neighbour-cleaned, support-checked reliable region. `rho0` and `rs` are coupled
+through the persisted `rho0_plus_2logrs` coordinate, so an elongated band across
+`rho0`-`rs` is a degeneracy direction (compensating `rho0` and `rs`), not
+independent freedom.
+
+Interpretation boundary: the contours are GP-surrogate-predicted profiled
+objective differences that describe the variation of the objective within the
+sampled region and possible parameter-degeneracy directions. They are **not**
+posterior distributions and **not** calibrated confidence intervals. The
+current evidence does not reliably resolve the nominal `Delta Q = 2.30` level
+(its region is below the surrogate resolution on these objectives), so the
+figure does not claim that the parameters are strongly constrained by that
+level. Where `Delta Q = 2.30` is not crossed a panel is annotated
+`2.30 unresolved`. Contours that reach the reliable-region boundary are
+labelled `truncated` rather than forced closed, and no inference is made
+beyond the support boundary. The neighbour-cleaning filter that removes
+isolated contour fragments does not validate the surrogate, only the
+presentation.
+
+Zero point: the raw profiled values are stored per panel; before drawing, a
+single per-objective, support-checked reference minimum (the minimum over all
+reliable pixels of that objective across panels) is subtracted so that the
+displayed objective differences are comparable across panels. This shared
+reference is diagnostic, not a claimed global objective minimum.
+
+Trial admission for both this corner figure and the shared three-panel
+diagnostic figure requires `weight_solver_converged` and
+`failed_orbits <= maximum_failed_orbit_fraction * successful_orbits` (default
+fraction `0.05`). Orbits that fail to integrate in a trial potential are
+excluded from the fit design matrix before weights are solved, so a small
+failed fraction does not invalidate the density-constrained solve or the
+velocity likelihood computed on the surviving orbits; the gate therefore caps
+the orbit-library loss rather than the solver acceptance criterion. The
+optimizer's formal `objective = 1e30` semantics for failed or capped trials is
+unchanged by this profiling-only admission rule.
+
+The GP-uncertainty mask is also a multiple of the objective's training spread:
+surrogates are fit on `(objective - min) / scale`, where `scale` is the standard
+deviation of that shifted target, and `maximum_predictive_std` (`1.15`) is a
+threshold on the predictive standard deviation in those scaled units. This is a
+reliability gate on the surrogate prediction, not a statistical confidence
+level on any parameter.

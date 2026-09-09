@@ -1,15 +1,18 @@
-"""Five-dimensional surrogate-profile parameter-constraint figures.
+"""Five-dimensional surrogate-profile objective-difference diagnostics.
 
 The optimizer samples are adaptive design points, not posterior samples.  This
 module therefore never turns their projected point density into a confidence
 region.  Instead, it fits the saved objective values in the full five-
 dimensional search space and profiles nuisance coordinates at each displayed
-two-dimensional location.
+two-dimensional location.  The drawn contours are GP-surrogate-predicted
+profiled objective differences (diagnostic levels), not calibrated confidence
+intervals, and the nominal ``Delta Q = 2.30`` level is annotated unresolved
+when the surrogate cannot resolve it.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import math
 from typing import Mapping, Protocol
 
@@ -24,7 +27,19 @@ PARAMETER_NAMES = (
     "gamma",
 )
 OBJECTIVE_NAMES = ("total", "velocity", "density")
-CONTOUR_LEVEL = 2.30
+
+# Candidate diagnostic objective-difference levels.  These are GP-predicted
+# profiled objective differences describing objective variation in the sampled
+# region, NOT calibrated confidence boundaries.  A panel draws only the levels
+# that cross its reliable-region value range, so not all levels are guaranteed
+# to be drawn; when the nominal 2.30 level cannot be resolved the panel is
+# annotated "unresolved" rather than presenting the innermost visible contour
+# as a constraint range.
+DIAGNOSTIC_LEVELS = (2.30, 230.0, 2300.0)
+
+# Line width per diagnostic level (thinner for larger objective differences).
+_DIAGNOSTIC_LEVEL_LINEWIDTHS = {2.30: 2.5, 230.0: 2.0, 2300.0: 1.5}
+
 SCATTER_COLOR_MAXIMUM = 3.0
 
 
@@ -40,8 +55,44 @@ class Surrogate(Protocol):
 
 
 @dataclass(frozen=True)
+class FittedSurrogate:
+    """A trained surrogate paired with the objective scale used to fit it.
+
+    The GP is fit on ``(value - min) / scale`` so that ``return_std=True``
+    reports uncertainty in units of the objective's training spread.  This lets
+    the predictive-standard-deviation mask compare against
+    :attr:`ProfileSettings.maximum_predictive_std` (a multiple of that spread)
+    instead of the raw, scale-``1e3``+ chi-square axis, which otherwise fails
+    the mask on every real-data panel.
+
+    ``scale`` must be passed to :func:`profile_surrogate_surface` as
+    ``objective_scale`` so the profiled delta-chi^2 values are restored to
+    physical objective units before contouring.
+    """
+
+    model: Surrogate
+    scale: float
+
+    def predict(
+        self,
+        points: np.ndarray,
+        *,
+        return_std: bool = False,
+    ):
+        return self.model.predict(points, return_std=return_std)
+
+
+@dataclass(frozen=True)
 class ProfileSettings:
-    """Numerical controls for deterministic five-dimensional profiling."""
+    """Numerical controls for deterministic five-dimensional profiling.
+
+    ``maximum_predictive_std`` is a multiple of the objective's training spread
+    (the standard deviation of ``objective - min(objective)`` across the fitted
+    samples): the GP is fit on values divided by that spread, so a predictive
+    standard deviation below this threshold means the surrogate is trustworthy
+    relative to the scale of the target.  It is not an absolute chi-square
+    tolerance.
+    """
 
     grid_size: int = 60
     sobol_count: int = 256
@@ -53,6 +104,7 @@ class ProfileSettings:
     retained_best_samples: int = 200
     support_quantile: float = 0.95
     maximum_predictive_std: float = 1.15
+    maximum_failed_orbit_fraction: float = 0.05
 
     def validate(self) -> None:
         if self.grid_size < 2:
@@ -73,6 +125,10 @@ class ProfileSettings:
             raise ValueError("support_quantile must lie strictly between zero and one")
         if self.maximum_predictive_std <= 0.0:
             raise ValueError("maximum_predictive_std must be positive")
+        if not 0.0 < self.maximum_failed_orbit_fraction < 1.0:
+            raise ValueError(
+                "maximum_failed_orbit_fraction must lie strictly between zero and one"
+            )
 
 
 @dataclass(frozen=True)
@@ -100,7 +156,13 @@ class PanelSpec:
 
 @dataclass(frozen=True)
 class ProfileSurface:
-    """One profiled surrogate surface and its interpolation-support audit."""
+    """One profiled surrogate surface and its interpolation-support audit.
+
+    ``delta_chi2`` holds the raw profiled objective values in physical units,
+    minimized over the three nuisance coordinates at each pixel.  It is not
+    baseline-subtracted here; callers apply a per-objective shared reference
+    (see :func:`_baseline_by_shared_reference`) before comparing across panels.
+    """
 
     x: np.ndarray
     y: np.ndarray
@@ -361,6 +423,38 @@ def deterministic_maximin_indices(
     return np.asarray(selected, dtype=int)
 
 
+def _failed_orbit_admission_mask(
+    samples: np.ndarray,
+    *,
+    maximum_fraction: float,
+) -> np.ndarray:
+    """Return a mask of trials whose orbit-library loss is within budget.
+
+    Orbits that fail to integrate in a trial potential are excluded from the fit
+    design matrix before weights are solved, so a small failed fraction does not
+    invalidate the density-constrained solve or the velocity likelihood computed
+    on the surviving orbits. This gate caps the orbit-library loss (a profiling
+    admission rule), not the solver acceptance criterion.
+
+    When ``successful_orbits`` is present the ratio ``failed / successful`` is
+    bounded by ``maximum_fraction``; a non-positive denominator leaves the ratio
+    undefined, so those rows fall back to the strict zero-failed-orbits rule.
+    Old tables without ``successful_orbits`` cannot define a ratio and keep the
+    conservative ``failed == 0`` rule.
+    """
+
+    names = set(samples.dtype.names or ())
+    if "failed_orbits" not in names:
+        return np.ones(samples.shape[0], dtype=bool)
+    failed = np.asarray(samples["failed_orbits"], dtype=float)
+    if "successful_orbits" not in names:
+        return failed == 0.0
+    successful = np.asarray(samples["successful_orbits"], dtype=float)
+    usable = successful > 0.0
+    fraction_rule = failed <= maximum_fraction * successful
+    return np.where(usable, fraction_rule, failed == 0.0)
+
+
 def prepare_constraint_samples(
     samples: np.ndarray,
     bounds: Mapping[str, tuple[float, float] | list[float]],
@@ -386,8 +480,10 @@ def prepare_constraint_samples(
     names = set(samples.dtype.names or ())
     if "weight_solver_converged" in names:
         finite &= np.asarray(samples["weight_solver_converged"], dtype=float) > 0.5
-    if "failed_orbits" in names:
-        finite &= np.asarray(samples["failed_orbits"], dtype=float) == 0.0
+    finite &= _failed_orbit_admission_mask(
+        samples,
+        maximum_fraction=settings.maximum_failed_orbit_fraction,
+    )
     finite &= np.all(coordinates >= bound_array[:, 0], axis=1)
     finite &= np.all(coordinates <= bound_array[:, 1], axis=1)
 
@@ -434,7 +530,7 @@ def shared_sobol_points(settings: ProfileSettings) -> np.ndarray:
     return sequence.random_base2(m=exponent)
 
 
-def _fit_surrogates(data: ConstraintSamples) -> dict[str, Surrogate]:
+def _fit_surrogates(data: ConstraintSamples) -> dict[str, FittedSurrogate]:
     try:
         from sklearn.gaussian_process import GaussianProcessRegressor
         from sklearn.gaussian_process.kernels import ConstantKernel, Matern
@@ -443,9 +539,16 @@ def _fit_surrogates(data: ConstraintSamples) -> dict[str, Surrogate]:
             "scikit-learn is required for five-dimensional GP profiling"
         ) from exc
 
-    fitted: dict[str, Surrogate] = {}
+    fitted: dict[str, FittedSurrogate] = {}
     for name, values in data.objectives.items():
         shifted = values - np.min(values)
+        # Fit on ``shifted / scale`` so ``return_std=True`` is expressed in
+        # units of the objective training spread.  A constant or non-finite
+        # target cannot define a spread; fall back to scale 1.0 and fit the
+        # min-shifted target as-is (``normalize_y`` handles the offset).
+        scale = float(np.std(shifted))
+        if not np.isfinite(scale) or scale <= 0.0:
+            scale = 1.0
         kernel = ConstantKernel(
             constant_value=1.0,
             constant_value_bounds=(1e-3, 1e3),
@@ -461,8 +564,8 @@ def _fit_surrogates(data: ConstraintSamples) -> dict[str, Surrogate]:
             n_restarts_optimizer=0,
             random_state=0,
         )
-        model.fit(data.normalized_coordinates, shifted)
-        fitted[name] = model
+        model.fit(data.normalized_coordinates, shifted / scale)
+        fitted[name] = FittedSurrogate(model=model, scale=scale)
     return fitted
 
 
@@ -645,9 +748,28 @@ def profile_surrogate_surface(
     sobol_points: np.ndarray,
     *,
     settings: ProfileSettings,
+    objective_scale: float = 1.0,
 ) -> ProfileSurface:
-    """Profile one full-dimensional surrogate over one displayed parameter pair."""
+    """Profile one full-dimensional surrogate over one displayed parameter pair.
 
+    ``objective_scale`` is the spread by which the surrogate target was divided
+    before fitting (see :func:`_fit_surrogates`).  The profiled values are
+    restored to physical objective units using this factor.
+
+    The returned :class:`ProfileSurface.delta_chi2` holds the **raw profiled
+    objective values in physical units** (minimized over the three nuisance
+    coordinates at each pixel).  No baseline is subtracted here: a per-objective
+    reference minimum is applied by the build callers across the panels of that
+    objective (see :func:`_baseline_by_shared_reference`) so that surfaces from
+    different panels share one zero point.  The predictive-standard-deviation
+    mask stays in the scaled units so it compares against
+    :attr:`ProfileSettings.maximum_predictive_std` as a multiple of the target
+    spread.  Callers that pass a surrogate returning values in physical units
+    (tests) leave ``objective_scale`` at its default of ``1.0``.
+    """
+
+    if not (np.isfinite(objective_scale) and objective_scale > 0.0):
+        raise ValueError("objective_scale must be finite and positive")
     settings.validate()
     try:
         from scipy.spatial import cKDTree
@@ -727,14 +849,14 @@ def profile_surrogate_surface(
         & (support_distance <= radius)
         & (standard_deviation <= settings.maximum_predictive_std)
     )
-    delta = np.full_like(values, np.nan)
-    baseline_mask = reliable if np.any(reliable) else finite_values
-    if np.any(baseline_mask):
-        delta[finite_values] = values[finite_values] - np.min(values[baseline_mask])
+    # Restore physical objective units for the raw profiled surface; the
+    # predictive-standard-deviation mask above stays in scaled units.
+    if objective_scale != 1.0:
+        values = values * objective_scale
     return ProfileSurface(
         x=x,
         y=y,
-        delta_chi2=delta,
+        delta_chi2=values,
         reliable=reliable,
         minimizers=minimizers,
         predictive_std=standard_deviation,
@@ -773,26 +895,188 @@ def _panel_sample_coordinates(
     raise ValueError(f"unknown parameter-constraint panel: {panel.name}")
 
 
+def _baseline_by_shared_reference(
+    surfaces: Mapping[str, Mapping[str, ProfileSurface]],
+) -> Mapping[str, Mapping[str, ProfileSurface]]:
+    """Apply one per-objective, support-checked reference minimum across panels.
+
+    Raw profiled values in each :class:`ProfileSurface.delta_chi2` are in
+    physical objective units, expressed relative to each objective's training
+    minimum; the profile routine subtracts no baseline of its own.  To keep the
+    displayed objective differences comparable across panels, this subtracts a
+    single reference per objective: the minimum of the raw profiled values over
+    every reliable pixel of every panel that reports that objective.  If an
+    objective has no reliable pixel in any panel, its surfaces are left
+    unchanged.
+
+    The returned mapping holds new :class:`ProfileSurface` instances (the
+    frozen dataclass is not mutated); the input mapping is unchanged.
+    """
+
+    references: dict[str, float] = {}
+    for by_objective in surfaces.values():
+        for objective, surface in by_objective.items():
+            reliable_values = surface.delta_chi2[surface.reliable]
+            if reliable_values.size:
+                current = references.get(objective)
+                candidate = float(np.nanmin(reliable_values))
+                if current is None or candidate < current:
+                    references[objective] = candidate
+
+    baselined: dict[str, dict[str, ProfileSurface]] = {}
+    for panel_name, by_objective in surfaces.items():
+        baselined[panel_name] = {}
+        for objective, surface in by_objective.items():
+            reference = references.get(objective)
+            if reference is None:
+                baselined[panel_name][objective] = surface
+                continue
+            delta = surface.delta_chi2 - reference
+            baselined[panel_name][objective] = replace(
+                surface,
+                delta_chi2=delta,
+            )
+    return baselined
+
+
+def _cleaned_reliable(reliable: np.ndarray) -> np.ndarray:
+    """Drop isolated reliable pixels via an 8-neighbour count filter.
+
+    A reliable pixel is kept only when at least five of its eight neighbours are
+    also reliable.  This removes isolated line/pixel fragments from the contours
+    so the diagnostic levels read more clearly.  It is purely a presentation
+    cleanup: it does **not** validate the surrogate or change which pixels are
+    considered statistically supported.
+    """
+
+    reliable = np.asarray(reliable, dtype=bool)
+    if reliable.ndim != 2:
+        raise ValueError("reliable mask must be two-dimensional")
+    try:
+        from scipy.ndimage import convolve
+    except ImportError:
+        convolve = None
+    neighbors = np.zeros(reliable.shape, dtype=float)
+    if convolve is not None:
+        kernel = np.ones((3, 3), dtype=float)
+        kernel[1, 1] = 0.0
+        neighbors = convolve(
+            reliable.astype(float),
+            kernel,
+            mode="constant",
+            cval=0.0,
+        )
+    else:
+        padded = np.pad(reliable.astype(float), 1, mode="constant", constant_values=0.0)
+        for di in (-1, 0, 1):
+            for dj in (-1, 0, 1):
+                if di == 0 and dj == 0:
+                    continue
+                neighbors += padded[1 + di : 1 + di + reliable.shape[0], 1 + dj : 1 + dj + reliable.shape[1]]
+    return reliable & (neighbors >= 5.0)
+
+
 def _draw_profile_contour(
     axis,
     surface: ProfileSurface,
     *,
     color: str,
     linestyle: str,
-) -> None:
-    masked = np.ma.masked_where(~surface.reliable, surface.delta_chi2)
+) -> dict[float, bool]:
+    """Draw the diagnostic-level contours for one reliable panel surface.
+
+    ``surface.delta_chi2`` is assumed to already be baseline-subtracted against
+    the per-objective shared reference (see :func:`_baseline_by_shared_reference`)
+    so the value range is comparable across panels.  For each level in
+    :data:`DIAGNOSTIC_LEVELS`, the contour is drawn only when the level lies
+    strictly inside the cleaned reliable-region value range; otherwise it is not
+    drawn.  Returns a dict mapping each candidate level to whether it was drawn
+    in this panel.  Contours are drawn on the neighbour-cleaned reliable mask.
+    """
+
+    clean = _cleaned_reliable(surface.reliable)
+    masked = np.ma.masked_where(~clean, surface.delta_chi2)
     finite = masked.compressed()
-    if finite.size == 0 or np.min(finite) > CONTOUR_LEVEL or np.max(finite) < CONTOUR_LEVEL:
-        return
-    axis.contour(
-        surface.x,
-        surface.y,
-        masked,
-        levels=[CONTOUR_LEVEL],
-        colors=[color],
-        linestyles=[linestyle],
-        linewidths=2.0,
+    drawn: dict[float, bool] = {}
+    if finite.size == 0:
+        return {level: False for level in DIAGNOSTIC_LEVELS}
+    low = float(np.min(finite))
+    high = float(np.max(finite))
+    for level in DIAGNOSTIC_LEVELS:
+        if low < level < high:
+            axis.contour(
+                surface.x,
+                surface.y,
+                masked,
+                levels=[level],
+                colors=[color],
+                linestyles=[linestyle],
+                linewidths=_DIAGNOSTIC_LEVEL_LINEWIDTHS.get(
+                    level, _DIAGNOSTIC_LEVEL_LINEWIDTHS[DIAGNOSTIC_LEVELS[0]]
+                ),
+            )
+            drawn[level] = True
+        else:
+            drawn[level] = False
+    return drawn
+
+
+def _contour_touches_boundary(surface: ProfileSurface) -> bool:
+    """Return whether the cleaned reliable region touches the panel boundary.
+
+    Contours drawn on a reliable region that reaches the panel edge are cut off
+    by the support boundary and must be labelled truncated rather than closed.
+    """
+
+    clean = _cleaned_reliable(surface.reliable)
+    if clean.shape[0] < 3 or clean.shape[1] < 3:
+        return bool(np.any(clean))
+    return bool(
+        np.any(clean[0, :])
+        or np.any(clean[-1, :])
+        or np.any(clean[:, 0])
+        or np.any(clean[:, -1])
     )
+
+
+def _format_level(level: float) -> str:
+    """Render a diagnostic level for a legend/label without trailing zeros."""
+
+    if level == int(level):
+        return str(int(level))
+    return f"{level:.2f}"
+
+
+def _draw_panel_annotations(
+    axis,
+    drawn: dict[float, bool],
+    *,
+    truncated: bool,
+) -> None:
+    """Annotate unresolved 2.30 and support-boundary truncation for a panel."""
+
+    if not drawn.get(2.30, False):
+        axis.text(
+            0.03,
+            0.97,
+            "2.30 unresolved",
+            transform=axis.transAxes,
+            ha="left",
+            va="top",
+            fontsize=7,
+            color="0.45",
+        )
+    if truncated:
+        axis.text(
+            0.97,
+            0.03,
+            "truncated",
+            transform=axis.transAxes,
+            ha="right",
+            va="bottom",
+            fontsize=7,
+            color="0.55",
+        )
 
 
 def _fallback_reason(data: ConstraintSamples, settings: ProfileSettings) -> str | None:
@@ -864,9 +1148,13 @@ def build_parameter_constraints_figure(
                         panel,
                         sobol,
                         settings=settings,
+                        objective_scale=surrogates[objective].scale,
                     )
                     for objective in OBJECTIVE_NAMES
                 }
+            # Apply one per-objective shared, support-checked reference minimum
+            # so the diagnostic deltas are comparable across panels.
+            surfaces = _baseline_by_shared_reference(surfaces)
         except Exception as exc:  # reporting fallback is intentional
             failure = f"GP profile unavailable: {type(exc).__name__}: {exc}"
             surfaces = {}
@@ -880,6 +1168,9 @@ def build_parameter_constraints_figure(
     total_delta = data.display_objectives["total"] - np.min(
         data.display_objectives["total"]
     )
+    _objective_colors = {"total": "#9b0000", "velocity": "black", "density": "#5573b7"}
+    _objective_styles = {"total": "solid", "velocity": "dashed", "density": "dashed"}
+    _drawn_levels: dict[str, set[float]] = {objective: set() for objective in OBJECTIVE_NAMES}
     scatter = None
     for axis, panel in zip(axes, PANELS):
         sample_x, sample_y = _panel_sample_coordinates(panel, data.display_coordinates)
@@ -895,24 +1186,27 @@ def build_parameter_constraints_figure(
             linewidths=0.0,
             rasterized=True,
         )
+        truncated = False
+        panel_drawn: set[float] = set()
+        for objective in OBJECTIVE_NAMES:
+            if panel.name not in surfaces or objective not in surfaces[panel.name]:
+                continue
+            drawn = _draw_profile_contour(
+                axis,
+                surfaces[panel.name][objective],
+                color=_objective_colors[objective],
+                linestyle=_objective_styles[objective],
+            )
+            for level, is_drawn in drawn.items():
+                if is_drawn:
+                    _drawn_levels[objective].add(level)
+                    panel_drawn.add(level)
+            truncated |= _contour_touches_boundary(surfaces[panel.name][objective])
         if panel.name in surfaces:
-            _draw_profile_contour(
+            _draw_panel_annotations(
                 axis,
-                surfaces[panel.name]["total"],
-                color="#9b0000",
-                linestyle="solid",
-            )
-            _draw_profile_contour(
-                axis,
-                surfaces[panel.name]["velocity"],
-                color="black",
-                linestyle="dashed",
-            )
-            _draw_profile_contour(
-                axis,
-                surfaces[panel.name]["density"],
-                color="#5573b7",
-                linestyle="dashed",
+                {level: level in panel_drawn for level in DIAGNOSTIC_LEVELS},
+                truncated=truncated,
             )
         if panel.name == "qhalo_phalo":
             lower = max(data.bounds[0, 0], data.bounds[1, 0])
@@ -932,43 +1226,46 @@ def build_parameter_constraints_figure(
             extend="max",
         )
         colorbar.set_label(r"actual trial $\Delta\chi^2_\mathrm{tot}$")
-    legend_handles = [
-        Line2D(
-            [0],
-            [0],
-            color="#9b0000",
-            linewidth=2.0,
-            label=r"total $\Delta\chi^2=2.30$",
-        ),
-        Line2D(
-            [0],
-            [0],
-            color="black",
-            linewidth=2.0,
-            linestyle="--",
-            label=r"velocity $\Delta\chi^2=2.30$",
-        ),
-        Line2D(
-            [0],
-            [0],
-            color="#5573b7",
-            linewidth=2.0,
-            linestyle="--",
-            label=r"density $\Delta\chi^2=2.30$",
-        ),
-    ]
+    legend_handles: list[Line2D] = []
+    if any(_drawn_levels.values()):
+        for objective in OBJECTIVE_NAMES:
+            for level in sorted(_drawn_levels[objective]):
+                legend_handles.append(
+                    Line2D(
+                        [0],
+                        [0],
+                        color=_objective_colors[objective],
+                        linewidth=_DIAGNOSTIC_LEVEL_LINEWIDTHS.get(level, 2.0),
+                        linestyle=_objective_styles[objective],
+                        label=(
+                            f"{objective} $\\Delta Q$ = {_format_level(level)}"
+                        ),
+                    )
+                )
     if failure is None:
-        figure.legend(
-            handles=legend_handles,
-            loc="upper center",
-            ncol=3,
-            bbox_to_anchor=(0.67, 1.01),
-        )
+        if legend_handles:
+            figure.legend(
+                handles=legend_handles,
+                loc="upper center",
+                ncol=min(3, len(legend_handles)),
+                bbox_to_anchor=(0.67, 1.01),
+            )
+        else:
+            figure.text(
+                0.67,
+                0.99,
+                "no level resolved",
+                ha="center",
+                va="top",
+                fontsize=8,
+                color="0.45",
+            )
         figure.text(
             0.5,
             0.005,
-            "Contours are shown only where five-dimensional trial support and "
-            "GP-uncertainty checks pass.",
+            "Diagnostic GP-surrogate objective differences with diagnostic levels; "
+            "contours clip at the support boundary and are truncated there. "
+            "Not calibrated confidence intervals.",
             ha="center",
             va="bottom",
             fontsize=8,
@@ -985,7 +1282,8 @@ def build_parameter_constraints_figure(
             color="0.3",
         )
     figure.suptitle(
-        "Five-dimensional GP profile constraints (adaptive trials shown as points)",
+        "Five-dimensional GP profiled objective-difference diagnostics "
+        "(adaptive trials shown as points)",
         y=1.08,
     )
     return figure
@@ -1033,7 +1331,7 @@ def _empty_corner_figure(message: str):
         fontsize=9,
         color="0.3",
     )
-    figure.suptitle("Five-dimensional GP profile corner constraints", y=1.08)
+    figure.suptitle("Five-dimensional GP profiled objective-difference diagnostics", y=1.08)
     return figure
 
 
@@ -1045,9 +1343,19 @@ def persist_corner_surfaces(
 
     ``surfaces`` maps panel name to a mapping of objective name to
     :class:`ProfileSurface`.  Stored arrays are ``x``, ``y``, ``delta_chi2``,
-    ``reliable``, ``predictive_std``, and ``support_distance`` for each panel
-    and objective, keyed ``<panel>__<objective>__<field>``, together with the
-    panel names and objective names used.
+    ``reliable``, ``predictive_std`` (units of the objective training spread,
+    see :func:`profile_surrogate_surface`), and ``support_distance``
+    (normalized search space) for each panel and objective, keyed
+    ``<panel>__<objective>__<field>``, together with the panel names and
+    objective names used.
+
+    ``delta_chi2`` is stored in physical objective units.  When the surfaces
+    come from ``build_parameter_constraints_corner_figure`` (the production
+    path) the per-objective shared reference has already been subtracted, so
+    the reliable global minimum is zero and re-applying
+    :func:`_baseline_by_shared_reference` is a no-op; callers may also persist
+    raw pre-baseline surfaces, in which case the cross-panel shared reference
+    must be applied before treating differences across panels as comparable.
     """
 
     import numpy as np
@@ -1078,13 +1386,19 @@ def build_parameter_constraints_corner_figure(
     settings: ProfileSettings | None = None,
     return_artifacts: bool = False,
 ):
-    """Return the lower-triangular five-parameter profiled corner figure.
+    """Return the lower-triangular five-parameter profiled objective diagnostics.
 
-    Each off-diagonal panel shows the profiled ``delta_chi2 = 2.30`` contours
-    for the total objective (solid) and the density objective (dashed) on the
-    GP surrogate, clipped to trial support and GP-uncertainty masks, with the
-    actual adaptive trials overlaid as small points.  A degraded, labelled
-    scatter-only figure is returned instead of raising.
+    Each off-diagonal panel shows the diagnostic ``Delta Q`` contours for the
+    total objective (solid) and the density objective (dashed) on the GP
+    surrogate, clipped to the neighbour-cleaned trial-support and GP-uncertainty
+    mask, with the actual adaptive trials overlaid as small points.  A degraded,
+    labelled scatter-only figure is returned instead of raising.
+
+    The contours are GP-surrogate-predicted profiled objective differences, not
+    calibrated confidence intervals; each panel draws only the candidate levels
+    that cross its reliable-region value range, and an unresolved 2.30 (or a
+    support-boundary-truncated contour) is annotated rather than presented as a
+    constraint range.
 
     When ``return_artifacts`` is true, return ``(figure, surfaces)`` where
     ``surfaces`` maps panel name to objective name to a
@@ -1120,9 +1434,13 @@ def build_parameter_constraints_corner_figure(
                         panel,
                         sobol,
                         settings=corner_settings,
+                        objective_scale=surrogates[objective].scale,
                     )
                     for objective in ("total", "density")
                 }
+            # One per-objective shared, support-checked reference minimum so the
+            # diagnostic deltas are comparable across the off-diagonal panels.
+            surfaces = _baseline_by_shared_reference(surfaces)
         except Exception as exc:
             failure = f"GP profile unavailable: {type(exc).__name__}: {exc}"
             surfaces = {}
@@ -1138,6 +1456,9 @@ def build_parameter_constraints_corner_figure(
     total_delta = data.display_objectives["total"] - np.min(
         data.display_objectives["total"]
     )
+    _objective_colors = {"total": "#9b0000", "density": "#5573b7"}
+    _objective_styles = {"total": "solid", "density": "dashed"}
+    _drawn_levels: dict[str, set[float]] = {"total": set(), "density": set()}
     scatter = None
     for row in range(len(DISPLAY_ORDER)):
         for column in range(row + 1, len(DISPLAY_ORDER)):
@@ -1160,18 +1481,27 @@ def build_parameter_constraints_corner_figure(
             linewidths=0.0,
             rasterized=True,
         )
-        if panel.name in surfaces:
-            _draw_profile_contour(
+        truncated = False
+        panel_drawn: set[float] = set()
+        for objective in ("total", "density"):
+            if panel.name not in surfaces or objective not in surfaces[panel.name]:
+                continue
+            drawn = _draw_profile_contour(
                 axis,
-                surfaces[panel.name]["total"],
-                color="#9b0000",
-                linestyle="solid",
+                surfaces[panel.name][objective],
+                color=_objective_colors[objective],
+                linestyle=_objective_styles[objective],
             )
-            _draw_profile_contour(
+            for level, is_drawn in drawn.items():
+                if is_drawn:
+                    _drawn_levels[objective].add(level)
+                    panel_drawn.add(level)
+            truncated |= _contour_touches_boundary(surfaces[panel.name][objective])
+        if panel.name in surfaces:
+            _draw_panel_annotations(
                 axis,
-                surfaces[panel.name]["density"],
-                color="#5573b7",
-                linestyle="dashed",
+                {level: level in panel_drawn for level in DIAGNOSTIC_LEVELS},
+                truncated=truncated,
             )
         if {panel.x_param, panel.y_param} == {"qhalo", "phalo"}:
             lower = max(data.bounds[0, 0], data.bounds[1, 0])
@@ -1204,42 +1534,55 @@ def build_parameter_constraints_corner_figure(
             extend="max",
         )
         colorbar.set_label(r"actual trial $\Delta\chi^2_\mathrm{tot}$")
-    legend_handles = [
-        Line2D(
-            [0],
-            [0],
-            color="#9b0000",
-            linewidth=2.0,
-            label=r"total $\Delta\chi^2=2.30$",
-        ),
-        Line2D(
-            [0],
-            [0],
-            color="#5573b7",
-            linewidth=2.0,
-            linestyle="--",
-            label=r"density $\Delta\chi^2=2.30$",
-        ),
-    ]
+    legend_handles: list[Line2D] = []
+    if any(_drawn_levels.values()):
+        for objective in ("total", "density"):
+            for level in sorted(_drawn_levels[objective]):
+                legend_handles.append(
+                    Line2D(
+                        [0],
+                        [0],
+                        color=_objective_colors[objective],
+                        linewidth=_DIAGNOSTIC_LEVEL_LINEWIDTHS.get(level, 2.0),
+                        linestyle=_objective_styles[objective],
+                        label=(
+                            f"{objective} $\\Delta Q$ = {_format_level(level)}"
+                        ),
+                    )
+                )
     if failure is None:
-        figure.legend(
-            handles=legend_handles,
-            loc="upper left",
-            ncol=1,
-            bbox_to_anchor=(0.01, 1.01),
-            frameon=True,
-        )
+        if legend_handles:
+            figure.legend(
+                handles=legend_handles,
+                loc="upper left",
+                ncol=1,
+                bbox_to_anchor=(0.01, 1.01),
+                frameon=True,
+            )
+        else:
+            figure.text(
+                0.01,
+                0.99,
+                "no level resolved",
+                ha="left",
+                va="top",
+                fontsize=8,
+                color="0.45",
+            )
         figure.suptitle(
-            "Five-dimensional GP profile corner constraints "
-            "(adaptive trials shown as points)",
+            "Five-dimensional GP profiled objective-difference diagnostics "
+            "(corner view; adaptive trials shown as points)",
             y=1.08,
         )
         figure.text(
             0.5,
             1.035,
-            "Profiled $\\Delta\\chi^2 = 2.30$ contours on GP-surrogate "
-            "$\\chi^2$ surfaces; contours clipped to GP support and "
-            "uncertainty masks.",
+            "Contours show GP-surrogate-predicted profiled objective differences "
+            "within the sampled region, describing objective variation and possible "
+            "parameter-degeneracy directions. The current evidence does not reliably "
+            "resolve the $\\Delta Q = 2.30$ level; the shown contours are not "
+            "calibrated confidence intervals, and no inference is made beyond the "
+            "support boundary.",
             ha="center",
             va="bottom",
             fontsize=8,
@@ -1256,8 +1599,8 @@ def build_parameter_constraints_corner_figure(
             color="0.3",
         )
         figure.suptitle(
-            "Five-dimensional GP profile corner constraints (adaptive trials "
-            "shown as points)",
+            "Five-dimensional GP profiled objective-difference diagnostics "
+            "(corner view; adaptive trials shown as points)",
             y=1.08,
         )
     if return_artifacts:
