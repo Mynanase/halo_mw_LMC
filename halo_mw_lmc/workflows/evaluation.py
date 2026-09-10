@@ -276,26 +276,95 @@ def _score_velocities(
     return total, by_phi, stars_by_phi, distributions
 
 
-def evaluate_prepared_model(
-    parameters: ZhuHaloParameters,
+def _require_external_response_matches_library(
+    response: OrbitDensityResponse,
+    library: OrbitLibrary,
     prepared: PreparedModelData,
+) -> None:
+    """Reject a caller-supplied response that does not describe this library.
+
+    The solver-budget experiment reuses one frozen orbit library across solver
+    methods, so a supplied response must come from exactly that library: same
+    density grid, same successful-seed column mapping, and the same finite
+    sample counts per seed.
+    """
+
+    grid = prepared.config.density_grid
+    if response.grid.shape != grid.shape:
+        raise ValueError(
+            f"external response grid shape {response.grid.shape} does not match "
+            f"the configured density grid {grid.shape}"
+        )
+    for name in ("r_edges", "z_edges", "phi_edges"):
+        if not np.allclose(getattr(response.grid, name), getattr(grid, name)):
+            raise ValueError(
+                f"external response grid {name} does not match the configured "
+                "density grid"
+            )
+    seed_count = int(prepared.initial_conditions.shape[0])
+    if response.seed_count != seed_count:
+        raise ValueError(
+            f"external response seed_count {response.seed_count} does not match "
+            f"the prepared catalogue size {seed_count}"
+        )
+    seed_index = np.asarray(library.seed_index, dtype=np.int64)
+    successful = np.unique(seed_index)
+    if not np.array_equal(
+        np.asarray(response.successful_seed_index, dtype=np.int64), successful
+    ):
+        raise ValueError(
+            "external response column mapping does not match the orbit library "
+            "successful seeds"
+        )
+    raw_counts = np.asarray(response.sample_count, dtype=float)
+    if raw_counts.ndim != 1 or not np.all(np.isfinite(raw_counts)):
+        raise ValueError("external response sample counts must be finite")
+    if not np.all(raw_counts == np.floor(raw_counts)) or np.any(raw_counts < 0.0):
+        raise ValueError("external response sample counts must be non-negative integers")
+    sample_count = raw_counts.astype(np.int64)
+    expected_counts = np.bincount(seed_index, minlength=seed_count)[successful]
+    if not np.array_equal(sample_count, expected_counts):
+        raise ValueError(
+            "external response sample counts do not match the orbit library "
+            "provenance"
+        )
+    matrix = response.matrix
+    if getattr(matrix, "shape", None) != (
+        int(np.prod(grid.shape)),
+        successful.size,
+    ):
+        raise ValueError(
+            "external response matrix shape does not match the density grid and "
+            "successful seeds"
+        )
+    if not np.all(np.isfinite(matrix.data)):
+        raise ValueError("external response matrix contains non-finite entries")
+
+
+def evaluate_orbit_library(
+    library: OrbitLibrary,
+    prepared: PreparedModelData,
+    *,
+    response: OrbitDensityResponse | None = None,
 ) -> ModelEvaluation:
-    """Build, integrate, and score one trial without any external side effects."""
+    """Score one already-integrated orbit library without any external effects.
+
+    ``response`` lets a caller reuse a frozen density response for this exact
+    library instead of rebuilding it; the entry validates grid, column mapping,
+    finite sample counts, and provenance.  Everything after integration is
+    shared with :func:`evaluate_prepared_model`.
+    """
 
     config = prepared.config
-    potential = build_potential_from_parameters(parameters)
-    library = integrate_agama_orbits(
-        prepared.initial_conditions,
-        potential,
-        periods=config.orbit_periods,
-        samples_per_orbit=config.orbit_samples_per_orbit,
-    )
     if config.weight_model.mode == "density_solved":
-        response = build_orbit_density_response(
-            library,
-            config.density_grid,
-            seed_count=prepared.initial_conditions.shape[0],
-        )
+        if response is None:
+            response = build_orbit_density_response(
+                library,
+                config.density_grid,
+                seed_count=prepared.initial_conditions.shape[0],
+            )
+        else:
+            _require_external_response_matches_library(response, library, prepared)
         weight_solution = solve_density_weights(
             response,
             prepared.target_density,
@@ -311,6 +380,10 @@ def evaluate_prepared_model(
             library,
         )
     else:
+        if response is not None:
+            raise ValueError(
+                "catalogue_fixed scoring does not use an orbit density response"
+            )
         fixed_weights = prepared.seed_weights
         orbit_weights = fixed_weights[library.seed_index]
         model_density = orbit_density(
@@ -421,3 +494,20 @@ def evaluate_prepared_model(
         ),
         orbit_support_audit=support_audit,
     )
+
+
+def evaluate_prepared_model(
+    parameters: ZhuHaloParameters,
+    prepared: PreparedModelData,
+) -> ModelEvaluation:
+    """Build, integrate, and score one trial without any external side effects."""
+
+    config = prepared.config
+    potential = build_potential_from_parameters(parameters)
+    library = integrate_agama_orbits(
+        prepared.initial_conditions,
+        potential,
+        periods=config.orbit_periods,
+        samples_per_orbit=config.orbit_samples_per_orbit,
+    )
+    return evaluate_orbit_library(library, prepared)
