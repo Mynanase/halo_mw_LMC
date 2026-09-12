@@ -1,6 +1,5 @@
 import tempfile
 import unittest
-from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -8,6 +7,7 @@ import numpy as np
 
 from halo_mw_lmc.config import load_run_configuration
 from halo_mw_lmc.report import generate_coverage_report
+from halo_mw_lmc.velocity import SphericalVelocityGrid
 
 
 RUN_CONFIG = Path(__file__).resolve().parents[1] / "configs/runs/fix_weight.toml"
@@ -16,27 +16,22 @@ RUN_CONFIG = Path(__file__).resolve().parents[1] / "configs/runs/fix_weight.toml
 class CoverageWorkflowTests(unittest.TestCase):
     def test_coverage_uses_the_recipe_velocity_spatial_grid(self):
         configuration = load_run_configuration(RUN_CONFIG)
-        custom_velocity = replace(
-            configuration.recipe.velocity_fit,
-            radius_edges_kpc=(5.0, 9.0, 20.0),
-            theta_edges_deg=(0.0, 30.0, 90.0),
-        )
-        configuration = replace(
-            configuration,
-            recipe=replace(configuration.recipe, velocity_fit=custom_velocity),
+        recipe_grid = configuration["recipe"]["velocity_grid"]
+        configuration["recipe"]["velocity_grid"] = SphericalVelocityGrid(
+            radius_edges=np.array([5.0, 9.0, 20.0]),
+            theta_edges=np.deg2rad(np.array([0.0, 30.0, 90.0])),
+            phi_edges=recipe_grid.phi_edges,
+            velocity_edges=recipe_grid.velocity_edges,
         )
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             catalog = root / "catalog.txt"
             catalog.write_text("placeholder")
-            configuration = replace(
-                configuration,
-                data=replace(configuration.data, catalog=catalog),
-                coverage=replace(
-                    configuration.coverage,
-                    output_dir=root / "coverage",
-                ),
-            )
+            configuration["data"] = {**configuration["data"], "catalog": catalog}
+            configuration["coverage"] = {
+                **configuration["coverage"],
+                "output_dir": root / "coverage",
+            }
             with (
                 patch(
                     "halo_mw_lmc.prepare.read_phase_space_catalogue",

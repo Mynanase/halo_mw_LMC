@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 
 from .artifacts import save_best_evaluation, write_resolved_config
-from .config import RunConfiguration
+from .config import resolve_model
 from .potential import (
     ZHU_2026_BEST_FIT,
     ZHU_2026_POTENTIAL_NAME,
@@ -69,35 +69,37 @@ def _source_provenance(repository: Path) -> dict[str, object]:
 
 
 def resolved_configuration_document(
-    configuration: RunConfiguration,
+    configuration: dict,
 ) -> dict[str, object]:
     """Return every scientific and operational choice in JSON-safe form."""
 
-    comparison = configuration.to_comparison_config()
-    density_grid = comparison.density_grid
-    velocity_grid = comparison.velocity_grid
-    fit = comparison.density_fit
+    comparison = resolve_model(configuration["recipe"])
+    density_grid = comparison["density_grid"]
+    velocity_grid = comparison["velocity_grid"]
+    fit = comparison["density_fit"]
+    weight_model = comparison["weight_model"]
+    objective = comparison["objective"]
     repository = Path(__file__).resolve().parents[2]
     return {
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         **_source_provenance(repository),
         "run": {
-            "id": configuration.run_id,
-            "source_config": str(configuration.source_path),
-            "recipe_config": str(configuration.recipe.source_path),
-            "output_directory": str(configuration.output_dir),
+            "id": configuration["run"]["id"],
+            "source_config": str(configuration["source_path"]),
+            "recipe_config": str(configuration["recipe"]["source_path"]),
+            "output_directory": str(configuration["run"]["output_dir"]),
             "cold_start": True,
         },
         "data": {
-            "catalog": str(configuration.data.catalog),
-            "target_density": str(configuration.data.target_density),
-            "weight_source": "catalogue_column" if comparison.weight_model.mode == "catalogue_fixed" else "trial_density_solution",
-            "weight_column": "w" if comparison.weight_model.mode == "catalogue_fixed" else None,
-            "weights_fixed_across_trial_potentials": comparison.weight_model.mode == "catalogue_fixed",
+            "catalog": str(configuration["data"]["catalog"]),
+            "target_density": str(configuration["data"]["target_density"]),
+            "weight_source": "catalogue_column" if weight_model["mode"] == "catalogue_fixed" else "trial_density_solution",
+            "weight_column": "w" if weight_model["mode"] == "catalogue_fixed" else None,
+            "weights_fixed_across_trial_potentials": weight_model["mode"] == "catalogue_fixed",
         },
         "potential": {
             "name": ZHU_2026_POTENTIAL_NAME,
-            "recipe": configuration.recipe.potential.recipe,
+            "recipe": configuration["recipe"]["potential"]["recipe"],
             "fixed_orientation": {"alpha_halo": 0.0, "beta_halo": 0.0},
             "representative_best_fit": ZHU_2026_BEST_FIT,
         },
@@ -108,38 +110,38 @@ def resolved_configuration_document(
             "phi_edges_rad": density_grid.phi_edges.tolist(),
         },
         "density_fit": {
-            "min_abs_z_kpc": fit.min_abs_z,
-            "min_radius_kpc": fit.min_spherical_radius,
-            "max_radius_kpc": fit.max_spherical_radius,
-            "normalization_min_radius_kpc": fit.normalization_min_radius,
-            "require_positive_target": fit.require_positive_data,
-            "normalization": fit.normalization,
+            "min_abs_z_kpc": fit["min_abs_z"],
+            "min_radius_kpc": fit["min_spherical_radius"],
+            "max_radius_kpc": fit["max_spherical_radius"],
+            "normalization_min_radius_kpc": fit["normalization_min_radius"],
+            "require_positive_target": fit["require_positive_data"],
+            "normalization": fit["normalization"],
         },
         "weight_model": {
-            "mode": comparison.weight_model.mode,
-            "solver": comparison.weight_model.solver,
-            "target_normalization": comparison.weight_model.target_normalization,
-            "regularization": comparison.weight_model.regularization,
-            "regularization_strength": comparison.weight_model.regularization_strength,
-            "max_iter": comparison.weight_model.max_iter,
-            "solver_tolerance": comparison.weight_model.solver_tolerance,
-            "lsmr_tol": comparison.weight_model.lsmr_tol,
+            "mode": weight_model["mode"],
+            "solver": weight_model["solver"],
+            "target_normalization": weight_model["target_normalization"],
+            "regularization": weight_model["regularization"],
+            "regularization_strength": weight_model["regularization_strength"],
+            "max_iter": weight_model["max_iter"],
+            "solver_tolerance": weight_model["solver_tolerance"],
+            "lsmr_tol": weight_model["lsmr_tol"],
         },
         "objective": {
-            "mode": comparison.objective.mode,
-            "density_max_chi2_per_bin": comparison.objective.density_max_chi2_per_bin,
+            "mode": objective["mode"],
+            "density_max_chi2_per_bin": objective["density_max_chi2_per_bin"],
             "density_shell_edges_kpc": (
-                list(comparison.objective.density_shell_edges)
-                if comparison.objective.density_shell_edges is not None
+                list(objective["density_shell_edges"])
+                if objective["density_shell_edges"] is not None
                 else None
             ),
-            "density_shell_phi_max_chi2_per_bin": comparison.objective.density_shell_phi_max_chi2_per_bin,
+            "density_shell_phi_max_chi2_per_bin": objective["density_shell_phi_max_chi2_per_bin"],
             "invalid_trial_penalty": 1e30,
         },
         "velocity_fit": {
-            "enabled": comparison.include_velocity,
-            "min_radius_kpc": comparison.velocity_fit_min_radius,
-            "probability_floor": comparison.velocity_probability_floor,
+            "enabled": comparison["include_velocity"],
+            "min_radius_kpc": comparison["velocity_fit_min_radius"],
+            "probability_floor": comparison["velocity_probability_floor"],
             "radius_edges_kpc": velocity_grid.radius_edges.tolist(),
             "theta_edges_rad": velocity_grid.theta_edges.tolist(),
             "phi_edges_rad": velocity_grid.phi_edges.tolist(),
@@ -151,37 +153,37 @@ def resolved_configuration_document(
             },
         },
         "orbits": {
-            "periods": comparison.orbit_periods,
-            "samples_per_orbit": comparison.orbit_samples_per_orbit,
-            "sample_divisor": comparison.orbit_sample_divisor,
+            "periods": comparison["orbit_periods"],
+            "samples_per_orbit": comparison["orbit_samples_per_orbit"],
+            "sample_divisor": comparison["orbit_sample_divisor"],
         },
         "optimizer": {
             "implementation": (
                 "sequential_fixed_points"
-                if configuration.fixed_optimizer_points is not None
+                if configuration["optimizer"]["fixed_points"] is not None
                 else "scikit-optimize.Optimizer.ask_tell"
             ),
-            "iterations": configuration.iterations,
-            "random_seed": configuration.random_seed,
-            "schedule": "fixed_points" if configuration.fixed_optimizer_points is not None else "adaptive",
-            "fixed_points": [list(point) for point in configuration.fixed_optimizer_points] if configuration.fixed_optimizer_points is not None else None,
+            "iterations": configuration["optimizer"]["iterations"],
+            "random_seed": configuration["optimizer"]["random_seed"],
+            "schedule": "fixed_points" if configuration["optimizer"]["fixed_points"] is not None else "adaptive",
+            "fixed_points": [list(point) for point in configuration["optimizer"]["fixed_points"]] if configuration["optimizer"]["fixed_points"] is not None else None,
             "coordinates": list(OPTIMIZER_COORDINATES),
-            "round_decimals": configuration.round_decimals,
-            "initial_point": configuration.recipe.search.initial_point,
-            "paper_best_evaluated_first": configuration.recipe.search.initial_point == "paper_best",
+            "round_decimals": configuration["recipe"]["search"]["round_decimals"],
+            "initial_point": configuration["recipe"]["search"]["initial_point"],
+            "paper_best_evaluated_first": configuration["recipe"]["search"]["initial_point"] == "paper_best",
             "bounds": {
                 name: list(bounds)
-                for name, bounds in configuration.search_bounds.items()
+                for name, bounds in configuration["recipe"]["search"]["bounds"].items()
             },
         },
         "report": {
-            "velocity_bin_factor": configuration.report.velocity_bin_factor,
+            "velocity_bin_factor": configuration["report"]["velocity_bin_factor"],
         },
         "coverage": {
-            "output_directory": str(configuration.coverage.output_dir),
-            "maximum_points": configuration.coverage.maximum_points,
-            "velocity_limit_km_s": configuration.coverage.velocity_limit_km_s,
-            "random_seed": configuration.coverage.random_seed,
+            "output_directory": str(configuration["coverage"]["output_dir"]),
+            "maximum_points": configuration["coverage"]["maximum_points"],
+            "velocity_limit_km_s": configuration["coverage"]["velocity_limit_km_s"],
+            "random_seed": configuration["coverage"]["random_seed"],
         },
     }
 
@@ -306,7 +308,7 @@ def _append_sample(
 
 
 def _prepared_execution(
-    configuration: RunConfiguration,
+    configuration: dict,
     prepared: PreparedExecution | None,
     *,
     stage: str,
@@ -322,17 +324,17 @@ def _prepared_execution(
 
 
 def _initialize_run(
-    configuration: RunConfiguration,
+    configuration: dict,
     prepared: PreparedExecution,
 ) -> tuple[Path, Path]:
     """Create artifacts only after every preflight check has passed."""
 
-    output_directory = configuration.output_dir
+    output_directory = configuration["run"]["output_dir"]
     if output_directory.exists():
         raise FileExistsError(
             f"cold-start runs require a new output directory: {output_directory}"
         )
-    comparison = configuration.to_comparison_config()
+    comparison = resolve_model(configuration["recipe"])
     output_directory.mkdir(parents=True, exist_ok=False)
 
     write_resolved_config(
@@ -346,24 +348,24 @@ def _initialize_run(
         **(prepared.weight_audit or {}),
         target_density=prepared.model.target_density,
         target_error=prepared.model.target_error,
-        r_edges=comparison.density_grid.r_edges,
-        z_edges=comparison.density_grid.z_edges,
-        phi_edges=comparison.density_grid.phi_edges,
+        r_edges=comparison["density_grid"].r_edges,
+        z_edges=comparison["density_grid"].z_edges,
+        phi_edges=comparison["density_grid"].phi_edges,
         weight_source=np.asarray("catalogue_column" if prepared.weight_audit is not None else "trial_density_solution"),
         weight_column=np.asarray("w" if prepared.weight_audit is not None else ""),
         catalog_path=np.asarray(str(prepared.model.catalog_path)),
         density_path=np.asarray(str(prepared.model.density_path)),
     )
-    shell_count = len(comparison.objective.density_shell_edges) - 1 if comparison.objective.density_shell_edges is not None else 0
+    shell_count = len(comparison["objective"]["density_shell_edges"]) - 1 if comparison["objective"]["density_shell_edges"] is not None else 0
     sample_file = output_directory / "sample.dat"
     sample_file.write_text(
-        sample_header(comparison.density_grid.shape[-1], comparison.include_velocity, n_density_shells=shell_count) + "\n"
+        sample_header(comparison["density_grid"].shape[-1], comparison["include_velocity"], n_density_shells=shell_count) + "\n"
     )
     return output_directory, sample_file
 
 
 def _run_trials(
-    configuration: RunConfiguration,
+    configuration: dict,
     prepared: PreparedExecution,
     suggestions,
     *,
@@ -372,18 +374,18 @@ def _run_trials(
     """Evaluate, persist, and update best for one already-selected schedule."""
 
     output_directory, sample_file = _initialize_run(configuration, prepared)
-    comparison = configuration.to_comparison_config()
+    comparison = resolve_model(configuration["recipe"])
     best_objective = np.inf
     for iteration, suggested in enumerate(suggestions):
-        evaluated, parameters = rounded_trial(suggested, decimals=configuration.round_decimals)
+        evaluated, parameters = rounded_trial(suggested, decimals=configuration["recipe"]["search"]["round_decimals"])
         evaluation = evaluate_prepared_model(parameters, prepared.model)
         objective = evaluation.selected_objective
         if tell is not None:
             tell(evaluated, objective)
         _append_sample(
             sample_file, iteration=iteration, evaluated=evaluated, objective=objective,
-            evaluation=evaluation, include_velocity=comparison.include_velocity,
-            decimals=configuration.round_decimals,
+            evaluation=evaluation, include_velocity=comparison["include_velocity"],
+            decimals=configuration["recipe"]["search"]["round_decimals"],
         )
         if objective < best_objective:
             save_best_evaluation(output_directory, evaluation, parameters, iteration=iteration, objective=objective)
@@ -404,12 +406,12 @@ def _run_trials(
 
 
 def run_fixed_evaluation(
-    configuration: RunConfiguration,
+    configuration: dict,
     prepared: PreparedExecution | None = None,
 ) -> Path:
     """Evaluate explicit points sequentially without importing scikit-optimize."""
 
-    points = configuration.fixed_optimizer_points
+    points = configuration["optimizer"]["fixed_points"]
     if points is None:
         raise ValueError("evaluate requires optimizer.fixed_points")
     prepared = _prepared_execution(configuration, prepared, stage="evaluate")
@@ -417,12 +419,12 @@ def run_fixed_evaluation(
 
 
 def run_optimization(
-    configuration: RunConfiguration,
+    configuration: dict,
     prepared: PreparedExecution | None = None,
 ) -> Path:
     """Run an adaptive cold-start optimization using skopt ask/tell."""
 
-    if configuration.fixed_optimizer_points is not None:
+    if configuration["optimizer"]["fixed_points"] is not None:
         raise ValueError("optimize accepts adaptive configurations only")
     prepared = _prepared_execution(configuration, prepared, stage="optimize")
     try:
@@ -433,11 +435,11 @@ def run_optimization(
             "scikit-optimize is required for adaptive optimization"
         ) from exc
 
-    bounds = configuration.search_bounds
+    bounds = configuration["recipe"]["search"]["bounds"]
     parameter_space = [Real(*bounds[name], name=name) for name in OPTIMIZER_COORDINATES]
-    optimizer = Optimizer(parameter_space, random_state=configuration.random_seed)
+    optimizer = Optimizer(parameter_space, random_state=configuration["optimizer"]["random_seed"])
     paper_point = paper_best_optimizer_point()
-    use_paper_first = configuration.recipe.search.initial_point == "paper_best"
+    use_paper_first = configuration["recipe"]["search"]["initial_point"] == "paper_best"
     if use_paper_first and not all(
         dimension.low <= value <= dimension.high
         for dimension, value in zip(parameter_space, paper_point)
@@ -447,7 +449,7 @@ def run_optimization(
         )
 
     def suggestions():
-        for iteration in range(configuration.iterations):
+        for iteration in range(configuration["optimizer"]["iterations"]):
             yield (
                 paper_point
                 if iteration == 0 and use_paper_first

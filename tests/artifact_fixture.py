@@ -7,7 +7,6 @@ from pathlib import Path
 import numpy as np
 
 from halo_mw_lmc.artifacts import save_best_evaluation, write_resolved_config
-from halo_mw_lmc.config import DensityFitSettings
 from halo_mw_lmc.density import compare_density, density_shell_diagnostics
 from halo_mw_lmc.grids import CylindricalGrid
 from halo_mw_lmc.density import OrbitSupportAudit
@@ -18,6 +17,58 @@ from halo_mw_lmc.velocity import (
     VelocityDistributionComparison,
 )
 from halo_mw_lmc.evaluate import ModelEvaluation
+
+
+def comparison_model(grid, *, density_fit=None, weight_model=None, objective=None, **overrides):
+    """A minimal but complete numerical comparison dict for one grid."""
+
+    model = {
+        "density_grid": grid,
+        "velocity_grid": SphericalVelocityGrid(
+            radius_edges=np.array([0.0, 10.0]),
+            theta_edges=np.array([0.0, np.pi]),
+            phi_edges=grid.phi_edges,
+            velocity_edges=np.linspace(-100.0, 100.0, 7),
+        ),
+        "density_fit": {
+            "min_abs_z": 0,
+            "min_spherical_radius": 0,
+            "max_spherical_radius": 10,
+            "normalization_min_radius": 0,
+            "require_positive_data": True,
+            "normalization": "volume",
+        },
+        "weight_model": {
+            "mode": "catalogue_fixed",
+            "solver": None,
+            "target_normalization": None,
+            "regularization": None,
+            "regularization_strength": 0.0,
+            "max_iter": 20000,
+            "solver_tolerance": None,
+            "lsmr_tol": None,
+        },
+        "objective": {
+            "mode": "density_velocity",
+            "density_max_chi2_per_bin": None,
+            "density_shell_edges": None,
+            "density_shell_phi_max_chi2_per_bin": None,
+        },
+        "include_velocity": False,
+        "velocity_fit_min_radius": 8.0,
+        "velocity_probability_floor": 1e-300,
+        "orbit_periods": 10.0,
+        "orbit_samples_per_orbit": 1000,
+        "orbit_sample_divisor": 500.0,
+    }
+    if density_fit is not None:
+        model["density_fit"].update(density_fit)
+    if weight_model is not None:
+        model["weight_model"].update(weight_model)
+    if objective is not None:
+        model["objective"].update(objective)
+    model.update(overrides)
+    return model
 
 
 def small_evaluation(*, include_velocity: bool = False) -> ModelEvaluation:
@@ -37,12 +88,10 @@ def small_evaluation(*, include_velocity: bool = False) -> ModelEvaluation:
         np.full_like(target, 0.1),
         target,
         grid,
-        DensityFitSettings(
-            min_abs_z=0,
-            min_spherical_radius=0,
-            max_spherical_radius=10,
-            normalization_min_radius=0,
-        ),
+        min_abs_z=0,
+        min_spherical_radius=0,
+        max_spherical_radius=10,
+        normalization_min_radius=0,
     )
     weight_solution = WeightSolution(
         seed_weights=np.array([1.0, 2.0, 0.5]),

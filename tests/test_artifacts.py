@@ -13,7 +13,6 @@ from halo_mw_lmc.artifacts import (
     save_best_evaluation,
     write_resolved_config,
 )
-from halo_mw_lmc.config import DensityFitSettings
 from halo_mw_lmc.density import compare_density, density_shell_diagnostics
 from halo_mw_lmc.grids import CylindricalGrid
 from halo_mw_lmc.density import OrbitSupportAudit
@@ -37,12 +36,10 @@ class RunArtifactTests(unittest.TestCase):
             np.ones_like(target),
             target,
             grid,
-            DensityFitSettings(
-                min_abs_z=0,
-                min_spherical_radius=0,
-                max_spherical_radius=10,
-                normalization_min_radius=0,
-            ),
+            min_abs_z=0,
+            min_spherical_radius=0,
+            max_spherical_radius=10,
+            normalization_min_radius=0,
         )
         weight_solution = WeightSolution(
             seed_weights=np.array([1.0, 2.0]),

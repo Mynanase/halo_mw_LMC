@@ -1,4 +1,4 @@
-from dataclasses import replace
+import dataclasses
 import tempfile
 import unittest
 from pathlib import Path
@@ -6,12 +6,22 @@ from pathlib import Path
 import numpy as np
 
 from halo_mw_lmc.config import (
-    ConfigurationError,
-    RunConfiguration,
     load_recipe_configuration,
     load_run_configuration,
+    resolve_model,
 )
-from halo_mw_lmc.config import ZhuComparisonConfig
+
+
+def comparable_recipe(recipe: dict) -> dict:
+    """Recipe dict with grid objects replaced by plain edge lists for equality."""
+
+    resolved = dict(recipe)
+    for key in ("density_grid", "velocity_grid"):
+        resolved[key] = {
+            name: value.tolist()
+            for name, value in dataclasses.asdict(recipe[key]).items()
+        }
+    return resolved
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -92,57 +102,65 @@ R8_40_SOLVER_CASES = {
 
 
 class ConfigurationTests(unittest.TestCase):
-    def test_repository_run_loads_as_typed_configuration(self):
+    def test_repository_run_loads_as_resolved_configuration(self):
         configuration = load_run_configuration(RUN_FILE)
 
-        self.assertIsInstance(configuration, RunConfiguration)
-        self.assertEqual(configuration.run_id, "fix-weight")
-        self.assertEqual(configuration.output_dir, REPOSITORY / "runs/fix-weight")
-        self.assertEqual(configuration.data.catalog, REPOSITORY / (
+        self.assertEqual(configuration["run"]["id"], "fix-weight")
+        self.assertEqual(
+            configuration["run"]["output_dir"], REPOSITORY / "runs/fix-weight"
+        )
+        self.assertEqual(configuration["data"]["catalog"], REPOSITORY / (
             "data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
         ))
-        self.assertEqual(configuration.orbit_periods, 10.0)
-        self.assertEqual(configuration.iterations, 1000)
-        self.assertEqual(configuration.random_seed, 0)
-        self.assertEqual(configuration.round_decimals, 3)
-        self.assertEqual(configuration.report.velocity_bin_factor, 3)
-        self.assertEqual(configuration.coverage.maximum_points, 20_000)
+        self.assertEqual(configuration["recipe"]["orbit_periods"], 10.0)
+        self.assertEqual(configuration["optimizer"]["iterations"], 1000)
+        self.assertEqual(configuration["optimizer"]["random_seed"], 0)
         self.assertEqual(
-            configuration.search_bounds["rho0_plus_2logrs"],
+            configuration["recipe"]["search"]["round_decimals"], 3
+        )
+        self.assertEqual(
+            configuration["report"]["velocity_bin_factor"], 3
+        )
+        self.assertEqual(configuration["coverage"]["maximum_points"], 20_000)
+        self.assertEqual(
+            configuration["recipe"]["search"]["bounds"]["rho0_plus_2logrs"],
             (9.5, 10.3),
         )
 
-    def test_recipe_constructs_the_core_comparison_config(self):
+    def test_recipe_resolves_the_core_comparison_model(self):
         configuration = load_run_configuration(RUN_FILE)
-        comparison = configuration.to_comparison_config()
+        comparison = resolve_model(configuration["recipe"])
 
-        self.assertIsInstance(comparison, ZhuComparisonConfig)
-        self.assertEqual(comparison.density_grid.shape, (25, 25, 4))
-        self.assertEqual(comparison.velocity_grid.shape, (8, 5, 4, 201))
+        self.assertEqual(comparison["density_grid"].shape, (25, 25, 4))
+        self.assertEqual(comparison["velocity_grid"].shape, (8, 5, 4, 201))
         np.testing.assert_allclose(
-            comparison.density_grid.phi_edges,
-            comparison.velocity_grid.phi_edges,
+            comparison["density_grid"].phi_edges,
+            comparison["velocity_grid"].phi_edges,
         )
-        self.assertFalse(comparison.include_velocity)
-        self.assertEqual(comparison.velocity_fit_min_radius, 8.0)
-        self.assertEqual(comparison.velocity_probability_floor, 1e-300)
-        self.assertEqual(comparison.orbit_periods, 10.0)
-        self.assertEqual(comparison.orbit_samples_per_orbit, 1000)
-        self.assertEqual(comparison.orbit_sample_divisor, 500.0)
-        self.assertEqual(comparison.weight_model.mode, "catalogue_fixed")
-        self.assertEqual(comparison.objective.mode, "density_velocity")
+        self.assertFalse(comparison["include_velocity"])
+        self.assertEqual(comparison["velocity_fit_min_radius"], 8.0)
+        self.assertEqual(comparison["velocity_probability_floor"], 1e-300)
+        self.assertEqual(comparison["orbit_periods"], 10.0)
+        self.assertEqual(comparison["orbit_samples_per_orbit"], 1000)
+        self.assertEqual(comparison["orbit_sample_divisor"], 500.0)
+        self.assertEqual(comparison["weight_model"]["mode"], "catalogue_fixed")
+        self.assertEqual(comparison["objective"]["mode"], "density_velocity")
 
     def test_density_solved_recipe_has_no_free_density_scale(self):
         configuration = load_run_configuration(DENSITY_SOLVED_RUN_FILE)
-        comparison = configuration.to_comparison_config()
+        comparison = resolve_model(configuration["recipe"])
 
-        self.assertEqual(comparison.weight_model.mode, "density_solved")
-        self.assertEqual(comparison.weight_model.solver, "lsq_linear")
-        self.assertEqual(comparison.weight_model.target_normalization, "unit_mass")
-        self.assertEqual(comparison.density_fit.normalization, "none")
-        self.assertTrue(comparison.include_velocity)
-        self.assertEqual(comparison.objective.mode, "velocity_only")
-        self.assertEqual(comparison.objective.density_max_chi2_per_bin, 2.0)
+        self.assertEqual(comparison["weight_model"]["mode"], "density_solved")
+        self.assertEqual(comparison["weight_model"]["solver"], "lsq_linear")
+        self.assertEqual(
+            comparison["weight_model"]["target_normalization"], "unit_mass"
+        )
+        self.assertEqual(comparison["density_fit"]["normalization"], "none")
+        self.assertTrue(comparison["include_velocity"])
+        self.assertEqual(comparison["objective"]["mode"], "velocity_only")
+        self.assertEqual(
+            comparison["objective"]["density_max_chi2_per_bin"], 2.0
+        )
 
     def test_density_solved_recipe_rejects_a_second_density_scale(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -154,50 +172,58 @@ class ConfigurationTests(unittest.TestCase):
                     'normalization = "volume"',
                 )
             )
-            with self.assertRaisesRegex(ConfigurationError, "normalization='none'"):
+            with self.assertRaisesRegex(ValueError, "normalization='none'"):
                 load_recipe_configuration(path)
 
     def test_density_solved_benchmark_is_one_paper_best_evaluation(self):
         configuration = load_run_configuration(BENCHMARK_RUN_FILE)
 
         self.assertEqual(
-            configuration.run_id,
+            configuration["run"]["id"],
             "density-solved-paper-best-benchmark",
         )
-        self.assertEqual(configuration.iterations, 1)
-        self.assertEqual(configuration.recipe.search.initial_point, "paper_best")
+        self.assertEqual(configuration["optimizer"]["iterations"], 1)
         self.assertEqual(
-            configuration.output_dir,
+            configuration["recipe"]["search"]["initial_point"], "paper_best"
+        )
+        self.assertEqual(
+            configuration["run"]["output_dir"],
             REPOSITORY / "runs/density-solved-paper-best-benchmark",
         )
         self.assertEqual(
-            configuration.coverage.output_dir,
+            configuration["coverage"]["output_dir"],
             REPOSITORY / "data_coverage-density-solved-paper-best-benchmark",
         )
 
     def test_r8_50_benchmark_aligns_density_and_velocity_radial_support(self):
         configuration = load_run_configuration(R8_50_BENCHMARK_RUN_FILE)
-        comparison = configuration.to_comparison_config()
+        comparison = resolve_model(configuration["recipe"])
 
         self.assertEqual(
-            configuration.run_id,
+            configuration["run"]["id"],
             "density-solved-r8-50-paper-best-benchmark",
         )
-        self.assertEqual(configuration.iterations, 1)
-        self.assertEqual(configuration.recipe.search.initial_point, "paper_best")
-        self.assertEqual(comparison.density_fit.min_spherical_radius, 8.0)
-        self.assertEqual(comparison.density_fit.max_spherical_radius, 50.0)
-        self.assertEqual(comparison.velocity_fit_min_radius, 8.0)
-        self.assertEqual(comparison.velocity_grid.radius_edges[-1], 50.0)
-        self.assertEqual(comparison.density_fit.min_abs_z, 2.0)
-        self.assertEqual(comparison.weight_model.mode, "density_solved")
-        self.assertEqual(comparison.density_fit.normalization, "none")
+        self.assertEqual(configuration["optimizer"]["iterations"], 1)
         self.assertEqual(
-            configuration.output_dir,
+            configuration["recipe"]["search"]["initial_point"], "paper_best"
+        )
+        self.assertEqual(
+            comparison["density_fit"]["min_spherical_radius"], 8.0
+        )
+        self.assertEqual(
+            comparison["density_fit"]["max_spherical_radius"], 50.0
+        )
+        self.assertEqual(comparison["velocity_fit_min_radius"], 8.0)
+        self.assertEqual(comparison["velocity_grid"].radius_edges[-1], 50.0)
+        self.assertEqual(comparison["density_fit"]["min_abs_z"], 2.0)
+        self.assertEqual(comparison["weight_model"]["mode"], "density_solved")
+        self.assertEqual(comparison["density_fit"]["normalization"], "none")
+        self.assertEqual(
+            configuration["run"]["output_dir"],
             REPOSITORY / "runs/density-solved-r8-50-paper-best-benchmark",
         )
         self.assertEqual(
-            configuration.coverage.output_dir,
+            configuration["coverage"]["output_dir"],
             REPOSITORY
             / "data_coverage-density-solved-r8-50-paper-best-benchmark",
         )
@@ -208,31 +234,39 @@ class ConfigurationTests(unittest.TestCase):
                 configuration = load_run_configuration(
                     REPOSITORY / "configs" / "runs" / filename
                 )
-                comparison = configuration.to_comparison_config()
-                self.assertEqual(configuration.iterations, 1)
-                self.assertEqual(configuration.random_seed, 0)
+                comparison = resolve_model(configuration["recipe"])
+                self.assertEqual(configuration["optimizer"]["iterations"], 1)
+                self.assertEqual(configuration["optimizer"]["random_seed"], 0)
                 self.assertEqual(
-                    configuration.recipe.search.initial_point,
+                    configuration["recipe"]["search"]["initial_point"],
                     "paper_best",
                 )
-                self.assertEqual(comparison.density_fit.min_spherical_radius, 8.0)
-                self.assertEqual(comparison.density_fit.max_spherical_radius, 40.0)
-                self.assertEqual(comparison.velocity_fit_min_radius, 8.0)
+                self.assertEqual(
+                    comparison["density_fit"]["min_spherical_radius"], 8.0
+                )
+                self.assertEqual(
+                    comparison["density_fit"]["max_spherical_radius"], 40.0
+                )
+                self.assertEqual(comparison["velocity_fit_min_radius"], 8.0)
                 np.testing.assert_allclose(
-                    comparison.velocity_grid.radius_edges,
+                    comparison["velocity_grid"].radius_edges,
                     [4, 6, 8, 10, 12, 15, 20, 30, 40],
                 )
                 np.testing.assert_allclose(
-                    comparison.objective.density_shell_edges,
+                    comparison["objective"]["density_shell_edges"],
                     [8, 10, 12, 15, 20, 30, 40],
                 )
                 self.assertEqual(
-                    comparison.objective.density_shell_phi_max_chi2_per_bin,
+                    comparison["objective"][
+                        "density_shell_phi_max_chi2_per_bin"
+                    ],
                     2.0,
                 )
-                self.assertEqual(comparison.weight_model.lsmr_tol, expected_tol)
                 self.assertEqual(
-                    comparison.weight_model.regularization_strength,
+                    comparison["weight_model"]["lsmr_tol"], expected_tol
+                )
+                self.assertEqual(
+                    comparison["weight_model"]["regularization_strength"],
                     expected_regularization,
                 )
 
@@ -247,47 +281,80 @@ class ConfigurationTests(unittest.TestCase):
                     REPOSITORY / "configs/runs"
                     / f"density_solved_r8_40_joint_{suffix}.toml"
                 )
-                self.assertEqual(baseline.recipe.objective.mode, "velocity_only")
-                self.assertEqual(joint.recipe.objective.mode, "density_velocity")
-                self.assertIsNone(joint.recipe.objective.density_max_chi2_per_bin)
-                self.assertIsNone(joint.recipe.objective.density_shell_edges)
-                self.assertIsNone(
-                    joint.recipe.objective.density_shell_phi_max_chi2_per_bin
-                )
-                self.assertTrue(joint.to_comparison_config().include_velocity)
                 self.assertEqual(
-                    replace(
-                        joint.recipe,
-                        source_path=baseline.recipe.source_path,
-                        name=baseline.recipe.name,
-                        objective=baseline.recipe.objective,
-                    ),
-                    baseline.recipe,
+                    baseline["recipe"]["objective"]["mode"], "velocity_only"
                 )
-                self.assertEqual(joint.data, baseline.data)
-                self.assertEqual(joint.iterations, baseline.iterations)
-                self.assertEqual(joint.random_seed, baseline.random_seed)
-                self.assertIsNone(joint.fixed_optimizer_points)
-                self.assertNotEqual(joint.run_id, baseline.run_id)
-                self.assertNotEqual(joint.output_dir, baseline.output_dir)
+                self.assertEqual(
+                    joint["recipe"]["objective"]["mode"], "density_velocity"
+                )
+                self.assertIsNone(
+                    joint["recipe"]["objective"]["density_max_chi2_per_bin"]
+                )
+                self.assertIsNone(
+                    joint["recipe"]["objective"]["density_shell_edges"]
+                )
+                self.assertIsNone(
+                    joint["recipe"]["objective"][
+                        "density_shell_phi_max_chi2_per_bin"
+                    ]
+                )
+                self.assertTrue(
+                    resolve_model(joint["recipe"])["include_velocity"]
+                )
+                joint_recipe = dict(joint["recipe"])
+                joint_recipe["source_path"] = baseline["recipe"]["source_path"]
+                joint_recipe["name"] = baseline["recipe"]["name"]
+                joint_recipe["objective"] = baseline["recipe"]["objective"]
+                self.assertEqual(
+                    comparable_recipe(joint_recipe),
+                    comparable_recipe(baseline["recipe"]),
+                )
+                self.assertEqual(joint["data"], baseline["data"])
+                self.assertEqual(
+                    joint["optimizer"]["iterations"],
+                    baseline["optimizer"]["iterations"],
+                )
+                self.assertEqual(
+                    joint["optimizer"]["random_seed"],
+                    baseline["optimizer"]["random_seed"],
+                )
+                self.assertIsNone(joint["optimizer"]["fixed_points"])
                 self.assertNotEqual(
-                    joint.coverage.output_dir, baseline.coverage.output_dir
+                    joint["run"]["id"], baseline["run"]["id"]
+                )
+                self.assertNotEqual(
+                    joint["run"]["output_dir"], baseline["run"]["output_dir"]
+                )
+                self.assertNotEqual(
+                    joint["coverage"]["output_dir"],
+                    baseline["coverage"]["output_dir"],
                 )
 
     def test_stage1_screen_preserves_wide_bounds_and_fixed_anchors(self):
         benchmark = load_run_configuration(REPOSITORY / "configs/runs/density_solved_r8_40_joint_benchmark.toml")
         screen = load_recipe_configuration(REPOSITORY / "configs/recipes/zhu_2026_density_solved_r8_40_joint_screen.toml")
-        self.assertEqual(replace(screen, source_path=benchmark.recipe.source_path, name=benchmark.recipe.name, search=benchmark.recipe.search), benchmark.recipe)
-        self.assertEqual(screen.search.bounds.qhalo, (0.70, 1.30))
-        self.assertEqual(screen.search.bounds.rho0_plus_2logrs, (9.20, 10.30))
-        self.assertEqual(screen.search.bounds.gamma, (0.50, 2.00))
+        screen_copy = dict(screen)
+        screen_copy["source_path"] = benchmark["recipe"]["source_path"]
+        screen_copy["name"] = benchmark["recipe"]["name"]
+        screen_copy["search"] = benchmark["recipe"]["search"]
+        self.assertEqual(
+            comparable_recipe(screen_copy),
+            comparable_recipe(benchmark["recipe"]),
+        )
+        self.assertEqual(screen["search"]["bounds"]["qhalo"], (0.70, 1.30))
+        self.assertEqual(
+            screen["search"]["bounds"]["rho0_plus_2logrs"], (9.20, 10.30)
+        )
+        self.assertEqual(screen["search"]["bounds"]["gamma"], (0.50, 2.00))
         points = []
         for number in range(1, 13):
             run = load_run_configuration(REPOSITORY / f"configs/runs/density_solved_r8_40_stage1_screen_shard{number:02d}.toml")
-            self.assertEqual(run.recipe, screen)
-            self.assertEqual(run.iterations, 4)
-            self.assertEqual(run.random_seed, 0)
-            points.extend(run.fixed_optimizer_points)
+            self.assertEqual(
+                comparable_recipe(run["recipe"]), comparable_recipe(screen)
+            )
+            self.assertEqual(run["optimizer"]["iterations"], 4)
+            self.assertEqual(run["optimizer"]["random_seed"], 0)
+            points.extend(run["optimizer"]["fixed_points"])
         self.assertEqual(len(points), 48)
         self.assertEqual(len(set(points)), 48)
         self.assertIn((1.222, 0.895, 5.616, 9.354, 1.330), points)
@@ -295,10 +362,24 @@ class ConfigurationTests(unittest.TestCase):
     def test_stage2_side_runs_preserve_screen_settings(self):
         anchor = load_run_configuration(REPOSITORY / "configs/runs/density_solved_r8_40_stage2_anchor_9353.toml")
         converged = load_run_configuration(REPOSITORY / "configs/runs/density_solved_r8_40_stage2_rank1_converged.toml")
-        self.assertEqual(anchor.recipe.source_path.name, "zhu_2026_density_solved_r8_40_joint_screen.toml")
-        self.assertEqual(anchor.fixed_optimizer_points[0][3], 9.353)
-        self.assertEqual(converged.recipe.weight_model.max_iter, 60000)
-        self.assertEqual(replace(converged.recipe, source_path=anchor.recipe.source_path, name=anchor.recipe.name, weight_model=anchor.recipe.weight_model), anchor.recipe)
+        self.assertEqual(
+            anchor["recipe"]["source_path"].name,
+            "zhu_2026_density_solved_r8_40_joint_screen.toml",
+        )
+        self.assertEqual(
+            anchor["optimizer"]["fixed_points"][0][3], 9.353
+        )
+        self.assertEqual(
+            converged["recipe"]["weight_model"]["max_iter"], 60000
+        )
+        converged_recipe = dict(converged["recipe"])
+        converged_recipe["source_path"] = anchor["recipe"]["source_path"]
+        converged_recipe["name"] = anchor["recipe"]["name"]
+        converged_recipe["weight_model"] = anchor["recipe"]["weight_model"]
+        self.assertEqual(
+            comparable_recipe(converged_recipe),
+            comparable_recipe(anchor["recipe"]),
+        )
 
     def test_r8_40_ranking_cases_use_identical_fixed_points(self):
         for filename, expected_tol in R8_40_RANKING_CASES.items():
@@ -306,15 +387,17 @@ class ConfigurationTests(unittest.TestCase):
                 configuration = load_run_configuration(
                     REPOSITORY / "configs" / "runs" / filename
                 )
-                comparison = configuration.to_comparison_config()
-                self.assertEqual(configuration.iterations, 5)
+                comparison = resolve_model(configuration["recipe"])
+                self.assertEqual(configuration["optimizer"]["iterations"], 5)
                 self.assertEqual(
-                    configuration.fixed_optimizer_points,
+                    configuration["optimizer"]["fixed_points"],
                     R8_40_RANKING_POINTS,
                 )
-                self.assertEqual(comparison.weight_model.lsmr_tol, expected_tol)
                 self.assertEqual(
-                    comparison.weight_model.regularization_strength,
+                    comparison["weight_model"]["lsmr_tol"], expected_tol
+                )
+                self.assertEqual(
+                    comparison["weight_model"]["regularization_strength"],
                     1e-6,
                 )
 
@@ -324,17 +407,17 @@ class ConfigurationTests(unittest.TestCase):
                 configuration = load_run_configuration(
                     REPOSITORY / "configs" / "runs" / filename
                 )
-                model = configuration.to_comparison_config().weight_model
-                self.assertEqual(configuration.iterations, 1)
-                self.assertIsNone(configuration.fixed_optimizer_points)
+                model = resolve_model(configuration["recipe"])["weight_model"]
+                self.assertEqual(configuration["optimizer"]["iterations"], 1)
+                self.assertIsNone(configuration["optimizer"]["fixed_points"])
                 self.assertEqual(
-                    configuration.recipe.search.initial_point,
+                    configuration["recipe"]["search"]["initial_point"],
                     "paper_best",
                 )
-                self.assertEqual(model.solver, solver)
-                self.assertEqual(model.lsmr_tol, lsmr_tol)
-                self.assertEqual(model.solver_tolerance, 1e-8)
-                self.assertEqual(model.regularization_strength, 1e-6)
+                self.assertEqual(model["solver"], solver)
+                self.assertEqual(model["lsmr_tol"], lsmr_tol)
+                self.assertEqual(model["solver_tolerance"], 1e-8)
+                self.assertEqual(model["regularization_strength"], 1e-6)
 
     def test_alternative_solver_rejects_lsmr_tolerance(self):
         source = (
@@ -349,7 +432,7 @@ class ConfigurationTests(unittest.TestCase):
                     "solver_tolerance = 1e-8\nlsmr_tol = 1e-6",
                 )
             )
-            with self.assertRaisesRegex(ConfigurationError, "unknown field"):
+            with self.assertRaisesRegex(ValueError, "lsmr_tol is only valid"):
                 load_recipe_configuration(path)
 
     def test_fixed_point_count_must_match_iterations(self):
@@ -364,29 +447,21 @@ class ConfigurationTests(unittest.TestCase):
                 f'recipe = "{REPOSITORY / "configs/recipes/zhu_2026_density_solved_r8_40_tol1e7.toml"}"',
             )
             path.write_text(text.replace("iterations = 5", "iterations = 4"))
-            with self.assertRaisesRegex(ConfigurationError, "must equal"):
+            with self.assertRaisesRegex(ValueError, "must equal"):
                 load_run_configuration(path)
 
-    def test_density_shell_gate_requires_matching_velocity_boundaries(self):
+    def test_shell_phi_limit_requires_matching_shell_edges(self):
         source = REPOSITORY / "configs/recipes/zhu_2026_density_solved_r8_40.toml"
-        cases = (
-            (
-                "density_shell_edges_kpc = [8.0, 10.0, 12.0, 15.0, 20.0, 30.0, 40.0]",
-                "density_shell_edges_kpc = [8.0, 11.0, 12.0, 15.0, 20.0, 30.0, 40.0]",
-                "velocity radius edges",
-            ),
-            (
-                "density_shell_phi_max_chi2_per_bin = 2.0",
-                "",
-                "configured together",
-            ),
-        )
-        for original, replacement, message in cases:
-            with self.subTest(message=message), tempfile.TemporaryDirectory() as directory:
-                path = Path(directory) / "recipe.toml"
-                path.write_text(source.read_text().replace(original, replacement))
-                with self.assertRaisesRegex(ConfigurationError, message):
-                    load_recipe_configuration(path)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "recipe.toml"
+            path.write_text(
+                source.read_text().replace(
+                    "density_shell_phi_max_chi2_per_bin = 2.0",
+                    "",
+                )
+            )
+            with self.assertRaisesRegex(ValueError, "configured together"):
+                load_recipe_configuration(path)
 
     def test_every_relative_path_is_resolved_from_its_declaring_file(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -428,49 +503,49 @@ random_seed = 11
 
             configuration = load_run_configuration(run_path)
 
-        self.assertEqual(configuration.recipe.source_path, recipe_path.resolve())
-        self.assertEqual(configuration.output_dir, (root / "outputs/run").resolve())
         self.assertEqual(
-            configuration.data.catalog,
+            configuration["recipe"]["source_path"], recipe_path.resolve()
+        )
+        self.assertEqual(
+            configuration["run"]["output_dir"],
+            (root / "outputs/run").resolve(),
+        )
+        self.assertEqual(
+            configuration["data"]["catalog"],
             (runs / "inputs/catalog.txt").resolve(),
         )
         self.assertEqual(
-            configuration.data.target_density,
+            configuration["data"]["target_density"],
             (runs / "inputs/density.txt").resolve(),
         )
 
-    def test_unknown_run_field_is_rejected(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / "run.toml"
-            text = RUN_FILE.read_text().replace(
-                "velocity_bin_factor = 3",
-                "velocity_bin_factor = 3\nunexpected = true",
-            ).replace(
-                "../recipes/zhu_2026_fixed_weight.toml",
-                str(RECIPE_FILE),
-            )
-            path.write_text(text)
-
-            with self.assertRaisesRegex(
-                ConfigurationError,
-                r"unknown field\(s\) in run configuration.report: unexpected",
-            ):
-                load_run_configuration(path)
-
-    def test_unknown_recipe_field_is_rejected(self):
+    def test_catalogue_fixed_recipe_rejects_solver_options(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "recipe.toml"
             path.write_text(
                 RECIPE_FILE.read_text().replace(
-                    "n_phi = 4",
-                    "n_phi = 4\nunexpected = 1",
+                    '[weight_model]\nmode = "catalogue_fixed"',
+                    '[weight_model]\nmode = "catalogue_fixed"\nmax_iter = 20000',
                 )
             )
 
             with self.assertRaisesRegex(
-                ConfigurationError,
-                r"unknown field\(s\) in recipe.density_grid: unexpected",
+                ValueError,
+                "cannot define solver options: max_iter",
             ):
+                load_recipe_configuration(path)
+
+    def test_schema_version_mismatch_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "recipe.toml"
+            path.write_text(
+                RECIPE_FILE.read_text().replace(
+                    "schema_version = 1",
+                    "schema_version = 2",
+                )
+            )
+
+            with self.assertRaisesRegex(ValueError, "schema_version"):
                 load_recipe_configuration(path)
 
     def test_invalid_search_interval_is_rejected(self):
@@ -484,8 +559,8 @@ random_seed = 11
             )
 
             with self.assertRaisesRegex(
-                ConfigurationError,
-                "recipe.search.bounds.qhalo must be strictly increasing",
+                ValueError,
+                "bounds.qhalo must be strictly increasing",
             ):
                 load_recipe_configuration(path)
 
@@ -498,7 +573,7 @@ random_seed = 11
                     "qhalo = [0.70, 0.80]",
                 )
             )
-            with self.assertRaisesRegex(ConfigurationError, "outside bounds.*qhalo"):
+            with self.assertRaisesRegex(ValueError, "outside bounds.*qhalo"):
                 load_recipe_configuration(path)
 
     def test_search_bounds_respect_the_potential_domain(self):
@@ -510,7 +585,7 @@ random_seed = 11
                     "gamma = [0.50, 3.00]",
                 )
             )
-            with self.assertRaisesRegex(ConfigurationError, "0 <= gamma < 3"):
+            with self.assertRaisesRegex(ValueError, "0 <= gamma < 3"):
                 load_recipe_configuration(path)
 
     def test_bounds_must_align_with_optimizer_rounding(self):
@@ -522,7 +597,7 @@ random_seed = 11
                     "qhalo = [0.7005, 1.15]",
                 )
             )
-            with self.assertRaisesRegex(ConfigurationError, "representable"):
+            with self.assertRaisesRegex(ValueError, "representable"):
                 load_recipe_configuration(path)
 
 

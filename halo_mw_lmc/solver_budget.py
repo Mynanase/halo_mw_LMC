@@ -23,12 +23,9 @@ import numpy as np
 
 from .config import (
     CONFIGURATION_SCHEMA_VERSION,
-    ConfigurationError,
-    RecipeConfiguration,
     SEARCH_PARAMETER_NAMES,
     load_recipe_configuration,
 )
-from .config import WeightModelSettings
 
 
 SOLVER_BUDGET_SCHEMA_VERSION = CONFIGURATION_SCHEMA_VERSION
@@ -99,7 +96,7 @@ class SolverBudgetPlan:
 
     source_path: Path
     recipe_source_path: Path
-    recipe: RecipeConfiguration
+    recipe: dict
     benchmark_id: str
     output_root: Path
     timeout_seconds: float
@@ -121,13 +118,13 @@ def _read_document(path: str | Path, context: str) -> tuple[Path, dict[str, Any]
         with source.open("rb") as stream:
             document = tomllib.load(stream)
     except FileNotFoundError as exc:
-        raise ConfigurationError(f"{context} file not found: {source}") from exc
+        raise ValueError(f"{context} file not found: {source}") from exc
     except (OSError, tomllib.TOMLDecodeError) as exc:
-        raise ConfigurationError(
+        raise ValueError(
             f"could not read {context} file {source}: {exc}"
         ) from exc
     if not isinstance(document, dict):
-        raise ConfigurationError(f"{context} document must be a TOML table")
+        raise ValueError(f"{context} document must be a TOML table")
     return source, document
 
 
@@ -142,9 +139,9 @@ def _require_exact_fields(
     unknown = sorted(set(table) - expected - optional)
     missing = sorted(expected - set(table))
     if unknown:
-        raise ConfigurationError(f"unknown field(s) in {context}: {', '.join(unknown)}")
+        raise ValueError(f"unknown field(s) in {context}: {', '.join(unknown)}")
     if missing:
-        raise ConfigurationError(
+        raise ValueError(
             f"missing required field(s) in {context}: {', '.join(missing)}"
         )
 
@@ -152,37 +149,37 @@ def _require_exact_fields(
 def _table(document: Mapping[str, Any], name: str, context: str) -> Mapping[str, Any]:
     value = document.get(name)
     if not isinstance(value, dict):
-        raise ConfigurationError(f"{context}.{name} must be a TOML table")
+        raise ValueError(f"{context}.{name} must be a TOML table")
     return value
 
 
 def _string(value: Any, context: str) -> str:
     if not isinstance(value, str) or not value.strip():
-        raise ConfigurationError(f"{context} must be a non-empty string")
+        raise ValueError(f"{context} must be a non-empty string")
     return value
 
 
 def _integer(value: Any, context: str, *, minimum: int | None = None) -> int:
     if isinstance(value, bool) or not isinstance(value, int):
-        raise ConfigurationError(f"{context} must be an integer")
+        raise ValueError(f"{context} must be an integer")
     if minimum is not None and value < minimum:
-        raise ConfigurationError(f"{context} must be at least {minimum}")
+        raise ValueError(f"{context} must be at least {minimum}")
     return value
 
 
 def _finite_number(value: Any, context: str) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ConfigurationError(f"{context} must be a number")
+        raise ValueError(f"{context} must be a number")
     result = float(value)
     if not np.isfinite(result):
-        raise ConfigurationError(f"{context} must be finite")
+        raise ValueError(f"{context} must be finite")
     return result
 
 
 def _positive_number(value: Any, context: str) -> float:
     result = _finite_number(value, context)
     if result <= 0:
-        raise ConfigurationError(f"{context} must be a positive finite number")
+        raise ValueError(f"{context} must be a positive finite number")
     return result
 
 
@@ -196,28 +193,28 @@ def _point(
     table: Mapping[str, Any],
     context: str,
     *,
-    recipe: RecipeConfiguration,
+    recipe: dict,
 ) -> SolverBudgetPoint:
     _require_exact_fields(table, {"coordinates", "source"}, context)
     raw = table["coordinates"]
     if not isinstance(raw, list) or len(raw) != len(SEARCH_PARAMETER_NAMES):
-        raise ConfigurationError(
+        raise ValueError(
             f"{context}.coordinates must contain exactly "
             f"{len(SEARCH_PARAMETER_NAMES)} values in "
             f"{', '.join(SEARCH_PARAMETER_NAMES)} order"
         )
     coordinates = tuple(_finite_number(value, f"{context}.coordinates[{index}]") for index, value in enumerate(raw))
-    bounds = recipe.search.bounds.as_dict()
-    decimals = recipe.search.round_decimals
+    bounds = recipe["search"]["bounds"]
+    decimals = recipe["search"]["round_decimals"]
     for parameter, coordinate in zip(SEARCH_PARAMETER_NAMES, coordinates):
         lower, upper = bounds[parameter]
         if not lower <= coordinate <= upper:
-            raise ConfigurationError(
+            raise ValueError(
                 f"{context}.coordinates {parameter}={coordinate} lies outside "
                 f"the recipe bounds [{lower}, {upper}]"
             )
         if not np.isclose(coordinate, round(coordinate, decimals), rtol=0.0, atol=10 ** (-(decimals + 10))):
-            raise ConfigurationError(
+            raise ValueError(
                 f"{context}.coordinates {parameter} is not representable with "
                 f"round_decimals={decimals}"
             )
@@ -229,7 +226,7 @@ def _method(
     table: Mapping[str, Any],
     context: str,
     *,
-    recipe: RecipeConfiguration,
+    recipe: dict,
 ) -> SolverBudgetMethod:
     _require_exact_fields(
         table,
@@ -239,12 +236,12 @@ def _method(
     )
     solver = _string(table["solver"], f"{context}.solver")
     if solver not in SOLVER_BUDGET_BACKENDS:
-        raise ConfigurationError(
+        raise ValueError(
             f"{context}.solver must be one of " + ", ".join(SOLVER_BUDGET_BACKENDS)
         )
     if solver == "lsq_linear":
         if "lsmr_tol" not in table:
-            raise ConfigurationError(
+            raise ValueError(
                 f"{context} must declare lsmr_tol for solver='lsq_linear'"
             )
         lsmr_tol = _positive_number(table["lsmr_tol"], f"{context}.lsmr_tol")
@@ -255,12 +252,12 @@ def _method(
             )
     else:
         if "lsmr_tol" in table:
-            raise ConfigurationError(
+            raise ValueError(
                 f"{context} cannot declare lsmr_tol for solver={solver!r}"
             )
         lsmr_tol = None
         if "solver_tolerance" not in table:
-            raise ConfigurationError(
+            raise ValueError(
                 f"{context}.solver_tolerance is required for solver={solver!r}"
             )
         solver_tolerance = _positive_number(
@@ -277,33 +274,25 @@ def _method(
     return method
 
 
-def resolved_weight_settings(
-    recipe: RecipeConfiguration,
-    method: SolverBudgetMethod,
-) -> WeightModelSettings:
+def resolved_weight_settings(recipe: dict, method: SolverBudgetMethod) -> dict:
     """Return the method's weight settings: solver knobs override the recipe.
 
     Only ``solver``, ``max_iter``, and the backend tolerance change between
     methods; normalization, regularization, and everything else stays exactly
-    as the shared recipe declares.  Constructing the dataclass also applies the
-    core validation contract for the chosen backend.
+    as the shared recipe declares. Feeding the result to
+    ``solve_density_weights`` applies the backend's own contract.
     """
 
-    base = recipe.weight_model
-    if base.mode != "density_solved":
-        raise ConfigurationError(
-            "the solver-budget experiment requires a density_solved recipe"
-        )
-    return WeightModelSettings(
-        mode=base.mode,
-        solver=method.solver,
-        target_normalization=base.target_normalization,
-        regularization=base.regularization,
-        regularization_strength=base.regularization_strength,
-        max_iter=method.max_iter,
-        solver_tolerance=method.solver_tolerance,
-        lsmr_tol=method.lsmr_tol,
-    )
+    base = recipe["weight_model"]
+    if base["mode"] != "density_solved":
+        raise ValueError("the solver-budget experiment requires a density_solved recipe")
+    return {
+        **base,
+        "solver": method.solver,
+        "max_iter": method.max_iter,
+        "solver_tolerance": method.solver_tolerance,
+        "lsmr_tol": method.lsmr_tol,
+    }
 
 
 def _thresholds(table: Mapping[str, Any]) -> SolverBudgetThresholds:
@@ -342,12 +331,12 @@ def _thresholds(table: Mapping[str, Any]) -> SolverBudgetThresholds:
     )
     # The repeat tolerance is fixed by the contract; only make it stricter.
     if thresholds.repeat_rtol > 1e-12 or thresholds.repeat_atol > 1e-12:
-        raise ConfigurationError(
+        raise ValueError(
             "thresholds.repeat_rtol and thresholds.repeat_atol cannot be loosened "
             "beyond 1e-12"
         )
     if thresholds.environment_instability_ratio < 1.0:
-        raise ConfigurationError(
+        raise ValueError(
             "thresholds.environment_instability_ratio must be at least one"
         )
     return thresholds
@@ -379,7 +368,7 @@ def load_solver_budget_plan(
     )
     schema_version = _integer(document["schema_version"], "schema_version", minimum=1)
     if schema_version != SOLVER_BUDGET_SCHEMA_VERSION:
-        raise ConfigurationError(
+        raise ValueError(
             f"unsupported schema_version: {schema_version}; "
             f"expected {SOLVER_BUDGET_SCHEMA_VERSION}"
         )
@@ -406,43 +395,43 @@ def load_solver_budget_plan(
 
     points_table = _table(document, "points", "solver-budget configuration")
     if len(points_table) < 3:
-        raise ConfigurationError("points must declare at least three pilot points")
+        raise ValueError("points must declare at least three pilot points")
     points = tuple(
         _point(name, table, f"points.{name}", recipe=recipe)
         for name, table in points_table.items()
         if isinstance(table, dict)
     )
     if len(points) != len(points_table):
-        raise ConfigurationError("every entry of points must be a TOML table")
+        raise ValueError("every entry of points must be a TOML table")
     coordinates = [point.coordinates for point in points]
     if len(set(coordinates)) != len(coordinates):
-        raise ConfigurationError("points must not duplicate coordinates")
+        raise ValueError("points must not duplicate coordinates")
 
     methods_table = _table(document, "methods", "solver-budget configuration")
     if not methods_table:
-        raise ConfigurationError("methods must declare at least one method")
+        raise ValueError("methods must declare at least one method")
     methods = tuple(
         _method(name, table, f"methods.{name}", recipe=recipe)
         for name, table in methods_table.items()
         if isinstance(table, dict)
     )
     if len(methods) != len(methods_table):
-        raise ConfigurationError("every entry of methods must be a TOML table")
+        raise ValueError("every entry of methods must be a TOML table")
 
     budget_table = _table(document, "budget", "solver-budget configuration")
     _require_exact_fields(budget_table, {"solver", "lsmr_tol", "max_iter"}, "budget")
     if _string(budget_table["solver"], "budget.solver") != "lsq_linear":
-        raise ConfigurationError("the budget curve is fixed to solver='lsq_linear'")
+        raise ValueError("the budget curve is fixed to solver='lsq_linear'")
     budget_lsmr_tol = _positive_number(budget_table["lsmr_tol"], "budget.lsmr_tol")
     raw_levels = budget_table["max_iter"]
     if not isinstance(raw_levels, list) or not raw_levels:
-        raise ConfigurationError("budget.max_iter must be a non-empty list")
+        raise ValueError("budget.max_iter must be a non-empty list")
     budget_max_iter = tuple(
         _integer(value, f"budget.max_iter[{index}]", minimum=1)
         for index, value in enumerate(raw_levels)
     )
     if any(left >= right for left, right in zip(budget_max_iter, budget_max_iter[1:])):
-        raise ConfigurationError("budget.max_iter must be strictly increasing")
+        raise ValueError("budget.max_iter must be strictly increasing")
     for index, level in enumerate(budget_max_iter):
         resolved_weight_settings(recipe, SolverBudgetMethod(name=f"budget_{level}", solver="lsq_linear", max_iter=level, lsmr_tol=budget_lsmr_tol, solver_tolerance=None))
 
@@ -450,10 +439,10 @@ def load_solver_budget_plan(
     if not isinstance(phase_list, list) or not all(
         isinstance(entry, str) for entry in phase_list
     ):
-        raise ConfigurationError("phases must be a list of phase names")
+        raise ValueError("phases must be a list of phase names")
     phases = tuple(phase_list)
     if phases != SOLVER_BUDGET_PHASES:
-        raise ConfigurationError(
+        raise ValueError(
             "phases must be exactly " + ", ".join(SOLVER_BUDGET_PHASES)
         )
 

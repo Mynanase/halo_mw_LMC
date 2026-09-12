@@ -4,12 +4,6 @@ from unittest.mock import patch
 
 import numpy as np
 
-from halo_mw_lmc.config import (
-    DensityFitSettings,
-    ObjectiveSettings,
-    WeightModelSettings,
-    ZhuComparisonConfig,
-)
 from halo_mw_lmc.grids import CylindricalGrid
 from halo_mw_lmc.orbits import OrbitLibrary
 from halo_mw_lmc.orbits import cartesian_to_spherical_phase_space
@@ -17,6 +11,8 @@ from halo_mw_lmc.potential import ZhuHaloParameters
 from halo_mw_lmc.catalogue import SeedCatalogue
 from halo_mw_lmc.evaluate import evaluate_prepared_model
 from halo_mw_lmc.prepare import PreparedFixedWeightData
+
+from tests.artifact_fixture import comparison_model
 
 
 class FixedWeightPipelineTests(unittest.TestCase):
@@ -28,14 +24,8 @@ class FixedWeightPipelineTests(unittest.TestCase):
             z_range=(0.0, 1.0),
             n_phi=2,
         )
-        config = ZhuComparisonConfig(
-            density_grid=grid,
-            density_fit=DensityFitSettings(
-                min_abs_z=0,
-                min_spherical_radius=0,
-                max_spherical_radius=10,
-                normalization_min_radius=0,
-            ),
+        config = comparison_model(
+            grid,
             orbit_samples_per_orbit=1,
             orbit_sample_divisor=1,
         )
@@ -115,28 +105,22 @@ class DensitySolvedPipelineTests(unittest.TestCase):
             z_range=(0.0, 1.0),
             n_phi=2,
         )
-        config = ZhuComparisonConfig(
-            density_grid=grid,
-            density_fit=DensityFitSettings(
-                min_abs_z=0,
-                min_spherical_radius=0,
-                max_spherical_radius=10,
-                normalization_min_radius=0,
-                normalization="none",
-            ),
+        config = comparison_model(
+            grid,
+            density_fit={"normalization": "none"},
             include_velocity=True,
             orbit_samples_per_orbit=3,
-            weight_model=WeightModelSettings(
-                mode="density_solved",
-                solver="lsq_linear",
-                target_normalization="absolute",
-                regularization="l2",
-                regularization_strength=0.0,
-            ),
-            objective=ObjectiveSettings(
-                mode="velocity_only",
-                density_max_chi2_per_bin=1.0,
-            ),
+            weight_model={
+                "mode": "density_solved",
+                "solver": "lsq_linear",
+                "target_normalization": "absolute",
+                "regularization": "l2",
+                "regularization_strength": 0.0,
+            },
+            objective={
+                "mode": "velocity_only",
+                "density_max_chi2_per_bin": 1.0,
+            },
         )
         initial = np.array(
             [

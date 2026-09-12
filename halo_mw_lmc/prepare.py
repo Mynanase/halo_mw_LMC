@@ -6,7 +6,6 @@ import importlib.util
 from dataclasses import dataclass
 from typing import Literal, Mapping
 
-from .config import RunConfiguration
 from .coverage import DataCoverage, build_data_coverage
 from .weights import catalogue_weight_audit
 from .catalogue import read_phase_space_catalogue
@@ -31,7 +30,7 @@ class PreflightCheck:
 class PreparedExecution:
     """Prepared numerical inputs that may be handed directly to a trial loop."""
 
-    configuration: RunConfiguration
+    configuration: dict
     model: PreparedModelData
     weight_audit: Mapping[str, object] | None
 
@@ -40,7 +39,7 @@ class PreparedExecution:
 class PreparedCoverage:
     """Catalogue-only coverage inputs, with no target-density read."""
 
-    configuration: RunConfiguration
+    configuration: dict
     coverage: DataCoverage
 
 
@@ -92,7 +91,7 @@ def _dependency_check(name: str, *, required: bool) -> PreflightCheck:
 
 
 def preflight_and_prepare(
-    configuration: RunConfiguration,
+    configuration: dict,
     *,
     stage: PreflightStage = "run",
 ) -> PreflightResult:
@@ -100,7 +99,7 @@ def preflight_and_prepare(
 
     if stage not in {"run", "optimize", "evaluate", "coverage"}:
         raise ValueError(f"unsupported preflight stage: {stage}")
-    fixed = configuration.fixed_optimizer_points is not None
+    fixed = configuration["optimizer"]["fixed_points"] is not None
     if stage == "evaluate" and not fixed:
         raise PreflightError("evaluate requires optimizer.fixed_points")
     if stage == "optimize" and fixed:
@@ -113,7 +112,7 @@ def preflight_and_prepare(
         numerical_stage = stage
     checks: list[PreflightCheck] = []
 
-    output = configuration.coverage.output_dir if stage == "coverage" else configuration.output_dir
+    output = configuration["coverage"]["output_dir"] if stage == "coverage" else configuration["run"]["output_dir"]
     checks.append(PreflightCheck(
         "output_directory", "fail" if output.exists() else "pass",
         f"output directory {'already exists' if output.exists() else 'is available'}: {output}",
@@ -129,28 +128,28 @@ def preflight_and_prepare(
         checks.append(_dependency_check("agama", required=True))
         if numerical_stage == "optimize":
             checks.append(_dependency_check("skopt", required=True))
-        if configuration.recipe.weight_model.mode == "density_solved":
+        if configuration["recipe"]["weight_model"]["mode"] == "density_solved":
             checks.append(_dependency_check("scipy", required=True))
 
     failed_dependencies = any(check.status == "fail" for check in checks)
     if stage == "coverage":
-        if not configuration.data.catalog.exists():
+        if not configuration["data"]["catalog"].exists():
             checks.append(
                 PreflightCheck(
                     "catalogue",
                     "fail",
-                    f"catalogue not found: {configuration.data.catalog}",
+                    f"catalogue not found: {configuration['data']['catalog']}",
                 )
             )
             return PreflightResult(stage, numerical_stage, tuple(checks))
         try:
-            initial = read_phase_space_catalogue(configuration.data.catalog)
-            comparison = configuration.to_comparison_config()
+            initial = read_phase_space_catalogue(configuration["data"]["catalog"])
+            comparison = resolve_model(configuration["recipe"])
             coverage = build_data_coverage(
                 initial,
-                rzphi_grid=comparison.density_grid,
-                spherical_radius_edges=comparison.velocity_grid.radius_edges,
-                theta_edges=comparison.velocity_grid.theta_edges,
+                rzphi_grid=comparison["density_grid"],
+                spherical_radius_edges=comparison["velocity_grid"].radius_edges,
+                theta_edges=comparison["velocity_grid"].theta_edges,
             )
         except (OSError, TypeError, ValueError) as exc:
             checks.append(PreflightCheck("catalogue", "fail", str(exc)))
@@ -170,7 +169,7 @@ def preflight_and_prepare(
             coverage=payload if not failed_dependencies else None,
         )
 
-    missing = [("catalogue", configuration.data.catalog), ("target_density", configuration.data.target_density)]
+    missing = [("catalogue", configuration["data"]["catalog"]), ("target_density", configuration["data"]["target_density"])]
     for name, path in missing:
         checks.append(
             PreflightCheck(
@@ -183,14 +182,14 @@ def preflight_and_prepare(
         return PreflightResult(stage, numerical_stage, tuple(checks))
 
     try:
-        comparison = configuration.to_comparison_config()
-        prepared = prepare_model_data(configuration.data.catalog, configuration.data.target_density, comparison)
+        comparison = resolve_model(configuration["recipe"])
+        prepared = prepare_model_data(configuration["data"]["catalog"], configuration["data"]["target_density"], comparison)
         audit = None
-        if comparison.weight_model.mode == "catalogue_fixed":
+        if comparison["weight_model"]["mode"] == "catalogue_fixed":
             audit = catalogue_weight_audit(
                 prepared.initial_conditions,
                 prepared.seed_weights,
-                comparison.density_grid,
+                comparison["density_grid"],
             )
     except (OSError, TypeError, ValueError) as exc:
         checks.append(PreflightCheck("prepared_model", "fail", str(exc)))
@@ -230,7 +229,7 @@ from typing import Mapping
 
 import numpy as np
 
-from .config import ZhuComparisonConfig
+from .config import resolve_model
 from .orbits import (
     SphericalPhaseSpace,
     cartesian_to_spherical_phase_space,
@@ -251,7 +250,7 @@ class PreparedModelData:
     catalogue: SeedCatalogue
     target_density: np.ndarray
     target_error: np.ndarray
-    config: ZhuComparisonConfig
+    config: dict
     catalog_path: Path
     density_path: Path
     catalog_phase_space: SphericalPhaseSpace
@@ -274,25 +273,25 @@ class PreparedModelData:
 def prepare_model_data(
     catalog_path: str | Path,
     density_path: str | Path,
-    comparison_config: ZhuComparisonConfig,
+    comparison_config: dict,
 ) -> PreparedModelData:
     """Read inputs once, before any trial potential is evaluated."""
 
     catalog_source = Path(catalog_path).expanduser().resolve()
     density_source = Path(density_path).expanduser().resolve()
-    catalogue = read_seed_catalogue(catalog_source, include_velocity=comparison_config.include_velocity, require_weights=comparison_config.weight_model.mode == "catalogue_fixed")
+    catalogue = read_seed_catalogue(catalog_source, include_velocity=comparison_config["include_velocity"], require_weights=comparison_config["weight_model"]["mode"] == "catalogue_fixed")
     initial = catalogue.initial_conditions
     phase_space = cartesian_to_spherical_phase_space(initial[:, 0], initial[:, 1], initial[:, 2], initial[:, 3], initial[:, 4], initial[:, 5])
 
     observed_histograms: dict[str, VelocityHistogramSummary] = {}
-    if comparison_config.include_velocity:
+    if comparison_config["include_velocity"]:
         velocities = {"vr": phase_space.radial_velocity, "vphi": phase_space.azimuthal_velocity, "vtheta": phase_space.polar_velocity}
         for name, values in velocities.items():
-            probability, occupancy = conditional_velocity_histogram(phase_space.radius, phase_space.theta, phase_space.phi, values, comparison_config.velocity_grid)
+            probability, occupancy = conditional_velocity_histogram(phase_space.radius, phase_space.theta, phase_space.phi, values, comparison_config["velocity_grid"])
             uncertainty = multinomial_histogram_uncertainty(probability, occupancy)
             observed_histograms[name] = VelocityHistogramSummary(probability=probability, uncertainty=uncertainty, occupancy=occupancy)
 
-    target_density, target_error = read_target_density(density_source, comparison_config.density_grid)
+    target_density, target_error = read_target_density(density_source, comparison_config["density_grid"])
     return PreparedModelData(
         catalogue=catalogue,
         target_density=target_density,
@@ -312,8 +311,8 @@ PreparedFixedWeightData = PreparedModelData
 def prepare_fixed_weight_data(
     catalog_path: str | Path,
     density_path: str | Path,
-    comparison_config: ZhuComparisonConfig,
+    comparison_config: dict,
 ) -> PreparedModelData:
-    if comparison_config.weight_model.mode != "catalogue_fixed":
+    if comparison_config["weight_model"]["mode"] != "catalogue_fixed":
         raise ValueError("prepare_fixed_weight_data requires catalogue_fixed mode")
     return prepare_model_data(catalog_path, density_path, comparison_config)

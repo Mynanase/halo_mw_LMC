@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import sys
 
-from .config import ConfigurationError, load_run_configuration
+from .config import load_run_configuration
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -50,16 +50,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def _validation_document(configuration) -> dict[str, object]:
+    recipe = configuration["recipe"]
     return {
         "valid": True,
-        "run_id": configuration.run_id,
-        "recipe": configuration.recipe.name,
-        "weight_mode": configuration.recipe.weight_model.mode,
-        "objective_mode": configuration.recipe.objective.mode,
-        "schedule": "fixed_points" if configuration.fixed_optimizer_points is not None else "adaptive",
-        "catalogue": str(configuration.data.catalog),
-        "target_density": str(configuration.data.target_density),
-        "output_directory": str(configuration.output_dir),
+        "run_id": configuration["run"]["id"],
+        "recipe": recipe["name"],
+        "weight_mode": recipe["weight_model"]["mode"],
+        "objective_mode": recipe["objective"]["mode"],
+        "schedule": "fixed_points" if configuration["optimizer"]["fixed_points"] is not None else "adaptive",
+        "catalogue": str(configuration["data"]["catalog"]),
+        "target_density": str(configuration["data"]["target_density"]),
+        "output_directory": str(configuration["run"]["output_dir"]),
     }
 
 
@@ -136,7 +137,7 @@ def _execute_numerical(configuration, stage: str) -> Path:
             else run_optimization(configuration, prepared)
         )
     except Exception:
-        _save_best_effort_inspection(configuration.output_dir)
+        _save_best_effort_inspection(configuration["run"]["output_dir"])
         raise
     save_inspection(inspect_run(output))
     return output
@@ -206,20 +207,5 @@ def _run_command(args) -> int:
 
 
 def main(argv=None) -> int:
-    parsed = None
-    try:
-        parsed = build_parser().parse_args(argv)
-        return _run_command(parsed)
-    except (
-        ConfigurationError,
-        FileNotFoundError,
-        FileExistsError,
-        OSError,
-        RuntimeError,
-        ValueError,
-    ) as exc:
-        if parsed is not None and getattr(parsed, "json_output", False):
-            print(json.dumps({"ok": False, "error": str(exc)}, indent=2, sort_keys=True))
-        else:
-            print(str(exc), file=sys.stderr)
-        return 1
+    parsed = build_parser().parse_args(argv)
+    return _run_command(parsed)

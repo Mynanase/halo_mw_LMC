@@ -155,10 +155,10 @@ def _orbit_support_audit(
     density_seed = np.zeros(response.seed_count, dtype=bool)
     density_seed[response.successful_seed_index] = density_response
 
-    grid = prepared.config.velocity_grid
+    grid = prepared.config["velocity_grid"]
     wrapped_phi = grid.wrap_phi(model_phase.phi)
     velocity_sample = (np.isfinite(model_phase.radius) & np.isfinite(model_phase.theta) & np.isfinite(wrapped_phi)
-                       & (model_phase.radius >= prepared.config.velocity_fit_min_radius)
+                       & (model_phase.radius >= prepared.config["velocity_fit_min_radius"])
                        & (model_phase.radius < grid.radius_edges[-1])
                        & (model_phase.theta >= grid.theta_edges[0]) & (model_phase.theta < grid.theta_edges[-1])
                        & (wrapped_phi >= grid.phi_edges[0]) & (wrapped_phi < grid.phi_edges[-1]))
@@ -208,21 +208,21 @@ def _score_velocities(
         observed = prepared.observed_velocity_histograms[name]
         model_probability, model_occupancy = conditional_velocity_histogram(
             model_phase.radius, model_phase.theta, model_phase.phi, model_velocity[name],
-            config.velocity_grid, weights=orbit_weights,
+            config["velocity_grid"], weights=orbit_weights,
         )
         loglike, component_by_phi, used_by_phi = velocity_log_likelihood(
             catalogue_phase.radius, catalogue_phase.theta, catalogue_phase.phi,
             observed_velocity[name], prepared.catalogue.velocity_errors[name],
-            model_probability, config.velocity_grid,
-            probability_floor=config.velocity_probability_floor,
-            minimum_radius=config.velocity_fit_min_radius,
+            model_probability, config["velocity_grid"],
+            probability_floor=config["velocity_probability_floor"],
+            minimum_radius=config["velocity_fit_min_radius"],
         )
         total[name] = loglike
         by_phi[name] = component_by_phi
         stars_by_phi[name] = used_by_phi
         distributions[name] = VelocityDistributionComparison(
             component=name,
-            grid=config.velocity_grid,
+            grid=config["velocity_grid"],
             data_probability=observed.probability,
             data_uncertainty=observed.uncertainty,
             data_occupancy=observed.occupancy,
@@ -245,7 +245,7 @@ def _require_external_response_matches_library(
     sample counts per seed.
     """
 
-    grid = prepared.config.density_grid
+    grid = prepared.config["density_grid"]
     if response.grid.shape != grid.shape:
         raise ValueError(
             f"external response grid shape {response.grid.shape} does not match "
@@ -307,12 +307,19 @@ def evaluate_orbit_library(
     """
 
     config = prepared.config
-    if config.weight_model.mode == "density_solved":
+    if config["weight_model"]["mode"] == "density_solved":
         if response is None:
-            response = build_orbit_density_response(library, config.density_grid, seed_count=prepared.initial_conditions.shape[0])
+            response = build_orbit_density_response(library, config["density_grid"], seed_count=prepared.initial_conditions.shape[0])
         else:
             _require_external_response_matches_library(response, library, prepared)
-        weight_solution = solve_density_weights(response, prepared.target_density, prepared.target_error, config.density_fit, config.weight_model)
+        # "mode" selects this branch; solve_density_weights takes only the solver options.
+        weight_options = {key: value for key, value in config["weight_model"].items() if key != "mode"}
+        # solve_density_weights fits the mask only; normalization belongs to compare_density.
+        mask_fit = {
+            key: config["density_fit"][key]
+            for key in ("min_abs_z", "min_spherical_radius", "max_spherical_radius", "require_positive_data")
+        }
+        weight_solution = solve_density_weights(response, prepared.target_density, prepared.target_error, mask_fit, **weight_options)
         model_density = weight_solution.model_density
         density_target = weight_solution.target_density
         density_error = weight_solution.target_error
@@ -324,7 +331,7 @@ def evaluate_orbit_library(
             )
         fixed_weights = prepared.seed_weights
         orbit_weights = fixed_weights[library.seed_index]
-        model_density = orbit_density(library.x, library.y, library.z, orbit_weights, config.density_grid, sample_divisor=config.orbit_sample_divisor)
+        model_density = orbit_density(library.x, library.y, library.z, orbit_weights, config["density_grid"], sample_divisor=config["orbit_sample_divisor"])
         density_target = prepared.target_density
         density_error = prepared.target_error
         total_weight = float(np.sum(fixed_weights))
@@ -345,19 +352,19 @@ def evaluate_orbit_library(
             solver_backend="catalogue_fixed",
             kkt_residual=0.0,
         )
-    density = compare_density(density_target, density_error, model_density, config.density_grid, config.density_fit)
+    density = compare_density(density_target, density_error, model_density, config["density_grid"], **config["density_fit"])
     shell_diagnostics = None
-    if config.objective.density_shell_edges is not None:
-        shell_diagnostics = density_shell_diagnostics(density, config.objective.density_shell_edges)
+    if config["objective"]["density_shell_edges"] is not None:
+        shell_diagnostics = density_shell_diagnostics(density, config["objective"]["density_shell_edges"])
 
     model_phase = None
-    if config.include_velocity:
+    if config["include_velocity"]:
         model_phase = cartesian_to_spherical_phase_space(
             library.x, library.y, library.z, library.vx, library.vy, library.vz,
         )
 
     support_audit = None
-    if config.weight_model.mode == "density_solved":
+    if config["weight_model"]["mode"] == "density_solved":
         if model_phase is None:
             raise ValueError("density-solved support audit requires velocity phase space")
         support_audit = _orbit_support_audit(response, library, density, weight_solution.seed_weights, prepared, model_phase)
@@ -366,7 +373,7 @@ def evaluate_orbit_library(
     velocity_by_phi: Mapping[str, np.ndarray] = {}
     velocity_stars: Mapping[str, np.ndarray] = {}
     velocity_distributions: dict[str, VelocityDistributionComparison] = {}
-    if config.include_velocity:
+    if config["include_velocity"]:
         velocity_loglike, velocity_by_phi, velocity_stars, velocity_distributions = _score_velocities(
             prepared, library, orbit_weights, model_phase=model_phase,
         )
@@ -378,12 +385,12 @@ def evaluate_orbit_library(
         velocity_stars_by_phi=velocity_stars,
         velocity_distributions=velocity_distributions,
         successful_orbits=library.successful_seed_index.size,
-        weight_mode=config.weight_model.mode,
+        weight_mode=config["weight_model"]["mode"],
         weight_solution=weight_solution,
-        objective_mode=config.objective.mode,
-        density_max_chi2_per_bin=config.objective.density_max_chi2_per_bin,
+        objective_mode=config["objective"]["mode"],
+        density_max_chi2_per_bin=config["objective"]["density_max_chi2_per_bin"],
         density_shells=shell_diagnostics,
-        density_shell_phi_max_chi2_per_bin=config.objective.density_shell_phi_max_chi2_per_bin,
+        density_shell_phi_max_chi2_per_bin=config["objective"]["density_shell_phi_max_chi2_per_bin"],
         orbit_support_audit=support_audit,
     )
 
@@ -399,7 +406,7 @@ def evaluate_prepared_model(
     library = integrate_agama_orbits(
         prepared.initial_conditions,
         potential,
-        periods=config.orbit_periods,
-        samples_per_orbit=config.orbit_samples_per_orbit,
+        periods=config["orbit_periods"],
+        samples_per_orbit=config["orbit_samples_per_orbit"],
     )
     return evaluate_orbit_library(library, prepared)

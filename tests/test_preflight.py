@@ -1,6 +1,5 @@
 import tempfile
 import unittest
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -21,16 +20,10 @@ class PreflightTests(unittest.TestCase):
         target = root / "target.npz"
         catalog.write_text("placeholder")
         target.write_text("placeholder")
-        return replace(
-            configuration,
-            data=replace(
-                configuration.data,
-                catalog=catalog,
-                target_density=target,
-            ),
-            run=replace(configuration.run, output_dir=root / "run"),
-            coverage=replace(configuration.coverage, output_dir=root / "coverage"),
-        )
+        configuration["data"] = {"catalog": catalog, "target_density": target}
+        configuration["run"] = {**configuration["run"], "output_dir": root / "run"}
+        configuration["coverage"] = {**configuration["coverage"], "output_dir": root / "coverage"}
+        return configuration
 
     def test_run_prepares_catalogue_and_target_once_before_output_creation(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -61,13 +54,13 @@ class PreflightTests(unittest.TestCase):
             self.assertIsNotNone(result.execution)
             prepare.assert_called_once()
             audit.assert_called_once()
-            self.assertFalse(configuration.output_dir.exists())
+            self.assertFalse(configuration["run"]["output_dir"].exists())
 
     def test_coverage_is_catalogue_only_and_never_probes_numerical_dependencies(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             configuration = self._temporary_configuration(root)
-            configuration.data.target_density.unlink()
+            configuration["data"]["target_density"].unlink()
             dependencies = []
 
             def find_spec(name):
@@ -92,9 +85,9 @@ class PreflightTests(unittest.TestCase):
                 result = preflight_and_prepare(configuration, stage="coverage")
 
             self.assertTrue(result.ok)
-            read.assert_called_once_with(configuration.data.catalog)
+            read.assert_called_once_with(configuration["data"]["catalog"])
             self.assertEqual(dependencies, ["astropy", "matplotlib"])
-            self.assertFalse(configuration.coverage.output_dir.exists())
+            self.assertFalse(configuration["coverage"]["output_dir"].exists())
 
     def test_evaluate_rejects_adaptive_configuration(self):
         configuration = load_run_configuration(RUN_CONFIG)

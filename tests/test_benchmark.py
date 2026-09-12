@@ -1,7 +1,6 @@
 import subprocess
 import tempfile
 import unittest
-from dataclasses import replace
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -52,7 +51,7 @@ class BenchmarkPreflightTests(unittest.TestCase):
 
         result = validate_benchmark_preflight(REPOSITORY, CONFIG)
 
-        self.assertEqual(result.configuration.iterations, 1)
+        self.assertEqual(result.configuration["optimizer"]["iterations"], 1)
         run.assert_called_once_with(
             ["/usr/bin/time", "--version"],
             check=True,
@@ -73,9 +72,9 @@ class BenchmarkPreflightTests(unittest.TestCase):
 
         result = validate_benchmark_preflight(REPOSITORY, RANKING_CONFIG)
 
-        self.assertEqual(result.configuration.iterations, 5)
+        self.assertEqual(result.configuration["optimizer"]["iterations"], 5)
         self.assertEqual(
-            result.configuration.fixed_optimizer_points,
+            result.configuration["optimizer"]["fixed_points"],
             R8_40_POTENTIAL_RANKING_FIXED_POINTS,
         )
 
@@ -92,8 +91,8 @@ class BenchmarkPreflightTests(unittest.TestCase):
 
         result = validate_benchmark_preflight(REPOSITORY, SOLVER_CONFIG)
 
-        self.assertEqual(result.configuration.iterations, 1)
-        self.assertIsNone(result.configuration.fixed_optimizer_points)
+        self.assertEqual(result.configuration["optimizer"]["iterations"], 1)
+        self.assertIsNone(result.configuration["optimizer"]["fixed_points"])
 
     @patch("halo_mw_lmc.benchmark.Path.is_file", return_value=False)
     def test_missing_gnu_time_fails(self, _is_file):
@@ -122,10 +121,10 @@ class BenchmarkPreflightTests(unittest.TestCase):
         run.side_effect = self._time_version
         configuration = load_run_configuration(CONFIG)
         with tempfile.TemporaryDirectory() as directory:
-            configuration = replace(
-                configuration,
-                run=replace(configuration.run, output_dir=Path(directory)),
-            )
+            configuration["run"] = {
+                **configuration["run"],
+                "output_dir": Path(directory),
+            }
             with patch(
                 "halo_mw_lmc.benchmark.load_run_configuration",
                 return_value=configuration,

@@ -3,7 +3,6 @@ from dataclasses import replace
 
 import numpy as np
 
-from halo_mw_lmc.config import DensityFitSettings
 from halo_mw_lmc.density import compare_density
 from halo_mw_lmc.grids import CylindricalGrid
 from halo_mw_lmc.plot_model import (
@@ -40,12 +39,10 @@ class PlottingDiagnosticsTests(unittest.TestCase):
             density,
             density,
             grid,
-            DensityFitSettings(
-                min_abs_z=2.0,
-                min_spherical_radius=0.0,
-                max_spherical_radius=10.0,
-                normalization_min_radius=0.0,
-            ),
+            min_abs_z=2.0,
+            min_spherical_radius=0.0,
+            max_spherical_radius=10.0,
+            normalization_min_radius=0.0,
         )
 
         phi_mask = _density_fit_display_mask(comparison, 0)
@@ -79,12 +76,10 @@ class PlottingDiagnosticsTests(unittest.TestCase):
             density,
             density,
             grid,
-            DensityFitSettings(
-                min_abs_z=0.0,
-                min_spherical_radius=0.0,
-                max_spherical_radius=10.0,
-                normalization_min_radius=0.0,
-            ),
+            min_abs_z=0.0,
+            min_spherical_radius=0.0,
+            max_spherical_radius=10.0,
+            normalization_min_radius=0.0,
         )
 
         self.assertTrue(np.all(_density_fit_display_mask(comparison, 0)))
@@ -139,12 +134,10 @@ class PlottingDiagnosticsTests(unittest.TestCase):
             np.full_like(density, 0.05),
             density,
             grid,
-            DensityFitSettings(
-                min_abs_z=0.0,
-                min_spherical_radius=0.0,
-                max_spherical_radius=100.0,
-                normalization_min_radius=0.0,
-            ),
+            min_abs_z=0.0,
+            min_spherical_radius=0.0,
+            max_spherical_radius=100.0,
+            normalization_min_radius=0.0,
         )
 
         profile = isodensity_shape_profile(density, comparison, 0)
@@ -165,12 +158,10 @@ class PlottingDiagnosticsTests(unittest.TestCase):
             density,
             density,
             grid,
-            DensityFitSettings(
-                min_abs_z=0.0,
-                min_spherical_radius=0.0,
-                max_spherical_radius=100.0,
-                normalization_min_radius=0.0,
-            ),
+            min_abs_z=0.0,
+            min_spherical_radius=0.0,
+            max_spherical_radius=100.0,
+            normalization_min_radius=0.0,
         )
         empty = isodensity_shape_profile(
             np.zeros(grid.shape),
@@ -194,12 +185,10 @@ class PlottingDiagnosticsTests(unittest.TestCase):
             np.full_like(density, 0.05),
             density,
             grid,
-            DensityFitSettings(
-                min_abs_z=2.0,
-                min_spherical_radius=8.0,
-                max_spherical_radius=30.0,
-                normalization_min_radius=8.0,
-            ),
+            min_abs_z=2.0,
+            min_spherical_radius=8.0,
+            max_spherical_radius=30.0,
+            normalization_min_radius=8.0,
         )
         perturbed = density.copy()
         perturbed[~comparison.fit_mask] = 1e12
@@ -225,12 +214,10 @@ class PlottingDiagnosticsTests(unittest.TestCase):
             np.ones_like(density),
             density,
             grid,
-            DensityFitSettings(
-                min_abs_z=0.0,
-                min_spherical_radius=0.0,
-                max_spherical_radius=100.0,
-                normalization_min_radius=0.0,
-            ),
+            min_abs_z=0.0,
+            min_spherical_radius=0.0,
+            max_spherical_radius=100.0,
+            normalization_min_radius=0.0,
         )
         tiny_mask = np.zeros(grid.shape, dtype=bool)
         tiny_mask[:2, :2, :] = True

@@ -7,7 +7,6 @@ from pathlib import Path
 import numpy as np
 
 from halo_mw_lmc.config import (
-    SyntheticDensityConfiguration,
     load_recipe_configuration,
     load_synthetic_density_configuration,
 )
@@ -100,14 +99,15 @@ class SyntheticDensityWorkflowTests(unittest.TestCase):
 
     def test_repository_generator_configuration_resolves_source_and_output(self):
         configuration = load_synthetic_density_configuration(GENERATOR_CONFIG)
+        grid = configuration["recipe"]["density_grid"]
 
-        self.assertEqual(configuration.model_source, MODEL_SOURCE)
-        self.assertEqual(configuration.grid.shape, (25, 25, 4))
-        self.assertEqual(configuration.quadrature_order, 4)
-        self.assertEqual(configuration.validation_order, 6)
-        self.assertEqual(configuration.fractional_uncertainty, 0.1)
+        self.assertEqual(configuration["model_source"], MODEL_SOURCE)
+        self.assertEqual(grid.shape, (25, 25, 4))
+        self.assertEqual(configuration["quadrature_order"], 4)
+        self.assertEqual(configuration["validation_order"], 6)
+        self.assertEqual(configuration["fractional_uncertainty"], 0.1)
         self.assertEqual(
-            configuration.output_path,
+            configuration["output_path"],
             REPOSITORY
             / "data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz",
         )
@@ -116,20 +116,20 @@ class SyntheticDensityWorkflowTests(unittest.TestCase):
         recipe = load_recipe_configuration(RECIPE_CONFIG)
         with tempfile.TemporaryDirectory() as directory:
             output = Path(directory) / "target.npz"
-            configuration = SyntheticDensityConfiguration(
-                source_path=GENERATOR_CONFIG,
-                schema_version=1,
-                recipe=recipe,
-                model_name="desi_year1_kgiants_3d",
-                model_source=MODEL_SOURCE,
-                quadrature_order=2,
-                validation_order=3,
-                fractional_uncertainty=0.1,
-                output_path=output,
-            )
+            configuration = {
+                "source_path": GENERATOR_CONFIG,
+                "schema_version": 1,
+                "recipe": recipe,
+                "model_name": "desi_year1_kgiants_3d",
+                "model_source": MODEL_SOURCE,
+                "quadrature_order": 2,
+                "validation_order": 3,
+                "fractional_uncertainty": 0.1,
+                "output_path": output,
+            }
 
             result = generate_synthetic_density(configuration)
-            density, error = read_target_density(output, configuration.grid)
+            density, error = read_target_density(output, recipe["density_grid"])
             with self.assertRaisesRegex(FileExistsError, "already exists"):
                 generate_synthetic_density(configuration)
             with np.load(output, allow_pickle=False) as archive:

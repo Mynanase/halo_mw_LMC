@@ -1,10 +1,12 @@
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 import numpy as np
 from scipy.sparse import csr_matrix
 
-from halo_mw_lmc.config import DensityFitSettings, WeightModelSettings
+from halo_mw_lmc.config import load_recipe_configuration
 from halo_mw_lmc.grids import CylindricalGrid
 from halo_mw_lmc.density import (
     OrbitDensityResponse,
@@ -12,6 +14,9 @@ from halo_mw_lmc.density import (
 )
 from halo_mw_lmc.orbits import OrbitLibrary
 from halo_mw_lmc.weights import solve_density_weights
+
+
+REPOSITORY = Path(__file__).resolve().parents[1]
 
 
 class DensitySolvedWeightTests(unittest.TestCase):
@@ -43,13 +48,11 @@ class DensitySolvedWeightTests(unittest.TestCase):
             self.grid,
             seed_count=3,
         )
-        self.fit = DensityFitSettings(
-            min_abs_z=0,
-            min_spherical_radius=0,
-            max_spherical_radius=10,
-            normalization_min_radius=0,
-            normalization="none",
-        )
+        self.fit = {
+            "min_abs_z": 0,
+            "min_spherical_radius": 0,
+            "max_spherical_radius": 10,
+        }
 
     def test_response_uses_time_fraction_and_preserves_failed_seed_slot(self):
         expected = np.array([1.0, 0.0, 1.0])
@@ -93,13 +96,10 @@ class DensitySolvedWeightTests(unittest.TestCase):
             target,
             np.full(self.grid.shape, 0.01),
             self.fit,
-            WeightModelSettings(
-                mode="density_solved",
-                solver="lsq_linear",
-                target_normalization="absolute",
-                regularization="l2",
-                regularization_strength=0.0,
-            ),
+            solver="lsq_linear",
+            target_normalization="absolute",
+            regularization="l2",
+            regularization_strength=0.0,
         )
 
         self.assertTrue(result.converged)
@@ -118,13 +118,10 @@ class DensitySolvedWeightTests(unittest.TestCase):
             target,
             error,
             self.fit,
-            WeightModelSettings(
-                mode="density_solved",
-                solver="lsq_linear",
-                target_normalization="unit_mass",
-                regularization="l2",
-                regularization_strength=0.0,
-            ),
+            solver="lsq_linear",
+            target_normalization="unit_mass",
+            regularization="l2",
+            regularization_strength=0.0,
         )
 
         self.assertAlmostEqual(
@@ -162,13 +159,10 @@ class DensitySolvedWeightTests(unittest.TestCase):
             target,
             unequal_error,
             self.fit,
-            WeightModelSettings(
-                mode="density_solved",
-                solver="lsq_linear",
-                target_normalization="unit_mass",
-                regularization="l2",
-                regularization_strength=0.0,
-            ),
+            solver="lsq_linear",
+            target_normalization="unit_mass",
+            regularization="l2",
+            regularization_strength=0.0,
         )
 
         # No sum(w)=1 constraint: the target's unit-mass amplitude sets the
@@ -184,7 +178,6 @@ class DensitySolvedWeightTests(unittest.TestCase):
         original_weights = np.array([2.0, 0.0, 3.0])
         target = self.response.model_density(original_weights)
         common = dict(
-            mode="density_solved",
             target_normalization="absolute",
             regularization="l2",
             regularization_strength=1e-3,
@@ -196,22 +189,18 @@ class DensitySolvedWeightTests(unittest.TestCase):
             target,
             np.full(self.grid.shape, 0.02),
             self.fit,
-            WeightModelSettings(
-                solver="dense_nnls",
-                lsmr_tol=None,
-                **common,
-            ),
+            solver="dense_nnls",
+            lsmr_tol=None,
+            **common,
         )
         dual = solve_density_weights(
             self.response,
             target,
             np.full(self.grid.shape, 0.02),
             self.fit,
-            WeightModelSettings(
-                solver="dual_ridge",
-                lsmr_tol=None,
-                **common,
-            ),
+            solver="dual_ridge",
+            lsmr_tol=None,
+            **common,
         )
 
         self.assertTrue(dense.converged, dense.message)
@@ -256,16 +245,13 @@ class DensitySolvedWeightTests(unittest.TestCase):
                     target,
                     np.full(self.grid.shape, 0.01),
                     self.fit,
-                    WeightModelSettings(
-                        mode="density_solved",
-                        solver=solver,
-                        target_normalization="absolute",
-                        regularization="l2",
-                        regularization_strength=1e-3,
-                        max_iter=1000,
-                        solver_tolerance=1e-8,
-                        lsmr_tol=(1e-8 if solver == "lsq_linear" else None),
-                    ),
+                    solver=solver,
+                    target_normalization="absolute",
+                    regularization="l2",
+                    regularization_strength=1e-3,
+                    max_iter=1000,
+                    solver_tolerance=1e-8,
+                    lsmr_tol=(1e-8 if solver == "lsq_linear" else None),
                 )
 
                 self.assertTrue(result.converged, result.message)
@@ -273,16 +259,23 @@ class DensitySolvedWeightTests(unittest.TestCase):
                 self.assertTrue(result.problem_fingerprint)
 
     def test_dual_backend_requires_positive_regularization(self):
-        with self.assertRaisesRegex(ValueError, "requires positive"):
-            WeightModelSettings(
-                mode="density_solved",
-                solver="dual_ridge",
-                target_normalization="absolute",
-                regularization="l2",
-                regularization_strength=0.0,
-                solver_tolerance=1e-8,
-                lsmr_tol=None,
+        source = (
+            REPOSITORY
+            / "configs/recipes/zhu_2026_density_solved_r8_40_dual_ridge.toml"
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "recipe.toml"
+            path.write_text(
+                source.read_text().replace(
+                    "regularization_strength = 1e-6",
+                    "regularization_strength = 0.0",
+                )
             )
+            with self.assertRaisesRegex(
+                ValueError,
+                "dual_ridge requires a positive regularization_strength",
+            ):
+                load_recipe_configuration(path)
 
 
 if __name__ == "__main__":

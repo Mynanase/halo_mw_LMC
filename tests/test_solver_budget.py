@@ -13,12 +13,6 @@ from unittest.mock import patch
 
 import numpy as np
 
-from halo_mw_lmc.config import (
-    DensityFitSettings,
-    ObjectiveSettings,
-    WeightModelSettings,
-    ZhuComparisonConfig,
-)
 from halo_mw_lmc.grids import CylindricalGrid
 from halo_mw_lmc.density import build_orbit_density_response
 from halo_mw_lmc.orbits import OrbitLibrary
@@ -40,6 +34,8 @@ from halo_mw_lmc.solver_budget import (
     resolved_weight_settings,
     run_solver_budget_phase,
 )
+
+from tests.artifact_fixture import comparison_model
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]
@@ -80,38 +76,26 @@ def _toy_prepared(mode: str = "density_solved") -> PreparedFixedWeightData:
     initial = _initial_conditions()
     grid = CylindricalGrid.uniform(n_r=1, r_range=(0.0, 1.0), n_z=1, z_range=(0.0, 1.0), n_phi=2)
     if mode == "density_solved":
-        config = ZhuComparisonConfig(
-            density_grid=grid,
-            density_fit=DensityFitSettings(
-                min_abs_z=0,
-                min_spherical_radius=0,
-                max_spherical_radius=10,
-                normalization_min_radius=0,
-                normalization="none",
-            ),
+        config = comparison_model(
+            grid,
+            density_fit={"normalization": "none"},
             include_velocity=True,
             orbit_samples_per_orbit=3,
-            weight_model=WeightModelSettings(
-                mode="density_solved",
-                solver="lsq_linear",
-                target_normalization="absolute",
-                regularization="l2",
-                regularization_strength=0.0,
-            ),
-            objective=ObjectiveSettings(mode="velocity_only", density_max_chi2_per_bin=1.0),
+            weight_model={
+                "mode": "density_solved",
+                "solver": "lsq_linear",
+                "target_normalization": "absolute",
+                "regularization": "l2",
+                "regularization_strength": 0.0,
+            },
+            objective={"mode": "velocity_only", "density_max_chi2_per_bin": 1.0},
         )
         seed_weights = None
         target_density = np.array([[[2.0, 3.0]]]) / grid.volumes
         target_error = np.full(grid.shape, 0.01)
     else:
-        config = ZhuComparisonConfig(
-            density_grid=grid,
-            density_fit=DensityFitSettings(
-                min_abs_z=0,
-                min_spherical_radius=0,
-                max_spherical_radius=10,
-                normalization_min_radius=0,
-            ),
+        config = comparison_model(
+            grid,
             orbit_samples_per_orbit=1,
             orbit_sample_divisor=1,
         )
@@ -197,7 +181,7 @@ class SharedEvaluationBoundaryTests(unittest.TestCase):
         prepared = _toy_prepared("density_solved")
         response = build_orbit_density_response(
             library,
-            prepared.config.density_grid,
+            prepared.config["density_grid"],
             seed_count=prepared.initial_conditions.shape[0],
         )
         with patch("halo_mw_lmc.evaluate._score_velocities", return_value=VELOCITY_STUB):
@@ -216,7 +200,7 @@ class SharedEvaluationBoundaryTests(unittest.TestCase):
         prepared = _toy_prepared("density_solved")
         good = build_orbit_density_response(
             library,
-            prepared.config.density_grid,
+            prepared.config["density_grid"],
             seed_count=prepared.initial_conditions.shape[0],
         )
         other_grid = CylindricalGrid.uniform(n_r=2, r_range=(0.0, 1.0), n_z=1, z_range=(0.0, 1.0), n_phi=2)
@@ -259,7 +243,7 @@ class SharedEvaluationBoundaryTests(unittest.TestCase):
         prepared = _toy_prepared("catalogue_fixed")
         response = build_orbit_density_response(
             library,
-            prepared.config.density_grid,
+            prepared.config["density_grid"],
             seed_count=prepared.initial_conditions.shape[0],
         )
         with self.assertRaisesRegex(ValueError, "catalogue_fixed"):
@@ -309,24 +293,24 @@ class SolverBudgetConfigurationTests(unittest.TestCase):
 
     def test_method_overrides_change_only_solver_settings(self):
         plan = load_solver_budget_plan(BENCHMARK_CONFIG)
-        base = plan.recipe.weight_model
+        base = plan.recipe["weight_model"]
         for method in plan.methods:
             settings = resolved_weight_settings(plan.recipe, method)
-            self.assertEqual(settings.mode, base.mode)
-            self.assertEqual(settings.target_normalization, base.target_normalization)
-            self.assertEqual(settings.regularization, base.regularization)
-            self.assertEqual(settings.regularization_strength, base.regularization_strength)
-            self.assertEqual(settings.solver, method.solver)
-            self.assertEqual(settings.max_iter, method.max_iter)
+            self.assertEqual(settings["mode"], base["mode"])
+            self.assertEqual(settings["target_normalization"], base["target_normalization"])
+            self.assertEqual(settings["regularization"], base["regularization"])
+            self.assertEqual(settings["regularization_strength"], base["regularization_strength"])
+            self.assertEqual(settings["solver"], method.solver)
+            self.assertEqual(settings["max_iter"], method.max_iter)
             self.assertEqual(
                 settings,
-                replace(
-                    base,
-                    solver=method.solver,
-                    max_iter=method.max_iter,
-                    lsmr_tol=method.lsmr_tol,
-                    solver_tolerance=method.solver_tolerance,
-                ),
+                {
+                    **base,
+                    "solver": method.solver,
+                    "max_iter": method.max_iter,
+                    "lsmr_tol": method.lsmr_tol,
+                    "solver_tolerance": method.solver_tolerance,
+                },
             )
 
     def test_configuration_rejects_out_of_bounds_point(self):

@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import RunConfiguration
 from .inspection import inspect_run, save_inspection
 from .optimize import run_fixed_evaluation, run_optimization
 from .prepare import preflight_and_prepare, require_preflight
@@ -21,7 +20,7 @@ class FullRunResult:
     inspection_path: Path
 
 
-def run_full_workflow(configuration: RunConfiguration) -> FullRunResult:
+def run_full_workflow(configuration: dict) -> FullRunResult:
     """Preflight, execute the configured schedule, validate, report, inspect."""
 
     result = require_preflight(preflight_and_prepare(configuration, stage="run"))
@@ -34,9 +33,9 @@ def run_full_workflow(configuration: RunConfiguration) -> FullRunResult:
         else:
             run_directory = run_optimization(configuration, prepared)
     except Exception:
-        if configuration.output_dir.exists():
+        if configuration["run"]["output_dir"].exists():
             try:
-                save_inspection(inspect_run(configuration.output_dir))
+                save_inspection(inspect_run(configuration["run"]["output_dir"]))
             except Exception:
                 pass
         raise

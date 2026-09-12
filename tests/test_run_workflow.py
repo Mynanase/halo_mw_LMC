@@ -22,7 +22,7 @@ class FullRunWorkflowTests(unittest.TestCase):
         inspect_run,
         save_inspection,
     ):
-        configuration = SimpleNamespace(output_dir=Path("run-output"))
+        configuration = {"run": {"output_dir": Path("run-output")}}
         prepared = object()
         preflight = SimpleNamespace(
             execution=prepared,
@@ -57,7 +57,7 @@ class FullRunWorkflowTests(unittest.TestCase):
     ):
         require_preflight.side_effect = RuntimeError("preflight failed")
         with self.assertRaisesRegex(RuntimeError, "preflight failed"):
-            run_full_workflow(SimpleNamespace(output_dir=Path("unused")))
+            run_full_workflow({"run": {"output_dir": Path("unused")}})
         run_optimization.assert_not_called()
 
     @patch("halo_mw_lmc.run.save_inspection")
@@ -78,13 +78,13 @@ class FullRunWorkflowTests(unittest.TestCase):
         inspect_run,
         save_inspection,
     ):
-        configuration = SimpleNamespace(output_dir=Path("run-output"))
+        configuration = {"run": {"output_dir": Path("run-output")}}
         prepared = object()
         require_preflight.return_value = SimpleNamespace(
             execution=prepared,
             numerical_stage="optimize",
         )
-        run_optimization.return_value = configuration.output_dir
+        run_optimization.return_value = configuration["run"]["output_dir"]
         complete = SimpleNamespace(numerical_status="complete")
         failed = SimpleNamespace(numerical_status="complete")
         inspect_run.side_effect = [complete, failed]
@@ -93,7 +93,7 @@ class FullRunWorkflowTests(unittest.TestCase):
             run_full_workflow(configuration)
 
         inspect_run.assert_called_with(
-            configuration.output_dir,
+            configuration["run"]["output_dir"],
             report_failure="report failed",
         )
         save_inspection.assert_called_with(failed)

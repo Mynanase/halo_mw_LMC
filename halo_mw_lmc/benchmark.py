@@ -10,7 +10,7 @@ import sys
 
 import numpy as np
 
-from .config import RunConfiguration, load_run_configuration
+from .config import load_run_configuration, resolve_model
 
 
 R8_40_CASE_PARAMETERS = {
@@ -87,7 +87,7 @@ R8_40_RUN_CONFIG_NAMES = frozenset(
 
 @dataclass(frozen=True)
 class BenchmarkPreflight:
-    configuration: RunConfiguration
+    configuration: dict
 
 
 def validate_benchmark_preflight(
@@ -124,13 +124,13 @@ def validate_benchmark_preflight(
         raise RuntimeError(f"benchmark requires GNU time, not {time_path}")
 
     configuration = load_run_configuration(config)
-    comparison = configuration.to_comparison_config()
+    comparison = resolve_model(configuration["recipe"])
     expected_shells = np.array([8, 10, 12, 15, 20, 30, 40], dtype=float)
     expected_velocity_edges = np.array(
         [4, 6, 8, 10, 12, 15, 20, 30, 40],
         dtype=float,
     )
-    actual_shells = np.asarray(comparison.objective.density_shell_edges, dtype=float)
+    actual_shells = np.asarray(comparison["objective"]["density_shell_edges"], dtype=float)
     if config.name in R8_40_CASE_PARAMETERS:
         expected_tol, expected_regularization = R8_40_CASE_PARAMETERS[config.name]
         expected_solver = "lsq_linear"
@@ -155,42 +155,42 @@ def validate_benchmark_preflight(
         expected_iterations = 1
         expected_fixed_points = None
     if (
-        configuration.iterations != expected_iterations
-        or configuration.random_seed != 0
-        or configuration.fixed_optimizer_points != expected_fixed_points
-        or configuration.recipe.search.initial_point != "paper_best"
-        or comparison.density_fit.min_spherical_radius != 8.0
-        or comparison.density_fit.max_spherical_radius != 40.0
-        or comparison.density_fit.min_abs_z != 2.0
-        or comparison.velocity_fit_min_radius != 8.0
-        or comparison.velocity_grid.radius_edges.shape
+        configuration["optimizer"]["iterations"] != expected_iterations
+        or configuration["optimizer"]["random_seed"] != 0
+        or configuration["optimizer"]["fixed_points"] != expected_fixed_points
+        or configuration["recipe"]["search"]["initial_point"] != "paper_best"
+        or comparison["density_fit"]["min_spherical_radius"] != 8.0
+        or comparison["density_fit"]["max_spherical_radius"] != 40.0
+        or comparison["density_fit"]["min_abs_z"] != 2.0
+        or comparison["velocity_fit_min_radius"] != 8.0
+        or comparison["velocity_grid"].radius_edges.shape
         != expected_velocity_edges.shape
         or not np.allclose(
-            comparison.velocity_grid.radius_edges,
+            comparison["velocity_grid"].radius_edges,
             expected_velocity_edges,
         )
         or actual_shells.shape != expected_shells.shape
         or not np.allclose(actual_shells, expected_shells)
-        or comparison.objective.density_max_chi2_per_bin != 2.0
-        or comparison.objective.density_shell_phi_max_chi2_per_bin != 2.0
-        or comparison.weight_model.mode != "density_solved"
-        or comparison.weight_model.solver != expected_solver
-        or comparison.weight_model.lsmr_tol != expected_tol
-        or comparison.weight_model.solver_tolerance
+        or comparison["objective"]["density_max_chi2_per_bin"] != 2.0
+        or comparison["objective"]["density_shell_phi_max_chi2_per_bin"] != 2.0
+        or comparison["weight_model"]["mode"] != "density_solved"
+        or comparison["weight_model"]["solver"] != expected_solver
+        or comparison["weight_model"]["lsmr_tol"] != expected_tol
+        or comparison["weight_model"]["solver_tolerance"]
         != expected_solver_tolerance
-        or comparison.weight_model.regularization_strength
+        or comparison["weight_model"]["regularization_strength"]
         != expected_regularization
-        or comparison.orbit_periods != 10.0
-        or comparison.orbit_samples_per_orbit != 1000
+        or comparison["orbit_periods"] != 10.0
+        or comparison["orbit_samples_per_orbit"] != 1000
     ):
         raise RuntimeError("run config does not match its named 8--40 benchmark")
-    if configuration.output_dir.exists():
+    if configuration["run"]["output_dir"].exists():
         raise RuntimeError(
-            f"cold-start output directory already exists: {configuration.output_dir}"
+            f"cold-start output directory already exists: {configuration['run']['output_dir']}"
         )
     for label, path in (
-        ("catalogue", configuration.data.catalog),
-        ("target density", configuration.data.target_density),
+        ("catalogue", configuration["data"]["catalog"]),
+        ("target density", configuration["data"]["target_density"]),
     ):
         if not path.is_file():
             raise RuntimeError(f"{label} not found: {path}")
@@ -216,10 +216,10 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     configuration = result.configuration
     for value in (
-        configuration.run_id,
-        configuration.output_dir,
-        configuration.data.catalog,
-        configuration.data.target_density,
+        configuration["run"]["id"],
+        configuration["run"]["output_dir"],
+        configuration["data"]["catalog"],
+        configuration["data"]["target_density"],
     ):
         print(value)
     return 0

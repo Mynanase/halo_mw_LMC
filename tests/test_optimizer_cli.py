@@ -66,11 +66,11 @@ class OptimizerCliTests(unittest.TestCase):
 
     def test_cold_start_has_reproducible_config_seed(self):
         configuration = load_run_configuration(RUN_CONFIG)
-        self.assertEqual(configuration.random_seed, 0)
-        self.assertEqual(configuration.report.velocity_bin_factor, 3)
+        self.assertEqual(configuration["optimizer"]["random_seed"], 0)
+        self.assertEqual(configuration["report"]["velocity_bin_factor"], 3)
 
     def test_default_bounds_are_paper_centered_and_contain_best_fit(self):
-        actual = load_run_configuration(RUN_CONFIG).search_bounds
+        actual = load_run_configuration(RUN_CONFIG)["recipe"]["search"]["bounds"]
         self.assertEqual(actual, ZHU_2026_LOCAL_SEARCH_BOUNDS)
 
         best = dict(ZHU_2026_BEST_FIT)
@@ -179,7 +179,10 @@ class OptimizerCliTests(unittest.TestCase):
         )
         self.assertEqual(
             document["optimizer"]["fixed_points"],
-            [list(point) for point in configuration.fixed_optimizer_points],
+            [
+                list(point)
+                for point in configuration["optimizer"]["fixed_points"]
+            ],
         )
 
     def test_fixed_evaluation_does_not_import_or_instantiate_skopt(self):
@@ -202,7 +205,7 @@ class OptimizerCliTests(unittest.TestCase):
         run_trials.assert_called_once_with(
             configuration,
             prepared,
-            configuration.fixed_optimizer_points,
+            configuration["optimizer"]["fixed_points"],
         )
 
 

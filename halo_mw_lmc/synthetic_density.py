@@ -10,7 +10,6 @@ import tempfile
 
 import numpy as np
 
-from .config import SyntheticDensityConfiguration
 from .density import (
     DESI_YEAR1_KGIANTS_DENSITY,
     cell_average_cylindrical_density,
@@ -31,28 +30,28 @@ class SyntheticDensityResult:
 
 
 def generate_synthetic_density(
-    configuration: SyntheticDensityConfiguration,
+    configuration: dict,
 ) -> SyntheticDensityResult:
     """Volume-average one analytic model and atomically write a target NPZ."""
 
-    if not configuration.model_source.exists():
+    if not configuration["model_source"].exists():
         raise FileNotFoundError(
-            f"density-model source not found: {configuration.model_source}"
+            f"density-model source not found: {configuration['model_source']}"
         )
-    output_path = configuration.output_path
+    output_path = configuration["output_path"]
     if output_path.exists():
         raise FileExistsError(
             f"synthetic density output already exists: {output_path}"
         )
 
-    if configuration.model_name != "desi_year1_kgiants_3d":
-        raise ValueError(f"unsupported synthetic density model: {configuration.model_name!r}")
+    if configuration["model_name"] != "desi_year1_kgiants_3d":
+        raise ValueError(f"unsupported synthetic density model: {configuration['model_name']!r}")
     model = DESI_YEAR1_KGIANTS_DENSITY
-    grid = configuration.grid
-    lower_order = cell_average_cylindrical_density(model, grid, quadrature_order=configuration.quadrature_order)
-    target_density = cell_average_cylindrical_density(model, grid, quadrature_order=configuration.validation_order)
+    grid = configuration["recipe"]["density_grid"]
+    lower_order = cell_average_cylindrical_density(model, grid, quadrature_order=configuration["quadrature_order"])
+    target_density = cell_average_cylindrical_density(model, grid, quadrature_order=configuration["validation_order"])
     quadrature_error = np.abs(target_density - lower_order)
-    fractional_error = configuration.fractional_uncertainty * target_density
+    fractional_error = configuration["fractional_uncertainty"] * target_density
     target_error = np.hypot(fractional_error, quadrature_error)
     if not np.all(np.isfinite(target_density)) or np.any(target_density <= 0) or not np.all(np.isfinite(target_error)) or np.any(target_error <= 0):
         raise ValueError(
@@ -60,7 +59,7 @@ def generate_synthetic_density(
         )
 
     relative_difference = quadrature_error / target_density
-    source_sha256 = hashlib.sha256(configuration.model_source.read_bytes()).hexdigest()
+    source_sha256 = hashlib.sha256(configuration["model_source"].read_bytes()).hexdigest()
     model_parameters = json.dumps(model.parameter_document(), sort_keys=True, separators=(",", ":"))
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(
@@ -86,15 +85,15 @@ def generate_synthetic_density(
             density_unit=np.asarray("relative tracer density"),
             normalization=np.asarray("source shape; no absolute normalization"),
             uncertainty_semantics=np.asarray("hypot(configured fractional model error, quadrature difference)"),
-            fractional_uncertainty=np.asarray(configuration.fractional_uncertainty, dtype=float),
-            quadrature_order=np.asarray(configuration.quadrature_order, dtype=np.int64),
-            validation_order=np.asarray(configuration.validation_order, dtype=np.int64),
-            model_name=np.asarray(configuration.model_name),
+            fractional_uncertainty=np.asarray(configuration["fractional_uncertainty"], dtype=float),
+            quadrature_order=np.asarray(configuration["quadrature_order"], dtype=np.int64),
+            validation_order=np.asarray(configuration["validation_order"], dtype=np.int64),
+            model_name=np.asarray(configuration["model_name"]),
             model_parameters_json=np.asarray(model_parameters),
-            model_source=np.asarray(str(configuration.model_source)),
+            model_source=np.asarray(str(configuration["model_source"])),
             model_source_sha256=np.asarray(source_sha256),
-            generator_config=np.asarray(str(configuration.source_path)),
-            recipe_config=np.asarray(str(configuration.recipe.source_path)),
+            generator_config=np.asarray(str(configuration["source_path"])),
+            recipe_config=np.asarray(str(configuration["recipe"]["source_path"])),
             unused_source_fit_offset=np.asarray(model.unused_fit_offset),
         )
         temporary.replace(output_path)

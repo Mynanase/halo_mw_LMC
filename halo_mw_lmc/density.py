@@ -7,7 +7,6 @@ from dataclasses import dataclass
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from .config import DensityFitSettings
 from .grids import CylindricalGrid
 
 
@@ -159,23 +158,25 @@ def density_fit_mask(
     data_density: ArrayLike,
     data_error: ArrayLike,
     grid: CylindricalGrid,
-    settings: DensityFitSettings | None = None,
+    min_abs_z: float = 2.0,
+    min_spherical_radius: float = 15.0,
+    max_spherical_radius: float = 40.0,
+    require_positive_data: bool = True,
 ) -> BoolArray:
     """Return the data-defined density constraint mask without a trial model."""
 
-    settings = settings or DensityFitSettings()
     data = _shape_checked(data_density, grid, "data_density")
     error = _shape_checked(data_error, grid, "data_error")
     radius, z, _ = grid.center_mesh
     spherical_radius = np.hypot(radius, z)
     valid = np.isfinite(data) & np.isfinite(error) & (error > 0)
-    if settings.require_positive_data:
+    if require_positive_data:
         valid &= data > 0
     result = (
         valid
-        & (np.abs(z) >= settings.min_abs_z)
-        & (spherical_radius >= settings.min_spherical_radius)
-        & (spherical_radius < settings.max_spherical_radius)
+        & (np.abs(z) >= min_abs_z)
+        & (spherical_radius >= min_spherical_radius)
+        & (spherical_radius < max_spherical_radius)
     )
     if not np.any(result):
         raise ValueError("no valid density bins remain after applying the fit mask")
@@ -187,7 +188,12 @@ def compare_density(
     data_error: ArrayLike,
     model_density: ArrayLike,
     grid: CylindricalGrid,
-    settings: DensityFitSettings | None = None,
+    min_abs_z: float = 2.0,
+    min_spherical_radius: float = 15.0,
+    max_spherical_radius: float = 40.0,
+    normalization_min_radius: float = 10.0,
+    require_positive_data: bool = True,
+    normalization: str = "volume",
 ) -> DensityComparison:
     """Normalize as configured and compute the Zhu density chi-square.
 
@@ -196,7 +202,6 @@ def compare_density(
     orbit weights use ``normalization='none'`` and therefore keep scale one.
     """
 
-    settings = settings or DensityFitSettings()
     data = _shape_checked(data_density, grid, "data_density")
     error = _shape_checked(data_error, grid, "data_error")
     model = _shape_checked(model_density, grid, "model_density")
@@ -204,24 +209,22 @@ def compare_density(
     radius, z, _ = grid.center_mesh
     spherical_radius = np.hypot(radius, z)
     valid = np.isfinite(data) & np.isfinite(error) & (error > 0) & np.isfinite(model) & (model >= 0)
-    if settings.require_positive_data:
+    if require_positive_data:
         valid &= data > 0
 
-    normalization_mask = valid & (
-        spherical_radius >= settings.normalization_min_radius
-    )
+    normalization_mask = valid & (spherical_radius >= normalization_min_radius)
     fit_mask = (
         valid
-        & (np.abs(z) >= settings.min_abs_z)
-        & (spherical_radius >= settings.min_spherical_radius)
-        & (spherical_radius < settings.max_spherical_radius)
+        & (np.abs(z) >= min_abs_z)
+        & (spherical_radius >= min_spherical_radius)
+        & (spherical_radius < max_spherical_radius)
     )
     if not np.any(fit_mask):
         raise ValueError("no valid density bins remain after applying the fit mask")
 
-    if settings.normalization == "none":
+    if normalization == "none":
         scale = 1.0
-    elif settings.normalization == "volume":
+    elif normalization == "volume":
         if not np.any(normalization_mask):
             raise ValueError("no valid bins remain for volume normalization")
         data_mass = np.sum(data[normalization_mask] * grid.volumes[normalization_mask])

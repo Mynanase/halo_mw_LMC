@@ -12,12 +12,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__
+from .config import resolve_model
 from .artifacts import (
     load_best_evaluation,
     load_resolved_config,
     load_sample_table,
 )
-from .config import RunConfiguration
 from .inspection import inspect_run, save_inspection
 from .plot_convergence import build_convergence_figure
 from .plot_model import (
@@ -277,20 +277,20 @@ def generate_report_from_run(
     return [destination / relative for relative in manifest["files"]]
 
 
-def generate_report(configuration: RunConfiguration) -> list[Path]:
+def generate_report(configuration: dict) -> list[Path]:
     """Compatibility wrapper for callers that still hold a run configuration."""
 
-    return generate_report_from_run(configuration.output_dir)
+    return generate_report_from_run(configuration["run"]["output_dir"])
 
 
 def generate_coverage_report(
-    configuration: RunConfiguration,
+    configuration: dict,
     prepared: PreparedCoverage | None = None,
 ) -> list[Path]:
     """Measure and render raw catalogue coverage from one run configuration."""
 
-    catalog_path = configuration.data.catalog
-    output_directory = configuration.coverage.output_dir
+    catalog_path = configuration["data"]["catalog"]
+    output_directory = configuration["coverage"]["output_dir"]
     if prepared is None:
         result = require_preflight(preflight_and_prepare(configuration, stage="coverage"))
         prepared = result.coverage
@@ -298,17 +298,17 @@ def generate_coverage_report(
         raise RuntimeError("coverage preflight did not return prepared data")
     if prepared.configuration != configuration:
         raise ValueError("prepared coverage belongs to a different configuration")
-    comparison = configuration.to_comparison_config()
-    grid = comparison.density_grid
+    comparison = resolve_model(configuration["recipe"])
+    grid = comparison["density_grid"]
     coverage = prepared.coverage
     output_directory.mkdir(parents=True, exist_ok=False)
     written = plot_all_data_coverage(
         coverage,
         output_directory,
         spatial_limit=float(max(grid.r_edges[-1], np.max(np.abs(grid.z_edges)))),
-        velocity_limit=configuration.coverage.velocity_limit_km_s,
-        maximum_points=configuration.coverage.maximum_points,
-        random_state=configuration.coverage.random_seed,
+        velocity_limit=configuration["coverage"]["velocity_limit_km_s"],
+        maximum_points=configuration["coverage"]["maximum_points"],
+        random_state=configuration["coverage"]["random_seed"],
     )
 
     summary = {
@@ -318,8 +318,8 @@ def generate_coverage_report(
             "r_edges_kpc": grid.r_edges.tolist(),
             "z_edges_kpc": grid.z_edges.tolist(),
             "phi_edges_rad": grid.phi_edges.tolist(),
-            "velocity_display_limit_km_s": configuration.coverage.velocity_limit_km_s,
-            "random_seed": configuration.coverage.random_seed,
+            "velocity_display_limit_km_s": configuration["coverage"]["velocity_limit_km_s"],
+            "random_seed": configuration["coverage"]["random_seed"],
         },
         **coverage.summary(),
     }

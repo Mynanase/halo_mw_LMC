@@ -188,7 +188,6 @@ from typing import Any
 import numpy as np
 from numpy.typing import ArrayLike, NDArray
 
-from .config import DensityFitSettings, WeightModelSettings
 from .density import density_fit_mask
 from .density import OrbitDensityResponse
 
@@ -319,7 +318,7 @@ def _augmented_sparse_problem(problem: _WeightProblem) -> tuple[Any, FloatArray]
 
 def _solve_lsq_linear(
     problem: _WeightProblem,
-    settings: WeightModelSettings,
+    weight: dict,
 ) -> _BackendResult:
     from scipy.optimize import lsq_linear
 
@@ -330,8 +329,8 @@ def _solve_lsq_linear(
         bounds=(0.0, np.inf),
         method="trf",
         lsq_solver="lsmr",
-        lsmr_tol=settings.lsmr_tol if settings.lsmr_tol is not None else "auto",
-        max_iter=int(settings.max_iter),
+        lsmr_tol=weight["lsmr_tol"] if weight["lsmr_tol"] is not None else "auto",
+        max_iter=int(weight["max_iter"]),
     )
     return _BackendResult(
         weights=np.asarray(result.x, dtype=float),
@@ -345,7 +344,7 @@ def _solve_lsq_linear(
 
 def _solve_dense_nnls(
     problem: _WeightProblem,
-    settings: WeightModelSettings,
+    weight: dict,
 ) -> _BackendResult:
     from scipy.optimize import nnls
 
@@ -365,7 +364,7 @@ def _solve_dense_nnls(
         weights, _ = nnls(
             design,
             observed,
-            maxiter=int(settings.max_iter),
+            maxiter=int(weight["max_iter"]),
         )
     except RuntimeError as exc:
         return _BackendResult(
@@ -373,7 +372,7 @@ def _solve_dense_nnls(
             success=False,
             status=0,
             message=f"dense NNLS failed: {exc}",
-            iterations=int(settings.max_iter),
+            iterations=int(weight["max_iter"]),
             optimality=np.inf,
         )
     return _BackendResult(
@@ -418,7 +417,7 @@ def _dual_value_gradient_weights(
 
 def _solve_dual_ridge(
     problem: _WeightProblem,
-    settings: WeightModelSettings,
+    weight: dict,
 ) -> _BackendResult:
     from scipy.linalg import LinAlgError, cho_factor, cho_solve
 
@@ -426,7 +425,7 @@ def _solve_dual_ridge(
         raise ValueError("dual_ridge requires positive L2 regularization")
     n_observations = problem.design.shape[0]
     dual = np.zeros(n_observations, dtype=float)
-    tolerance = float(settings.solver_tolerance)
+    tolerance = float(weight["solver_tolerance"])
     dual_scale = max(1.0, float(np.max(np.abs(problem.observed))))
     message = "dual ridge reached max_iter"
     status = 0
@@ -435,7 +434,7 @@ def _solve_dual_ridge(
     optimality = np.inf
     weights = np.zeros(problem.design.shape[1], dtype=float)
 
-    for iteration in range(1, int(settings.max_iter) + 1):
+    for iteration in range(1, int(weight["max_iter"]) + 1):
         value, gradient, weights = _dual_value_gradient_weights(problem, dual)
         raw_kkt, normalized_kkt = _primal_kkt_residual(problem, weights)
         normalized_dual_gradient = float(np.max(np.abs(gradient))) / dual_scale
@@ -480,7 +479,7 @@ def _solve_dual_ridge(
             status = -2
             break
     else:
-        iterations = int(settings.max_iter)
+        iterations = int(weight["max_iter"])
 
     # Recompute from the accepted final dual point, including failure paths.
     _, _, weights = _dual_value_gradient_weights(problem, dual)
@@ -497,52 +496,68 @@ def _solve_dual_ridge(
 
 def _solve_backend(
     problem: _WeightProblem,
-    settings: WeightModelSettings,
+    weight: dict,
 ) -> _BackendResult:
     try:
-        if settings.solver == "lsq_linear":
-            return _solve_lsq_linear(problem, settings)
-        if settings.solver == "dense_nnls":
-            return _solve_dense_nnls(problem, settings)
-        if settings.solver == "dual_ridge":
-            return _solve_dual_ridge(problem, settings)
+        if weight["solver"] == "lsq_linear":
+            return _solve_lsq_linear(problem, weight)
+        if weight["solver"] == "dense_nnls":
+            return _solve_dense_nnls(problem, weight)
+        if weight["solver"] == "dual_ridge":
+            return _solve_dual_ridge(problem, weight)
     except ImportError as exc:
         raise RuntimeError(
             "SciPy is required for density-solved orbit weights"
         ) from exc
-    raise ValueError(f"unsupported density weight solver: {settings.solver!r}")
+    raise ValueError(f"unsupported density weight solver: {weight['solver']!r}")
 
 
 def solve_density_weights(
     response: OrbitDensityResponse,
     target_density: ArrayLike,
     target_error: ArrayLike,
-    density_fit: DensityFitSettings,
-    settings: WeightModelSettings,
+    fit: dict = {},
+    solver: str = "lsq_linear",
+    target_normalization: str = "absolute",
+    regularization: str = "l2",
+    regularization_strength: float = 0.0,
+    max_iter: int = 20000,
+    solver_tolerance: float | None = None,
+    lsmr_tol: float | None = 1e-6,
 ) -> WeightSolution:
-    """Solve one configured non-negative density-weight problem."""
+    """Solve one configured non-negative density-weight problem.
 
-    if settings.mode != "density_solved":
-        raise ValueError("solve_density_weights requires density_solved settings")
+    ``fit`` holds the density-fit mask settings (keys of density_fit_mask);
+    the remaining options mirror recipe.weight_model.
+    """
+
+    weight = {
+        "solver": solver,
+        "target_normalization": target_normalization,
+        "regularization_strength": regularization_strength,
+        "max_iter": max_iter,
+        "solver_tolerance": 1e-8 if solver_tolerance is None else solver_tolerance,
+        "lsmr_tol": lsmr_tol,
+    }
     target = np.asarray(target_density, dtype=float)
     error = np.asarray(target_error, dtype=float)
     if target.shape != response.grid.shape or error.shape != response.grid.shape:
         raise ValueError(
             "target density and error must match the orbit-response grid"
         )
-    fit_mask = density_fit_mask(target, error, response.grid, density_fit)
-    target, error = _normalized_target(target, error, fit_mask, response, settings.target_normalization or "absolute")
-    regularization = float(settings.regularization_strength)
+    fit_mask = density_fit_mask(target, error, response.grid, **fit)
+    target, error = _normalized_target(target, error, fit_mask, response, target_normalization)
+    regularization = float(regularization_strength)
     problem = _build_weight_problem(response, target, error, fit_mask, regularization)
 
     started = time.perf_counter()
-    backend = _solve_backend(problem, settings)
+    backend = _solve_backend(problem, weight)
     solve_wall_seconds = time.perf_counter() - started
     active_weights = np.asarray(backend.weights, dtype=float)
     finite_nonnegative = np.all(np.isfinite(active_weights)) and np.all(active_weights >= 0)
     raw_kkt, normalized_kkt = _primal_kkt_residual(problem, active_weights)
-    tolerance = float(settings.solver_tolerance)
-    if settings.solver == "lsq_linear":
+    tolerance = float(weight["solver_tolerance"])
+    if solver == "lsq_linear":
         # Preserve the historical SciPy convergence contract. The normalized
         # KKT residual is persisted for comparison but does not silently turn
         # old production runs into invalid trials.
@@ -579,7 +594,7 @@ def solve_density_weights(
         iterations=backend.iterations,
         optimality=backend.optimality if np.isfinite(backend.optimality) else raw_kkt,
         solver_cost=0.5 * inner_objective,
-        solver_backend=str(settings.solver),
+        solver_backend=str(solver),
         kkt_residual=normalized_kkt,
         solve_wall_seconds=solve_wall_seconds,
         problem_fingerprint=problem.fingerprint,

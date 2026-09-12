@@ -1,9 +1,8 @@
-from dataclasses import replace
 import unittest
+from dataclasses import replace
 
 import numpy as np
 
-from halo_mw_lmc.config import DensityFitSettings
 from halo_mw_lmc.density import DensityShellDiagnostics, compare_density
 from halo_mw_lmc.grids import CylindricalGrid
 from halo_mw_lmc.weights import WeightSolution
@@ -42,13 +41,11 @@ class ProfileObjectiveTests(unittest.TestCase):
             np.ones_like(data),
             model,
             grid,
-            DensityFitSettings(
-                min_abs_z=0,
-                min_spherical_radius=0,
-                max_spherical_radius=10,
-                normalization_min_radius=0,
-                normalization="none",
-            ),
+            min_abs_z=0,
+            min_spherical_radius=0,
+            max_spherical_radius=10,
+            normalization_min_radius=0,
+            normalization="none",
         )
         solution = WeightSolution(
             seed_weights=np.array([1.0]),
