@@ -128,9 +128,17 @@ See [current status](refactor_and_experiment_status.md) and the
 is the solver accuracy/runtime experiment; existing stage-2 configs do not
 authorize automatic launch.
 
+2026-09-13 update: the user approved a full research-native flatten (no
+layers, plain-dict configuration, three validation boundaries) as a branch
+experiment. It lives on `codex/flatten-research-native` and does not change
+any scientific assumption; all numerical contracts and invariants carry over.
+Production parity claims apply to the pre-flatten code until the flatten
+passes the same parity standard.
+
 | Decision | Status | Owner and consequence |
 | --- | --- | --- |
 | Package dependency direction and artifact-only reporting | verified | [architecture.md](architecture.md); enforced by architecture and artifact tests |
+| Flat research-native layout without layer directories | hypothesis | Branch experiment approved 2026-09-13; [architecture.md](architecture.md) documents the flat contract; requires full suite green and a fresh production parity check before merging to `main` |
 | Static Zhu et al. (2026) potential is the active model | verified | [zhu_2026_potential.md](zhu_2026_potential.md); changing components requires a fresh production benchmark |
 | `catalogue_fixed` remains the conservative baseline | verified | Baseline for comparisons; do not reinterpret catalogue weights as free Schwarzschild coefficients |
 | `density_solved` is an experimental alternative | verified | [density_solved_weights.md](density_solved_weights.md); implementation exists, scientific identifiability remains under study |

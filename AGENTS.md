@@ -20,10 +20,19 @@ halo-mw-lmc run configs/runs/fix_weight.toml
 Use `validate`, `preflight`, `coverage`, `evaluate`, `optimize`, `inspect`, and
 `report` for isolated lifecycle stages. `python -m halo_mw_lmc SUBCOMMAND`
 is also supported; the historical no-subcommand flags have been removed.
-Numerical code belongs in
-`halo_mw_lmc/core/`, file adapters in `halo_mw_lmc/data/`, expensive execution
-in `halo_mw_lmc/workflows/`, and figures in `halo_mw_lmc/visualization/`.
-Reports, inspection, and apps consume persisted artifacts.
+On this branch the package is flat research code: one module per pipeline
+stage directly under `halo_mw_lmc/` (`potential`, `orbits`, `grids`,
+`density`, `weights`, `velocity`, `coverage`, `catalogue`, `config`,
+`prepare`, `evaluate`, `optimize`, `run`, `report`, `synthetic_density`,
+`solver_budget`, `artifacts`, `inspection`, `benchmark`, and `plot_*`
+figure modules). Configuration is a plain nested dict resolved once by
+`config.py`; defaults live in signatures and in one visible defaults table.
+Validation exists only at three boundaries: input-data checks (catalogue,
+target, experiment plan), run-directory isolation, and artifact provenance
+(resume is unsupported; cold-start only). Reports, inspection, and apps
+consume persisted artifacts. This flat contract is a branch experiment
+approved 2026-09-13; `main` keeps the layered layout until the flatten is
+validated and merged.
 
 ## Sources of truth
 

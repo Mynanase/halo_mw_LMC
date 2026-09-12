@@ -1,9 +1,15 @@
 # Repository architecture
 
+> Branch contract (`codex/flatten-research-native`, approved 2026-09-13).
+> This describes the flat research-native layout. `main` keeps the earlier
+> layered layout (`core/`, `data/`, `workflows/`, `visualization/`) until the
+> flatten is validated and merged. The numerical contracts below are
+> unchanged by the flatten.
+
 ## Stable numerical contract
 
-The numerical core under `halo_mw_lmc/core/` accepts only explicit typed
-values and NumPy-compatible arrays:
+The numerical modules accept only explicit values and NumPy-compatible
+arrays:
 
 | Quantity | Contract |
 | --- | --- |
@@ -17,71 +23,100 @@ values and NumPy-compatible arrays:
 | Trial result | `ModelEvaluation` containing arrays and scalars, never paths or figures |
 
 The metadata-free legacy density file is flattened in `(z,R,phi)` order and is
-accepted only for the historical 25x25x4 grid. Its transpose into the core
-order happens exactly once in `data/density_target.py`. Custom grids use an NPZ
+accepted only for the historical 25x25x4 grid. Its transpose into the model
+order happens exactly once in `catalogue.py`. Custom grids use an NPZ
 target carrying explicit `r`, `z`, and `phi` edges, which are checked before
 model evaluation.
 
-## Dependency direction
+## Flat module map
 
-```mermaid
-flowchart LR
-    CLI["CLI"] --> CFG["configuration"]
-    CLI --> WF["workflows"]
-    WF --> DATA["data adapters"]
-    WF --> ART["artifacts"]
-    WF --> CORE["numerical core"]
-    DATA --> CORE
-    ART --> CORE
-    REPORT["report workflow"] --> VIS["visualization"]
-    REPORT --> ART
-    INSPECT["inspection"] --> ART
-    MARIMO["Marimo app"] --> ART
-```
+One module per pipeline stage, directly under `halo_mw_lmc/`:
 
-The forbidden reverse edges are enforced by tests:
+| Module | Stage |
+| --- | --- |
+| `potential.py` | Static Zhu et al. (2026) potential |
+| `orbits.py` | AGAMA orbit integration and spherical phase-space transforms |
+| `grids.py` | Cylindrical and spherical velocity grid arrays |
+| `density.py` | Density comparison, tracer density, sparse orbit response |
+| `weights.py` | Catalogue weights and the profiled non-negative density solve |
+| `velocity.py` | Velocity histograms, uncertainty, log-likelihood |
+| `catalogue.py` | The single data boundary: catalogue, weights, density targets; documents array keys |
+| `config.py` | Recipe/run TOML -> plain nested dicts; one visible defaults table |
+| `prepare.py` | Preflight checks and one-time data preparation |
+| `coverage.py` | Raw catalogue number-density coverage diagnostics |
+| `evaluate.py` | One potential -> density comparison, weight solve, velocity score |
+| `optimize.py` | Trial loop, sample file, fixed-point and adaptive ask/tell |
+| `run.py` | The `run` lifecycle orchestration |
+| `report.py`, `inspection.py`, `artifacts.py` | Versioned persistence, rebuild, reporting |
+| `benchmark.py`, `solver_budget.py`, `weight_solver_benchmark.py` | Production gate and experiment runners |
+| `synthetic_density.py` | Simulation-derived target generation |
+| `plot_model.py`, `plot_coverage.py`, `plot_constraints.py`, `plot_weights.py`, `plot_convergence.py` | Figures from saved artifacts |
+| `cli.py` | Argparse subcommands; flags are the docs |
 
-- `core` does not import configuration, datasets, workflows, plotting, Astropy,
-  Matplotlib, scikit-optimize, or Marimo;
-- optimization does not import visualization or reporting;
-- Marimo does not import optimization, orbit integration, or potentials.
+## Dependency rules
 
-AGAMA is imported lazily by the numerical backend adapters because it is
-required only when a trial is actually evaluated.
+Enforced by tests:
+
+- `optimize.py` must not import `plot_*`, `report.py`, or Marimo;
+- `plot_*`, `report.py`, and `apps/` read persisted artifacts only — they
+  never reopen the source catalogue or rerun AGAMA integration;
+- numerical modules (`potential`, `orbits`, `grids`, `density`, `weights`,
+  `velocity`) never import configuration, catalogue loading, artifacts,
+  plotting, Astropy, Matplotlib, scikit-optimize, or Marimo.
+
+AGAMA is imported lazily inside `orbits.py` because it is required only when
+a trial is actually evaluated.
 
 ## Configuration ownership
 
 The reusable recipe owns scientific choices: potential, grid edges, fit masks,
-velocity likelihood, weight model, outer objective, orbit sampling, search coordinates,
-bounds, and rounding.
+velocity likelihood, weight model, outer objective, orbit sampling, search
+coordinates, bounds, and rounding.
 The run file owns data paths, run identity, output path, iterations, random
 seed, coverage display settings, and report-only velocity coarsening.
 
-The outer configuration layer resolves TOML and constructs
-`ZhuComparisonConfig`. Core functions never know which file supplied a value.
+Both files are parsed with plain `tomllib` into nested dicts. There are no
+schema classes and no exact-field validation; `config.py` applies one visible
+defaults table, resolves derived values (degree-to-radian, edge arrays), and
+documents every key once in its module docstring. Scientific functions take
+plain values or dicts, with defaults in their signatures. Core functions
+never know which file supplied a value.
 The resolved JSON written into every run is the provenance record used by
 analysis; the checked-in TOML remains the human-editable source.
 
+## Three thin defenses
+
+1. Data boundary: `catalogue.py` (catalogue, weights, density targets) and the
+   `solver_budget.py` experiment plan check units, shapes, finiteness, and
+   value ranges exactly once at load time. Nothing downstream re-checks.
+2. Run-directory isolation: `prepare.py` refuses an existing output directory
+   (cold-start only; resumption is unsupported and stated as such).
+3. Artifact provenance: writers stamp schema versions and resolved config;
+   readers check versions when a silent misread is possible.
+
+Everything else fails fast with raw tracebacks; there is no exception
+hierarchy beyond `ValueError` at the data boundary.
+
 ## Execution and artifacts
 
-`workflows/preflight.py` owns stage-aware dependency, input, grid, weight-audit,
-and output-conflict checks. For `run`, it reads catalogue and target exactly once
-and hands the prepared arrays to the numerical path before any run directory is
-created. Coverage uses a separate catalogue-only payload and never reads the
+`prepare.py` owns stage-aware dependency, input, grid, weight-audit, and
+output-conflict checks. For `run`, it reads catalogue and target exactly once
+and hands the prepared arrays to the numerical path before any run directory
+is created. Coverage uses a catalogue-only payload and never reads the
 target or probes numerical dependencies.
 
-Expensive integration is confined to `workflows/optimization.py`. A common trial
+Expensive integration is confined to `optimize.py`. A common trial
 loop writes one sample row per evaluated point and replaces only the current best
 snapshot. Its fixed wrapper consumes explicit points sequentially and never
 imports skopt; its adaptive wrapper alone owns `Optimizer.ask/tell`. Evaluation,
 adaptive `tell()`, and persistence receive the same rounded coordinates.
 
-The default `run` lifecycle is validate → preflight/prepare → fixed evaluation or
-adaptive optimization → numerical artifact inspection → managed report → saved
+The default `run` lifecycle is validate -> preflight/prepare -> fixed evaluation or
+adaptive optimization -> numerical artifact inspection -> managed report -> saved
 inspection. Numerical failure preserves partial artifacts. A report failure does
 not invalidate completed numerical artifacts.
 
-`inspection.py`, reporting, and Marimo consume artifacts. They do not reopen the
+`inspection.py`, `report.py`, and Marimo consume artifacts. They do not reopen the
 source catalogue and never reconstruct missing results through AGAMA. Managed
 `report/` publication is staged and validated before an optional directory
 replacement. `inspection.json` is a derived cache; resolved configuration,
@@ -100,24 +135,24 @@ inside one evaluation changes:
   distributes each solved orbit weight over that orbit's actual finite samples
   for velocity scoring.
 
-The sparse response and solver live in `core/`; neither knows about TOML, paths,
-AGAMA, optimization, or plotting. No-Fixed uses density normalization `none` so
-there is no weight/scale degeneracy. Failed seed integrations retain zero slots
-in the persisted full-catalogue weight vector.
+The sparse response and solver live in `density.py` and `weights.py`; neither
+knows about TOML, paths, AGAMA, optimization, or plotting. No-Fixed uses
+density normalization `none` so there is no weight/scale degeneracy. Failed
+seed integrations retain zero slots in the persisted full-catalogue weight
+vector.
 
 ## Extension rules
 
-- A new equation, grid algorithm, or reusable array diagnostic belongs in
-  `core/` and must be testable with small in-memory arrays.
-- A new survey/file format belongs in `data/` and translates into the existing
-  core contract.
-- A new expensive execution mode belongs in `workflows/` and writes versioned
-  artifacts.
-- A simulation-derived target is generated by an explicit workflow into the
-  existing target NPZ contract; source catalogues and plotting scripts never
-  become core runtime dependencies.
-- A new figure belongs in `visualization/`; the optimizer must not import it.
-- The five-parameter corner constraint figure (`parameter_constraints.py`,
+- A new equation or reusable array diagnostic joins the flat numerical module
+  that owns it and must be testable with small in-memory arrays.
+- A new survey/file format joins `catalogue.py` and translates into the
+  existing array contract at that one boundary.
+- A new expensive execution mode is a new flat stage module that writes
+  versioned artifacts; source catalogues and plotting scripts never become
+  runtime dependencies of numerical modules.
+- A new figure is a `plot_*.py` module reading saved artifacts; `optimize.py`
+  must not import it.
+- The five-parameter corner constraint figure (`plot_constraints.py`,
   `build_parameter_constraints_corner_figure`) reads only the persisted
   `sample.dat` trial table and resolved-config search bounds, and is
   display-only: it never re-runs orbit integration or mutates solver weights.
