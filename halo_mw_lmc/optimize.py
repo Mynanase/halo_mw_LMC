@@ -8,15 +8,15 @@ from pathlib import Path
 
 import numpy as np
 
-from ..artifacts import save_best_evaluation, write_resolved_config
-from ..configuration import RunConfiguration
-from ..core.potentials import (
+from .artifacts import save_best_evaluation, write_resolved_config
+from .config import RunConfiguration
+from .potential import (
     ZHU_2026_BEST_FIT,
     ZHU_2026_POTENTIAL_NAME,
     ZhuHaloParameters,
 )
-from .evaluation import evaluate_prepared_model
-from .preflight import (
+from .evaluate import evaluate_prepared_model
+from .prepare import (
     PreparedExecution,
     preflight_and_prepare,
     require_preflight,

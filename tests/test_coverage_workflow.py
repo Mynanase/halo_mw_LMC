@@ -6,8 +6,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from halo_mw_lmc.configuration import load_run_configuration
-from halo_mw_lmc.workflows.coverage import generate_coverage_report
+from halo_mw_lmc.config import load_run_configuration
+from halo_mw_lmc.report import generate_coverage_report
 
 
 RUN_CONFIG = Path(__file__).resolve().parents[1] / "configs/runs/fix_weight.toml"
@@ -39,11 +39,11 @@ class CoverageWorkflowTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "halo_mw_lmc.workflows.preflight.read_phase_space_catalogue",
+                    "halo_mw_lmc.prepare.read_phase_space_catalogue",
                     return_value=np.zeros((1, 6)),
                 ),
                 patch(
-                    "halo_mw_lmc.workflows.preflight.build_data_coverage",
+                    "halo_mw_lmc.prepare.build_data_coverage",
                     side_effect=RuntimeError("stop after boundary check"),
                 ) as build,
             ):

@@ -3,11 +3,11 @@ import unittest
 
 import numpy as np
 
-from halo_mw_lmc.core.config import DensityFitSettings
-from halo_mw_lmc.core.density import DensityShellDiagnostics, compare_density
-from halo_mw_lmc.core.grids import CylindricalGrid
-from halo_mw_lmc.core.weight_solver import WeightSolution
-from halo_mw_lmc.workflows.evaluation import (
+from halo_mw_lmc.config import DensityFitSettings
+from halo_mw_lmc.density import DensityShellDiagnostics, compare_density
+from halo_mw_lmc.grids import CylindricalGrid
+from halo_mw_lmc.weights import WeightSolution
+from halo_mw_lmc.evaluate import (
     INVALID_TRIAL_PENALTY,
     ModelEvaluation,
 )

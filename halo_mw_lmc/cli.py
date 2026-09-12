@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import sys
 
-from .configuration import ConfigurationError, load_run_configuration
+from .config import ConfigurationError, load_run_configuration
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -122,8 +122,8 @@ def _save_best_effort_inspection(output: Path) -> None:
 
 def _execute_numerical(configuration, stage: str) -> Path:
     from .inspection import inspect_run, save_inspection
-    from .workflows.optimization import run_fixed_evaluation, run_optimization
-    from .workflows.preflight import preflight_and_prepare, require_preflight
+    from .optimize import run_fixed_evaluation, run_optimization
+    from .prepare import preflight_and_prepare, require_preflight
 
     result = require_preflight(preflight_and_prepare(configuration, stage=stage))
     prepared = result.execution
@@ -156,7 +156,7 @@ def _run_command(args) -> int:
         return 1 if inspection.numerical_status == "invalid" else 0
 
     if args.command == "report":
-        from .workflows.reporting import generate_report_from_run
+        from .report import generate_report_from_run
 
         paths = generate_report_from_run(args.run_dir, overwrite=args.overwrite)
         print(f"wrote managed report to {Path(args.run_dir).resolve() / 'report'}")
@@ -172,7 +172,7 @@ def _run_command(args) -> int:
             _print_validation(document)
         return 0
     if args.command == "preflight":
-        from .workflows.preflight import preflight_and_prepare
+        from .prepare import preflight_and_prepare
 
         result = preflight_and_prepare(configuration, stage=args.stage)
         document = result.document()
@@ -183,8 +183,8 @@ def _run_command(args) -> int:
                 print(f"{check.status}: {check.name}: {check.detail}")
         return 0 if result.ok else 1
     if args.command == "coverage":
-        from .workflows.coverage import generate_coverage_report
-        from .workflows.preflight import preflight_and_prepare, require_preflight
+        from .coverage import generate_coverage_report
+        from .prepare import preflight_and_prepare, require_preflight
 
         result = require_preflight(preflight_and_prepare(configuration, stage="coverage"))
         for path in generate_coverage_report(configuration, result.coverage):
@@ -195,7 +195,7 @@ def _run_command(args) -> int:
         print(f"wrote run artifacts to {output}")
         return 0
     if args.command == "run":
-        from .workflows.run import run_full_workflow
+        from .run import run_full_workflow
 
         result = run_full_workflow(configuration)
         print(f"wrote run artifacts to {result.run_directory}")

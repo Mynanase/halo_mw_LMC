@@ -4,19 +4,19 @@ from unittest.mock import patch
 
 import numpy as np
 
-from halo_mw_lmc.core.config import (
+from halo_mw_lmc.config import (
     DensityFitSettings,
     ObjectiveSettings,
     WeightModelSettings,
     ZhuComparisonConfig,
 )
-from halo_mw_lmc.core.grids import CylindricalGrid
-from halo_mw_lmc.core.orbits import OrbitLibrary
-from halo_mw_lmc.core.phase_space import cartesian_to_spherical_phase_space
-from halo_mw_lmc.core.potentials import ZhuHaloParameters
-from halo_mw_lmc.data.catalogue import SeedCatalogue
-from halo_mw_lmc.workflows.evaluation import evaluate_prepared_model
-from halo_mw_lmc.workflows.preparation import PreparedFixedWeightData
+from halo_mw_lmc.grids import CylindricalGrid
+from halo_mw_lmc.orbits import OrbitLibrary
+from halo_mw_lmc.orbits import cartesian_to_spherical_phase_space
+from halo_mw_lmc.potential import ZhuHaloParameters
+from halo_mw_lmc.catalogue import SeedCatalogue
+from halo_mw_lmc.evaluate import evaluate_prepared_model
+from halo_mw_lmc.prepare import PreparedFixedWeightData
 
 
 class FixedWeightPipelineTests(unittest.TestCase):
@@ -80,11 +80,11 @@ class FixedWeightPipelineTests(unittest.TestCase):
 
         with (
             patch(
-                "halo_mw_lmc.workflows.evaluation.build_potential_from_parameters",
+                "halo_mw_lmc.evaluate.build_potential_from_parameters",
                 return_value=object(),
             ),
             patch(
-                "halo_mw_lmc.workflows.evaluation.integrate_agama_orbits",
+                "halo_mw_lmc.evaluate.integrate_agama_orbits",
                 return_value=library,
             ),
         ):
@@ -175,15 +175,15 @@ class DensitySolvedPipelineTests(unittest.TestCase):
 
         with (
             patch(
-                "halo_mw_lmc.workflows.evaluation.build_potential_from_parameters",
+                "halo_mw_lmc.evaluate.build_potential_from_parameters",
                 return_value=object(),
             ),
             patch(
-                "halo_mw_lmc.workflows.evaluation.integrate_agama_orbits",
+                "halo_mw_lmc.evaluate.integrate_agama_orbits",
                 return_value=library,
             ),
             patch(
-                "halo_mw_lmc.workflows.evaluation._score_velocities",
+                "halo_mw_lmc.evaluate._score_velocities",
                 return_value=(
                     {"vr": -2.0, "vphi": -1.0, "vtheta": -3.0},
                     {

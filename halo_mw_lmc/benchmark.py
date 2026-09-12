@@ -10,7 +10,7 @@ import sys
 
 import numpy as np
 
-from .configuration import RunConfiguration, load_run_configuration
+from .config import RunConfiguration, load_run_configuration
 
 
 R8_40_CASE_PARAMETERS = {

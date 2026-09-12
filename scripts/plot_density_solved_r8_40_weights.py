@@ -12,7 +12,7 @@ import tarfile
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from halo_mw_lmc.visualization.weights import plot_orbit_weight_histograms
+from halo_mw_lmc.plot_weights import plot_orbit_weight_histograms
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]

@@ -2,13 +2,13 @@ import unittest
 
 import numpy as np
 
-from halo_mw_lmc.core.config import DensityFitSettings
-from halo_mw_lmc.core.density import (
+from halo_mw_lmc.config import DensityFitSettings
+from halo_mw_lmc.density import (
     compare_density,
     density_shell_diagnostics,
     orbit_density,
 )
-from halo_mw_lmc.core.grids import CylindricalGrid
+from halo_mw_lmc.grids import CylindricalGrid
 
 
 class CylindricalGridTests(unittest.TestCase):

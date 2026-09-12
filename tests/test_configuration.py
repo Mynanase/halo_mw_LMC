@@ -5,13 +5,13 @@ from pathlib import Path
 
 import numpy as np
 
-from halo_mw_lmc.configuration import (
+from halo_mw_lmc.config import (
     ConfigurationError,
     RunConfiguration,
     load_recipe_configuration,
     load_run_configuration,
 )
-from halo_mw_lmc.core.config import ZhuComparisonConfig
+from halo_mw_lmc.config import ZhuComparisonConfig
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]

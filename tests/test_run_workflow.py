@@ -3,16 +3,16 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from halo_mw_lmc.workflows.run import run_full_workflow
+from halo_mw_lmc.run import run_full_workflow
 
 
 class FullRunWorkflowTests(unittest.TestCase):
-    @patch("halo_mw_lmc.workflows.run.save_inspection")
-    @patch("halo_mw_lmc.workflows.run.inspect_run")
-    @patch("halo_mw_lmc.workflows.run.generate_report_from_run")
-    @patch("halo_mw_lmc.workflows.run.run_optimization")
-    @patch("halo_mw_lmc.workflows.run.require_preflight")
-    @patch("halo_mw_lmc.workflows.run.preflight_and_prepare")
+    @patch("halo_mw_lmc.run.save_inspection")
+    @patch("halo_mw_lmc.run.inspect_run")
+    @patch("halo_mw_lmc.run.generate_report_from_run")
+    @patch("halo_mw_lmc.run.run_optimization")
+    @patch("halo_mw_lmc.run.require_preflight")
+    @patch("halo_mw_lmc.run.preflight_and_prepare")
     def test_default_workflow_prepares_once_then_reports(
         self,
         preflight_and_prepare,
@@ -46,9 +46,9 @@ class FullRunWorkflowTests(unittest.TestCase):
         self.assertEqual(result.report_paths, tuple(report_paths))
         self.assertEqual(result.inspection_path, run_directory / "inspection.json")
 
-    @patch("halo_mw_lmc.workflows.run.run_optimization")
-    @patch("halo_mw_lmc.workflows.run.require_preflight")
-    @patch("halo_mw_lmc.workflows.run.preflight_and_prepare")
+    @patch("halo_mw_lmc.run.run_optimization")
+    @patch("halo_mw_lmc.run.require_preflight")
+    @patch("halo_mw_lmc.run.preflight_and_prepare")
     def test_preflight_failure_creates_no_run(
         self,
         preflight_and_prepare,
@@ -60,15 +60,15 @@ class FullRunWorkflowTests(unittest.TestCase):
             run_full_workflow(SimpleNamespace(output_dir=Path("unused")))
         run_optimization.assert_not_called()
 
-    @patch("halo_mw_lmc.workflows.run.save_inspection")
-    @patch("halo_mw_lmc.workflows.run.inspect_run")
+    @patch("halo_mw_lmc.run.save_inspection")
+    @patch("halo_mw_lmc.run.inspect_run")
     @patch(
-        "halo_mw_lmc.workflows.run.generate_report_from_run",
+        "halo_mw_lmc.run.generate_report_from_run",
         side_effect=RuntimeError("report failed"),
     )
-    @patch("halo_mw_lmc.workflows.run.run_optimization")
-    @patch("halo_mw_lmc.workflows.run.require_preflight")
-    @patch("halo_mw_lmc.workflows.run.preflight_and_prepare")
+    @patch("halo_mw_lmc.run.run_optimization")
+    @patch("halo_mw_lmc.run.require_preflight")
+    @patch("halo_mw_lmc.run.preflight_and_prepare")
     def test_report_failure_preserves_complete_numerical_status(
         self,
         _preflight_and_prepare,

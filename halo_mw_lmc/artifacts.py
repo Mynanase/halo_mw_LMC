@@ -12,17 +12,17 @@ from typing import TYPE_CHECKING, Mapping, Sequence
 
 import numpy as np
 
-from .core.density import DensityComparison, DensityShellDiagnostics
-from .core.grids import CylindricalGrid
-from .core.orbit_response import OrbitSupportAudit
-from .core.velocity import (
+from .density import DensityComparison, DensityShellDiagnostics
+from .grids import CylindricalGrid
+from .density import OrbitSupportAudit
+from .velocity import (
     SphericalVelocityGrid,
     VelocityDistributionComparison,
 )
-from .core.weight_solver import WeightSolution
+from .weights import WeightSolution
 
 if TYPE_CHECKING:
-    from .core.potentials import ZhuHaloParameters
+    from .potential import ZhuHaloParameters
 
 
 BEST_EVALUATION_SCHEMA_VERSION = 4

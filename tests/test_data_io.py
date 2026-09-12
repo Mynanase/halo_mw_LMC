@@ -4,9 +4,9 @@ from pathlib import Path
 
 import numpy as np
 
-from halo_mw_lmc.core.grids import CylindricalGrid
-from halo_mw_lmc.data.catalogue import read_seed_catalogue
-from halo_mw_lmc.data.density_target import read_target_density
+from halo_mw_lmc.grids import CylindricalGrid
+from halo_mw_lmc.catalogue import read_seed_catalogue
+from halo_mw_lmc.catalogue import read_target_density
 
 
 class DataAdapterTests(unittest.TestCase):

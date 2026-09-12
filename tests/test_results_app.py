@@ -34,8 +34,8 @@ class ResultsAppBoundaryTests(unittest.TestCase):
             "halo_mw_lmc.workflows",
             "halo_mw_lmc.orbits",
             "halo_mw_lmc.potentials",
-            "halo_mw_lmc.core.orbits",
-            "halo_mw_lmc.core.potentials",
+            "halo_mw_lmc.orbits",
+            "halo_mw_lmc.potentials",
         )
         violations = sorted(
             module

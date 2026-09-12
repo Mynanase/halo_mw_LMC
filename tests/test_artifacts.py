@@ -13,13 +13,13 @@ from halo_mw_lmc.artifacts import (
     save_best_evaluation,
     write_resolved_config,
 )
-from halo_mw_lmc.core.config import DensityFitSettings
-from halo_mw_lmc.core.density import compare_density, density_shell_diagnostics
-from halo_mw_lmc.core.grids import CylindricalGrid
-from halo_mw_lmc.core.orbit_response import OrbitSupportAudit
-from halo_mw_lmc.core.potentials import ZhuHaloParameters
-from halo_mw_lmc.core.weight_solver import WeightSolution
-from halo_mw_lmc.workflows.evaluation import ModelEvaluation
+from halo_mw_lmc.config import DensityFitSettings
+from halo_mw_lmc.density import compare_density, density_shell_diagnostics
+from halo_mw_lmc.grids import CylindricalGrid
+from halo_mw_lmc.density import OrbitSupportAudit
+from halo_mw_lmc.potential import ZhuHaloParameters
+from halo_mw_lmc.weights import WeightSolution
+from halo_mw_lmc.evaluate import ModelEvaluation
 
 
 class RunArtifactTests(unittest.TestCase):

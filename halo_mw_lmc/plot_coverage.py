@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from ..core.coverage import DataCoverage
+from .coverage import DataCoverage
 
 
 def _sample_indices(size: int, maximum: int, seed: int) -> NDArray[np.int64]:

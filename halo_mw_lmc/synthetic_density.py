@@ -10,8 +10,8 @@ import tempfile
 
 import numpy as np
 
-from ..configuration import SyntheticDensityConfiguration
-from ..core.tracer_density import (
+from .config import SyntheticDensityConfiguration
+from .density import (
     DESI_YEAR1_KGIANTS_DENSITY,
     cell_average_cylindrical_density,
 )

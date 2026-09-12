@@ -2,7 +2,7 @@ import unittest
 
 import numpy as np
 
-from halo_mw_lmc.visualization.parameter_constraints import (
+from halo_mw_lmc.plot_constraints import (
     CORNER_PANELS,
     DISPLAY_ORDER,
     DIAGNOSTIC_LEVELS,
@@ -639,7 +639,7 @@ class DiagnosticLevelTests(unittest.TestCase):
         self.assertFalse(drawn[2300.0])
 
     def _draw_bowl(self, *, base: float, scale: float):
-        from halo_mw_lmc.visualization.parameter_constraints import _draw_profile_contour
+        from halo_mw_lmc.plot_constraints import _draw_profile_contour
 
         class Axis:
             def __init__(self):
@@ -706,7 +706,7 @@ class DiagnosticLevelTests(unittest.TestCase):
 
         surfaces = {"corner_1_0": {"total": self._surface(np.linspace(100.0, 5000.0, 49))}}
         figure, axes = plt.subplots()
-        from halo_mw_lmc.visualization.parameter_constraints import (
+        from halo_mw_lmc.plot_constraints import (
             _contour_touches_boundary,
             _draw_panel_annotations,
             _draw_profile_contour,

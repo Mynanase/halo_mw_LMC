@@ -17,7 +17,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from halo_mw_lmc.workflows.solver_budget import (  # noqa: E402
+from halo_mw_lmc.solver_budget import (  # noqa: E402
     SOLVER_BUDGET_PHASES,
     run_solver_budget_phase,
 )

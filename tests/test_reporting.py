@@ -5,7 +5,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from halo_mw_lmc.inspection import inspect_run
-from halo_mw_lmc.workflows.reporting import generate_report_from_run
+from halo_mw_lmc.report import generate_report_from_run
 
 from tests.artifact_fixture import write_complete_run
 
@@ -68,7 +68,7 @@ class ManagedReportTests(unittest.TestCase):
             manifest_before = (run / "report/manifest.json").read_bytes()
 
             with patch(
-                "halo_mw_lmc.workflows.reporting._render_report",
+                "halo_mw_lmc.report._render_report",
                 side_effect=RuntimeError("render failed"),
             ):
                 with self.assertRaisesRegex(RuntimeError, "render failed"):

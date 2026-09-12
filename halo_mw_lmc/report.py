@@ -11,29 +11,32 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from .. import __version__
-from ..artifacts import (
+from . import __version__
+from .artifacts import (
     load_best_evaluation,
     load_resolved_config,
     load_sample_table,
 )
-from ..configuration import RunConfiguration
-from ..inspection import inspect_run, save_inspection
-from ..visualization.convergence import build_convergence_figure
-from ..visualization.model import (
+from .config import RunConfiguration
+from .inspection import inspect_run, save_inspection
+from .plot_convergence import build_convergence_figure
+from .plot_model import (
     plot_density_comparison,
     plot_density_phi_pages,
     plot_density_shape,
     plot_density_shell_gate,
     plot_velocity_distributions,
 )
-from ..visualization.parameter_constraints import (
+from .plot_constraints import (
     build_parameter_constraints_corner_figure,
     build_parameter_constraints_figure,
     persist_corner_surfaces,
     search_bounds_from_resolved_config,
 )
-from ..visualization.weights import plot_orbit_weight_histograms
+from .plot_weights import plot_orbit_weight_histograms
+
+from .plot_coverage import plot_all_data_coverage
+from .prepare import PreparedCoverage, preflight_and_prepare, require_preflight
 
 
 REPORT_MANIFEST_SCHEMA_VERSION = 1
@@ -278,3 +281,61 @@ def generate_report(configuration: RunConfiguration) -> list[Path]:
     """Compatibility wrapper for callers that still hold a run configuration."""
 
     return generate_report_from_run(configuration.output_dir)
+
+
+def generate_coverage_report(
+    configuration: RunConfiguration,
+    prepared: PreparedCoverage | None = None,
+) -> list[Path]:
+    """Measure and render raw catalogue coverage from one run configuration."""
+
+    catalog_path = configuration.data.catalog
+    output_directory = configuration.coverage.output_dir
+    if prepared is None:
+        result = require_preflight(preflight_and_prepare(configuration, stage="coverage"))
+        prepared = result.coverage
+    if prepared is None:
+        raise RuntimeError("coverage preflight did not return prepared data")
+    if prepared.configuration != configuration:
+        raise ValueError("prepared coverage belongs to a different configuration")
+    comparison = configuration.to_comparison_config()
+    grid = comparison.density_grid
+    coverage = prepared.coverage
+    output_directory.mkdir(parents=True, exist_ok=False)
+    written = plot_all_data_coverage(
+        coverage,
+        output_directory,
+        spatial_limit=float(max(grid.r_edges[-1], np.max(np.abs(grid.z_edges)))),
+        velocity_limit=configuration.coverage.velocity_limit_km_s,
+        maximum_points=configuration.coverage.maximum_points,
+        random_state=configuration.coverage.random_seed,
+    )
+
+    summary = {
+        "catalog_path": str(catalog_path),
+        "density_interpretation": "raw catalogue sampling density; no selection-function correction",
+        "configuration": {
+            "r_edges_kpc": grid.r_edges.tolist(),
+            "z_edges_kpc": grid.z_edges.tolist(),
+            "phi_edges_rad": grid.phi_edges.tolist(),
+            "velocity_display_limit_km_s": configuration.coverage.velocity_limit_km_s,
+            "random_seed": configuration.coverage.random_seed,
+        },
+        **coverage.summary(),
+    }
+    summary_path = output_directory / "coverage_summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2, sort_keys=True) + "\n")
+    counts_path = output_directory / "coverage_counts.npz"
+    np.savez_compressed(
+        counts_path,
+        rzphi_counts=coverage.rzphi_counts,
+        rzphi_sampling_density=coverage.rzphi_sampling_density,
+        r_edges=coverage.rzphi_grid.r_edges,
+        z_edges=coverage.rzphi_grid.z_edges,
+        phi_edges=coverage.phi_edges,
+        rtheta_phi_counts=coverage.rtheta_phi_counts,
+        rtheta_phi_sampling_density=coverage.rtheta_phi_sampling_density,
+        spherical_radius_edges=coverage.spherical_radius_edges,
+        theta_edges=coverage.theta_edges,
+    )
+    return [*written, summary_path, counts_path]

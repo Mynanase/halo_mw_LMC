@@ -6,19 +6,19 @@ from pathlib import Path
 
 import numpy as np
 
-from halo_mw_lmc.configuration import (
+from halo_mw_lmc.config import (
     SyntheticDensityConfiguration,
     load_recipe_configuration,
     load_synthetic_density_configuration,
 )
-from halo_mw_lmc.core.grids import CylindricalGrid
-from halo_mw_lmc.core.tracer_density import (
+from halo_mw_lmc.grids import CylindricalGrid
+from halo_mw_lmc.density import (
     DESI_YEAR1_KGIANTS_DENSITY,
     DesiKGiantsDensityModel,
     cell_average_cylindrical_density,
 )
-from halo_mw_lmc.data.density_target import read_target_density
-from halo_mw_lmc.workflows.synthetic_density import generate_synthetic_density
+from halo_mw_lmc.catalogue import read_target_density
+from halo_mw_lmc.synthetic_density import generate_synthetic_density
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]

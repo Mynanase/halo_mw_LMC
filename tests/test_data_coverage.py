@@ -4,9 +4,9 @@ from tempfile import TemporaryDirectory
 
 import numpy as np
 
-from halo_mw_lmc.core.coverage import build_data_coverage
-from halo_mw_lmc.core.grids import CylindricalGrid
-from halo_mw_lmc.data.catalogue import read_phase_space_catalogue
+from halo_mw_lmc.coverage import build_data_coverage
+from halo_mw_lmc.grids import CylindricalGrid
+from halo_mw_lmc.catalogue import read_phase_space_catalogue
 
 
 class DataCoverageTests(unittest.TestCase):

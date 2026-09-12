@@ -5,11 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from ..configuration import RunConfiguration
-from ..inspection import inspect_run, save_inspection
-from .optimization import run_fixed_evaluation, run_optimization
-from .preflight import preflight_and_prepare, require_preflight
-from .reporting import generate_report_from_run
+from .config import RunConfiguration
+from .inspection import inspect_run, save_inspection
+from .optimize import run_fixed_evaluation, run_optimization
+from .prepare import preflight_and_prepare, require_preflight
+from .report import generate_report_from_run
 
 
 @dataclass(frozen=True)

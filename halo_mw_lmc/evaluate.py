@@ -7,31 +7,31 @@ from typing import Mapping
 
 import numpy as np
 
-from ..core.density import (
+from .density import (
     DensityComparison,
     DensityShellDiagnostics,
     compare_density,
     density_shell_diagnostics,
     orbit_density,
 )
-from ..core.orbit_response import (
+from .density import (
     OrbitDensityResponse,
     OrbitSupportAudit,
     build_orbit_density_response,
 )
-from ..core.orbits import OrbitLibrary, integrate_agama_orbits
-from ..core.phase_space import (
+from .orbits import OrbitLibrary, integrate_agama_orbits
+from .orbits import (
     SphericalPhaseSpace,
     cartesian_to_spherical_phase_space,
 )
-from ..core.potentials import ZhuHaloParameters, build_potential_from_parameters
-from ..core.velocity import (
+from .potential import ZhuHaloParameters, build_potential_from_parameters
+from .velocity import (
     VelocityDistributionComparison,
     conditional_velocity_histogram,
     velocity_log_likelihood,
 )
-from ..core.weight_solver import WeightSolution, solve_density_weights
-from .preparation import PreparedModelData
+from .weights import WeightSolution, solve_density_weights
+from .prepare import PreparedModelData
 
 
 INVALID_TRIAL_PENALTY = 1e30

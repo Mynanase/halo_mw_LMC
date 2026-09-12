@@ -57,12 +57,18 @@ One module per pipeline stage, directly under `halo_mw_lmc/`:
 
 Enforced by tests:
 
-- `optimize.py` must not import `plot_*`, `report.py`, or Marimo;
-- `plot_*`, `report.py`, and `apps/` read persisted artifacts only — they
-  never reopen the source catalogue or rerun AGAMA integration;
 - numerical modules (`potential`, `orbits`, `grids`, `density`, `weights`,
-  `velocity`) never import configuration, catalogue loading, artifacts,
-  plotting, Astropy, Matplotlib, scikit-optimize, or Marimo.
+  `velocity`) never import catalogue loading, artifacts, prepare/evaluate/
+  optimize/run/report stages, plotting, Astropy, Matplotlib, scikit-optimize,
+  or Marimo. They may import `config`, which is stdlib-only value
+  definitions;
+- `optimize.py` must not import `plot_*`, `report.py`, or Marimo;
+- `inspection.py` and the run-report path of `report.py` read persisted
+  artifacts only — they never reopen the source catalogue. The one
+  documented exception is the coverage report stage in `report.py`, which
+  reads the catalogue via `prepare.py` and never reads the density target or
+  probes numerical dependencies. No report, plot, or app module ever reruns
+  AGAMA integration.
 
 AGAMA is imported lazily inside `orbits.py` because it is required only when
 a trial is actually evaluated.

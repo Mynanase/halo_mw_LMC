@@ -3,10 +3,10 @@ from dataclasses import replace
 
 import numpy as np
 
-from halo_mw_lmc.core.config import DensityFitSettings
-from halo_mw_lmc.core.density import compare_density
-from halo_mw_lmc.core.grids import CylindricalGrid
-from halo_mw_lmc.visualization.model import (
+from halo_mw_lmc.config import DensityFitSettings
+from halo_mw_lmc.density import compare_density
+from halo_mw_lmc.grids import CylindricalGrid
+from halo_mw_lmc.plot_model import (
     _coarsen_velocity_panel,
     _density_fit_display_mask,
     _fit_origin_centered_ellipse,
@@ -14,12 +14,12 @@ from halo_mw_lmc.visualization.model import (
     _velocity_panel_values,
     isodensity_shape_profile,
 )
-from halo_mw_lmc.visualization.weights import (
+from halo_mw_lmc.plot_weights import (
     orbit_weight_histograms,
     shared_log_weight_edges,
     summarize_orbit_weights,
 )
-from halo_mw_lmc.core.velocity import (
+from halo_mw_lmc.velocity import (
     SphericalVelocityGrid,
     VelocityDistributionComparison,
 )

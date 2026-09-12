@@ -9,8 +9,8 @@ from typing import Mapping
 import numpy as np
 from numpy.typing import NDArray
 
-from ..core.density import DensityComparison, DensityShellDiagnostics
-from ..core.velocity import (
+from .density import DensityComparison, DensityShellDiagnostics
+from .velocity import (
     VelocityDistributionComparison,
     multinomial_histogram_uncertainty,
 )

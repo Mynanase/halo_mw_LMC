@@ -7,8 +7,8 @@ from unittest.mock import patch
 
 import numpy as np
 
-from halo_mw_lmc.configuration import load_run_configuration
-from halo_mw_lmc.workflows.preflight import PreflightError, preflight_and_prepare
+from halo_mw_lmc.config import load_run_configuration
+from halo_mw_lmc.prepare import PreflightError, preflight_and_prepare
 
 
 RUN_CONFIG = Path(__file__).resolve().parents[1] / "configs/runs/fix_weight.toml"
@@ -43,15 +43,15 @@ class PreflightTests(unittest.TestCase):
             )
             with (
                 patch(
-                    "halo_mw_lmc.workflows.preflight.importlib.util.find_spec",
+                    "halo_mw_lmc.prepare.importlib.util.find_spec",
                     return_value=object(),
                 ),
                 patch(
-                    "halo_mw_lmc.workflows.preflight.prepare_model_data",
+                    "halo_mw_lmc.prepare.prepare_model_data",
                     return_value=prepared,
                 ) as prepare,
                 patch(
-                    "halo_mw_lmc.workflows.preflight.catalogue_weight_audit",
+                    "halo_mw_lmc.prepare.catalogue_weight_audit",
                     return_value={"total_weight": np.asarray(2.0)},
                 ) as audit,
             ):
@@ -77,15 +77,15 @@ class PreflightTests(unittest.TestCase):
             coverage = SimpleNamespace(input_rows=3)
             with (
                 patch(
-                    "halo_mw_lmc.workflows.preflight.importlib.util.find_spec",
+                    "halo_mw_lmc.prepare.importlib.util.find_spec",
                     side_effect=find_spec,
                 ),
                 patch(
-                    "halo_mw_lmc.workflows.preflight.read_phase_space_catalogue",
+                    "halo_mw_lmc.prepare.read_phase_space_catalogue",
                     return_value=np.zeros((3, 6)),
                 ) as read,
                 patch(
-                    "halo_mw_lmc.workflows.preflight.build_data_coverage",
+                    "halo_mw_lmc.prepare.build_data_coverage",
                     return_value=coverage,
                 ),
             ):

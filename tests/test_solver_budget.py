@@ -13,25 +13,25 @@ from unittest.mock import patch
 
 import numpy as np
 
-from halo_mw_lmc.core.config import (
+from halo_mw_lmc.config import (
     DensityFitSettings,
     ObjectiveSettings,
     WeightModelSettings,
     ZhuComparisonConfig,
 )
-from halo_mw_lmc.core.grids import CylindricalGrid
-from halo_mw_lmc.core.orbit_response import build_orbit_density_response
-from halo_mw_lmc.core.orbits import OrbitLibrary
-from halo_mw_lmc.core.phase_space import cartesian_to_spherical_phase_space
-from halo_mw_lmc.core.potentials import ZhuHaloParameters
-from halo_mw_lmc.data.catalogue import SeedCatalogue
-from halo_mw_lmc.workflows.evaluation import (
+from halo_mw_lmc.grids import CylindricalGrid
+from halo_mw_lmc.density import build_orbit_density_response
+from halo_mw_lmc.orbits import OrbitLibrary
+from halo_mw_lmc.orbits import cartesian_to_spherical_phase_space
+from halo_mw_lmc.potential import ZhuHaloParameters
+from halo_mw_lmc.catalogue import SeedCatalogue
+from halo_mw_lmc.evaluate import (
     INVALID_TRIAL_PENALTY,
     evaluate_orbit_library,
     evaluate_prepared_model,
 )
-from halo_mw_lmc.workflows.preparation import PreparedFixedWeightData
-from halo_mw_lmc.workflows.solver_budget import (
+from halo_mw_lmc.prepare import PreparedFixedWeightData
+from halo_mw_lmc.solver_budget import (
     SOLVER_BUDGET_PHASES,
     case_directory,
     existing_case_directories,
@@ -168,9 +168,9 @@ class SharedEvaluationBoundaryTests(unittest.TestCase):
         prepared = _toy_prepared("density_solved")
         parameters = ZhuHaloParameters(rho0=6.0, log_rs=1.0, phalo=1.0, qhalo=1.0, gamma=1.0)
         with (
-            patch("halo_mw_lmc.workflows.evaluation.build_potential_from_parameters", return_value=object()),
-            patch("halo_mw_lmc.workflows.evaluation.integrate_agama_orbits", return_value=library),
-            patch("halo_mw_lmc.workflows.evaluation._score_velocities", return_value=VELOCITY_STUB),
+            patch("halo_mw_lmc.evaluate.build_potential_from_parameters", return_value=object()),
+            patch("halo_mw_lmc.evaluate.integrate_agama_orbits", return_value=library),
+            patch("halo_mw_lmc.evaluate._score_velocities", return_value=VELOCITY_STUB),
         ):
             from_prepared = evaluate_prepared_model(parameters, prepared)
             from_library = evaluate_orbit_library(library, prepared)
@@ -200,9 +200,9 @@ class SharedEvaluationBoundaryTests(unittest.TestCase):
             prepared.config.density_grid,
             seed_count=prepared.initial_conditions.shape[0],
         )
-        with patch("halo_mw_lmc.workflows.evaluation._score_velocities", return_value=VELOCITY_STUB):
+        with patch("halo_mw_lmc.evaluate._score_velocities", return_value=VELOCITY_STUB):
             with patch(
-                "halo_mw_lmc.workflows.evaluation.build_orbit_density_response",
+                "halo_mw_lmc.evaluate.build_orbit_density_response",
                 side_effect=AssertionError("frozen response was rebuilt"),
             ):
                 reused = evaluate_orbit_library(library, prepared, response=response)
@@ -268,7 +268,7 @@ class SharedEvaluationBoundaryTests(unittest.TestCase):
     def test_selected_objective_stays_separate_from_raw_j(self):
         library = _toy_library()
         prepared = _toy_prepared("density_solved")
-        with patch("halo_mw_lmc.workflows.evaluation._score_velocities", return_value=VELOCITY_STUB):
+        with patch("halo_mw_lmc.evaluate._score_velocities", return_value=VELOCITY_STUB):
             accepted = evaluate_orbit_library(library, prepared)
         rejected = replace(
             accepted,

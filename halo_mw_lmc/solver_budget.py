@@ -21,14 +21,14 @@ from typing import Any, Mapping
 
 import numpy as np
 
-from ..configuration import (
+from .config import (
     CONFIGURATION_SCHEMA_VERSION,
     ConfigurationError,
     RecipeConfiguration,
     SEARCH_PARAMETER_NAMES,
     load_recipe_configuration,
 )
-from ..core.config import WeightModelSettings
+from .config import WeightModelSettings
 
 
 SOLVER_BUDGET_SCHEMA_VERSION = CONFIGURATION_SCHEMA_VERSION

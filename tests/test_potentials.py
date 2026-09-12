@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from halo_mw_lmc.core.potentials import (
+from halo_mw_lmc.potential import (
     ZHU_2026_BEST_FIT,
     build_zhu_2026_potential,
     zhu_2026_component_parameters,

@@ -6,21 +6,21 @@ from unittest.mock import patch
 import numpy as np
 
 from halo_mw_lmc.cli import build_parser, main
-from halo_mw_lmc.configuration import load_run_configuration
-from halo_mw_lmc.core.grids import CylindricalGrid
-from halo_mw_lmc.core.potentials import (
+from halo_mw_lmc.config import load_run_configuration
+from halo_mw_lmc.grids import CylindricalGrid
+from halo_mw_lmc.potential import (
     ZHU_2026_BEST_FIT,
     ZHU_2026_LOCAL_SEARCH_BOUNDS,
 )
-from halo_mw_lmc.core.weights import catalogue_weight_audit
-from halo_mw_lmc.workflows.optimization import (
+from halo_mw_lmc.weights import catalogue_weight_audit
+from halo_mw_lmc.optimize import (
     paper_best_optimizer_point,
     resolved_configuration_document,
     rounded_trial,
     run_fixed_evaluation,
     sample_header,
 )
-from halo_mw_lmc.workflows.preflight import PreparedExecution
+from halo_mw_lmc.prepare import PreparedExecution
 
 
 RUN_CONFIG = Path(__file__).resolve().parents[1] / "configs/runs/fix_weight.toml"
@@ -192,7 +192,7 @@ class OptimizerCliTests(unittest.TestCase):
         with (
             patch.dict(sys.modules, {"skopt": None}),
             patch(
-                "halo_mw_lmc.workflows.optimization._run_trials",
+                "halo_mw_lmc.optimize._run_trials",
                 return_value=expected,
             ) as run_trials,
         ):

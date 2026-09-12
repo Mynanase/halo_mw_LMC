@@ -10,7 +10,7 @@ from halo_mw_lmc.benchmark import (
     R8_40_POTENTIAL_RANKING_FIXED_POINTS,
     validate_benchmark_preflight,
 )
-from halo_mw_lmc.configuration import load_run_configuration
+from halo_mw_lmc.config import load_run_configuration
 
 
 REPOSITORY = Path(__file__).resolve().parents[1]

@@ -4,14 +4,14 @@ from unittest.mock import patch
 import numpy as np
 from scipy.sparse import csr_matrix
 
-from halo_mw_lmc.core.config import DensityFitSettings, WeightModelSettings
-from halo_mw_lmc.core.grids import CylindricalGrid
-from halo_mw_lmc.core.orbit_response import (
+from halo_mw_lmc.config import DensityFitSettings, WeightModelSettings
+from halo_mw_lmc.grids import CylindricalGrid
+from halo_mw_lmc.density import (
     OrbitDensityResponse,
     build_orbit_density_response,
 )
-from halo_mw_lmc.core.orbits import OrbitLibrary
-from halo_mw_lmc.core.weight_solver import solve_density_weights
+from halo_mw_lmc.orbits import OrbitLibrary
+from halo_mw_lmc.weights import solve_density_weights
 
 
 class DensitySolvedWeightTests(unittest.TestCase):
@@ -71,7 +71,7 @@ class DensitySolvedWeightTests(unittest.TestCase):
 
     def test_chunked_response_accumulates_orbits_across_chunk_boundaries(self):
         with patch(
-            "halo_mw_lmc.core.orbit_response.RESPONSE_BUILD_CHUNK_SIZE",
+            "halo_mw_lmc.density.RESPONSE_BUILD_CHUNK_SIZE",
             2,
         ):
             chunked = build_orbit_density_response(
