@@ -3,7 +3,6 @@ import unittest
 from pathlib import Path
 
 from halo_mw_lmc.artifacts import (
-    SampleFileError,
     best_sample,
     load_sample_table,
 )
@@ -39,7 +38,7 @@ class SampleFileTests(unittest.TestCase):
                 directory,
                 "0 1.0 0.8 6.0 9.8 1.0 12.0 24.0 1.0 10 1 2 3\n",
             )
-            with self.assertRaisesRegex(SampleFileError, "missing required"):
+            with self.assertRaisesRegex(ValueError, "missing required"):
                 load_sample_table(path, required_columns=("not_a_column",))
 
     def test_best_row_retains_phi_columns(self):

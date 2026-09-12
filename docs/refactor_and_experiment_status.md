@@ -161,11 +161,18 @@ joint 模式取消的是密度质量硬门槛，不是求解器失败门槛：�
 
 ## 6. 2026-09-13 追记：扁平化实验分支
 
-用户已批准在 `codex/flatten-research-native` 分支上做完整的研究原生扁平化
-实验：取消 `core/`、`data/`、`workflows/`、`visualization/` 分层目录，改为
-每管线阶段一个平铺模块；冻结 dataclass 配置树与 exact-field TOML 校验改为
-普通 dict 配置、签名内默认值；校验收敛到三条薄防线（输入数据边界、run
-目录隔离、产物 provenance）。这只改变代码组织与配置表示，不改变任何科学
-假设、数组契约或阈值；本文 §2 记录的分层边界在 `main` 上继续有效，生产
-parity 验收结论仅适用于扁平化之前的代码。分支契约见
-[architecture.md](architecture.md) 顶部的分支说明。
+用户已批准并在 `codex/flatten-research-native` 分支上完成研究原生扁平化实验：
+`core/`、`data/`、`workflows/`、`visualization/` 分层目录已取消，改为每管线
+阶段一个平铺模块（potential/orbits/grids/density/weights/velocity/coverage/
+catalogue/config/prepare/evaluate/optimize/run/report/plot_* 等）；冻结
+dataclass 配置树与 exact-field TOML 校验已替换为普通 dict 配置
+（`load_recipe_configuration` / `load_run_configuration` /
+`load_synthetic_density_configuration` / `resolve_model`，键契约在
+`config.py` docstring 记录一次），科学函数改为签名内默认值并以
+`**cfg["density_fit"]` 形式穿线；校验收敛到三条薄防线（输入数据边界、run
+目录隔离、产物 provenance），`ConfigurationError` 等异常层级删除，CLI
+不再捕获异常。这只改变代码组织与配置表示，不改变任何科学假设、数组契约
+或阈值；本分支的完整 unittest 套件（207 项）与 compileall 通过，55 个
+check-in 配置全部可加载。本文 §2 记录的分层边界在 `main` 上继续有效；
+生产 parity 验收结论仅适用于扁平化之前的代码，扁平分支合并前需重做同标准
+验收。分支契约见 [architecture.md](architecture.md) 顶部的分支说明。

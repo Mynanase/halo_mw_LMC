@@ -73,7 +73,7 @@ class PreflightResult:
         }
 
 
-class PreflightError(RuntimeError):
+class PreflightError(ValueError):
     """Raised when a read-only execution prerequisite is not satisfied."""
 
 
