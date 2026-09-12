@@ -115,17 +115,10 @@ def preflight_and_prepare(
     checks: list[PreflightCheck] = []
 
     output = configuration.coverage.output_dir if stage == "coverage" else configuration.output_dir
-    checks.append(
-        PreflightCheck(
-            "output_directory",
-            "fail" if output.exists() else "pass",
-            (
-                f"output directory already exists: {output}"
-                if output.exists()
-                else f"output directory is available: {output}"
-            ),
-        )
-    )
+    checks.append(PreflightCheck(
+        "output_directory", "fail" if output.exists() else "pass",
+        f"output directory {'already exists' if output.exists() else 'is available'}: {output}",
+    ))
     checks.append(_dependency_check("astropy", required=False))
     checks.append(
         _dependency_check(

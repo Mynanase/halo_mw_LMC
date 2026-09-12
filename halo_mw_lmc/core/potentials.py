@@ -138,15 +138,7 @@ def build_zhu_2026_potential(
 ):
     """Construct the validated fiducial Zhu et al. (2026) AGAMA potential."""
 
-    components = zhu_2026_component_parameters(
-        rho0,
-        log_rs,
-        phalo,
-        qhalo,
-        gamma,
-        alpha_halo,
-        beta_halo,
-    )
+    components = zhu_2026_component_parameters(rho0, log_rs, phalo, qhalo, gamma, alpha_halo, beta_halo)
 
     import agama
 

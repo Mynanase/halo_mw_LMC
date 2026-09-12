@@ -21,12 +21,7 @@ DEFAULT_THETA_EDGES = np.deg2rad(np.array([0, 15, 30, 45, 60, 90], dtype=float))
 
 def _validated_edges(values: ArrayLike, name: str) -> FloatArray:
     edges = np.asarray(values, dtype=float)
-    if (
-        edges.ndim != 1
-        or edges.size < 2
-        or not np.all(np.isfinite(edges))
-        or np.any(np.diff(edges) <= 0)
-    ):
+    if edges.ndim != 1 or edges.size < 2 or not np.all(np.isfinite(edges)) or np.any(np.diff(edges) <= 0):
         raise ValueError(f"{name} must be finite and strictly increasing")
     return edges.copy()
 
@@ -41,16 +36,10 @@ def _occupancy_statistics(counts: np.ndarray) -> dict[str, Any]:
         "occupied_cells": int(occupied.size),
         "empty_cells": empty_cells,
         "empty_fraction": empty_cells / total_cells if total_cells else 0.0,
-        "cells_with_1_to_5_stars": int(
-            np.count_nonzero((flat >= 1) & (flat <= 5))
-        ),
-        "cells_with_1_to_10_stars": int(
-            np.count_nonzero((flat >= 1) & (flat <= 10))
-        ),
+        "cells_with_1_to_5_stars": int(np.count_nonzero((flat >= 1) & (flat <= 5))),
+        "cells_with_1_to_10_stars": int(np.count_nonzero((flat >= 1) & (flat <= 10))),
         "minimum_nonempty_count": int(np.min(occupied)) if occupied.size else 0,
-        "median_nonempty_count": (
-            float(np.median(occupied)) if occupied.size else 0.0
-        ),
+        "median_nonempty_count": float(np.median(occupied)) if occupied.size else 0.0,
         "maximum_count": int(np.max(occupied)) if occupied.size else 0,
     }
 
@@ -82,30 +71,16 @@ class DataCoverage:
         radial = np.diff(self.spherical_radius_edges**3) / 3.0
         latitude = np.diff(np.sin(self.theta_edges))
         azimuth = np.diff(self.phi_edges)
-        return (
-            radial[:, None, None]
-            * latitude[None, :, None]
-            * azimuth[None, None, :]
-        )
+        return radial[:, None, None] * latitude[None, :, None] * azimuth[None, None, :]
 
     @property
     def rzphi_sampling_density(self) -> FloatArray:
-        return np.divide(
-            self.rzphi_counts,
-            self.rzphi_grid.volumes,
-            out=np.zeros_like(self.rzphi_counts),
-            where=self.rzphi_grid.volumes > 0,
-        )
+        return np.divide(self.rzphi_counts, self.rzphi_grid.volumes, out=np.zeros_like(self.rzphi_counts), where=self.rzphi_grid.volumes > 0)
 
     @property
     def rtheta_phi_sampling_density(self) -> FloatArray:
         volumes = self.spherical_cell_volumes
-        return np.divide(
-            self.rtheta_phi_counts,
-            volumes,
-            out=np.zeros_like(self.rtheta_phi_counts),
-            where=volumes > 0,
-        )
+        return np.divide(self.rtheta_phi_counts, volumes, out=np.zeros_like(self.rtheta_phi_counts), where=volumes > 0)
 
     def summary(self) -> dict[str, Any]:
         complete = self.complete_phase_space_rows
@@ -117,35 +92,21 @@ class DataCoverage:
             },
             "finite_position_rows": self.position_finite_rows,
             "complete_6d_rows": complete,
-            "complete_6d_fraction": (
-                complete / self.input_rows if self.input_rows else 0.0
-            ),
+            "complete_6d_fraction": complete / self.input_rows if self.input_rows else 0.0,
             "rzphi": {
                 "shape": list(self.rzphi_counts.shape),
                 "in_grid_rows": int(np.sum(self.rzphi_counts)),
                 "outside_grid_rows": complete - int(np.sum(self.rzphi_counts)),
-                "in_grid_fraction": (
-                    float(np.sum(self.rzphi_counts)) / complete if complete else 0.0
-                ),
-                "rows_by_phi": [
-                    int(value) for value in np.sum(self.rzphi_counts, axis=(0, 1))
-                ],
+                "in_grid_fraction": float(np.sum(self.rzphi_counts)) / complete if complete else 0.0,
+                "rows_by_phi": [int(value) for value in np.sum(self.rzphi_counts, axis=(0, 1))],
                 **_occupancy_statistics(self.rzphi_counts),
             },
             "rtheta_phi": {
                 "shape": list(self.rtheta_phi_counts.shape),
                 "in_grid_rows": int(np.sum(self.rtheta_phi_counts)),
-                "outside_grid_rows": complete
-                - int(np.sum(self.rtheta_phi_counts)),
-                "in_grid_fraction": (
-                    float(np.sum(self.rtheta_phi_counts)) / complete
-                    if complete
-                    else 0.0
-                ),
-                "rows_by_phi": [
-                    int(value)
-                    for value in np.sum(self.rtheta_phi_counts, axis=(0, 1))
-                ],
+                "outside_grid_rows": complete - int(np.sum(self.rtheta_phi_counts)),
+                "in_grid_fraction": float(np.sum(self.rtheta_phi_counts)) / complete if complete else 0.0,
+                "rows_by_phi": [int(value) for value in np.sum(self.rtheta_phi_counts, axis=(0, 1))],
                 **_occupancy_statistics(self.rtheta_phi_counts),
             },
         }

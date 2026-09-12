@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import sys
 
 from .configuration import ConfigurationError, load_run_configuration
 
@@ -55,11 +56,7 @@ def _validation_document(configuration) -> dict[str, object]:
         "recipe": configuration.recipe.name,
         "weight_mode": configuration.recipe.weight_model.mode,
         "objective_mode": configuration.recipe.objective.mode,
-        "schedule": (
-            "fixed_points"
-            if configuration.fixed_optimizer_points is not None
-            else "adaptive"
-        ),
+        "schedule": "fixed_points" if configuration.fixed_optimizer_points is not None else "adaptive",
         "catalogue": str(configuration.data.catalog),
         "target_density": str(configuration.data.target_density),
         "output_directory": str(configuration.output_dir),
@@ -189,9 +186,7 @@ def _run_command(args) -> int:
         from .workflows.coverage import generate_coverage_report
         from .workflows.preflight import preflight_and_prepare, require_preflight
 
-        result = require_preflight(
-            preflight_and_prepare(configuration, stage="coverage")
-        )
+        result = require_preflight(preflight_and_prepare(configuration, stage="coverage"))
         for path in generate_coverage_report(configuration, result.coverage):
             print(f"wrote {path}")
         return 0
@@ -224,13 +219,7 @@ def main(argv=None) -> int:
         ValueError,
     ) as exc:
         if parsed is not None and getattr(parsed, "json_output", False):
-            print(
-                json.dumps(
-                    {"ok": False, "error": str(exc)},
-                    indent=2,
-                    sort_keys=True,
-                )
-            )
+            print(json.dumps({"ok": False, "error": str(exc)}, indent=2, sort_keys=True))
         else:
             print(str(exc), file=sys.stderr)
         return 1

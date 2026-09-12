@@ -178,14 +178,8 @@ def _render_report(run: Path, staging: Path) -> dict[str, object]:
     import matplotlib.pyplot as plt
 
     plt.close(convergence)
-    constraints = build_parameter_constraints_figure(
-        samples,
-        search_bounds_from_resolved_config(config),
-    )
-    constraints.savefig(
-        staging / "parameter_constraints.pdf",
-        bbox_inches="tight",
-    )
+    constraints = build_parameter_constraints_figure(samples, search_bounds_from_resolved_config(config))
+    constraints.savefig(staging / "parameter_constraints.pdf", bbox_inches="tight")
     plt.close(constraints)
     try:
         corner, corner_surfaces = build_parameter_constraints_corner_figure(
@@ -211,10 +205,7 @@ def _render_report(run: Path, staging: Path) -> dict[str, object]:
             )
     except Exception as exc:
         omitted.append(f"parameter_constraints_corner.pdf: {type(exc).__name__}: {exc}")
-    (staging / "summary.md").write_text(
-        _summary_markdown(run, config, best),
-        encoding="utf-8",
-    )
+    (staging / "summary.md").write_text(_summary_markdown(run, config, best), encoding="utf-8")
     files = sorted(
         str(path.relative_to(staging))
         for path in staging.rglob("*")

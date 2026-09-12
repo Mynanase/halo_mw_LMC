@@ -56,31 +56,13 @@ def rounded_trial(
     # would move the physical model away from the optimizer coordinate stored
     # in ``rho0_plus_2logrs``.
     log_rs = (rho0_plus_2logrs - rho0) / 2
-    return evaluated, ZhuHaloParameters(
-        rho0=rho0,
-        log_rs=log_rs,
-        phalo=phalo,
-        qhalo=qhalo,
-        gamma=gamma,
-    )
+    return evaluated, ZhuHaloParameters(rho0=rho0, log_rs=log_rs, phalo=phalo, qhalo=qhalo, gamma=gamma)
 
 
 def _source_provenance(repository: Path) -> dict[str, object]:
     try:
-        commit = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repository,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        status = subprocess.run(
-            ["git", "status", "--porcelain"],
-            cwd=repository,
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
+        commit = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repository, check=True, capture_output=True, text=True).stdout.strip()
+        status = subprocess.run(["git", "status", "--porcelain"], cwd=repository, check=True, capture_output=True, text=True).stdout
     except (OSError, subprocess.CalledProcessError):
         return {"git_commit": None, "git_dirty": None}
     return {"git_commit": commit, "git_dirty": bool(status.strip())}
@@ -109,17 +91,9 @@ def resolved_configuration_document(
         "data": {
             "catalog": str(configuration.data.catalog),
             "target_density": str(configuration.data.target_density),
-            "weight_source": (
-                "catalogue_column"
-                if comparison.weight_model.mode == "catalogue_fixed"
-                else "trial_density_solution"
-            ),
-            "weight_column": (
-                "w" if comparison.weight_model.mode == "catalogue_fixed" else None
-            ),
-            "weights_fixed_across_trial_potentials": (
-                comparison.weight_model.mode == "catalogue_fixed"
-            ),
+            "weight_source": "catalogue_column" if comparison.weight_model.mode == "catalogue_fixed" else "trial_density_solution",
+            "weight_column": "w" if comparison.weight_model.mode == "catalogue_fixed" else None,
+            "weights_fixed_across_trial_potentials": comparison.weight_model.mode == "catalogue_fixed",
         },
         "potential": {
             "name": ZHU_2026_POTENTIAL_NAME,
@@ -146,26 +120,20 @@ def resolved_configuration_document(
             "solver": comparison.weight_model.solver,
             "target_normalization": comparison.weight_model.target_normalization,
             "regularization": comparison.weight_model.regularization,
-            "regularization_strength": (
-                comparison.weight_model.regularization_strength
-            ),
+            "regularization_strength": comparison.weight_model.regularization_strength,
             "max_iter": comparison.weight_model.max_iter,
             "solver_tolerance": comparison.weight_model.solver_tolerance,
             "lsmr_tol": comparison.weight_model.lsmr_tol,
         },
         "objective": {
             "mode": comparison.objective.mode,
-            "density_max_chi2_per_bin": (
-                comparison.objective.density_max_chi2_per_bin
-            ),
+            "density_max_chi2_per_bin": comparison.objective.density_max_chi2_per_bin,
             "density_shell_edges_kpc": (
                 list(comparison.objective.density_shell_edges)
                 if comparison.objective.density_shell_edges is not None
                 else None
             ),
-            "density_shell_phi_max_chi2_per_bin": (
-                comparison.objective.density_shell_phi_max_chi2_per_bin
-            ),
+            "density_shell_phi_max_chi2_per_bin": comparison.objective.density_shell_phi_max_chi2_per_bin,
             "invalid_trial_penalty": 1e30,
         },
         "velocity_fit": {
@@ -195,22 +163,12 @@ def resolved_configuration_document(
             ),
             "iterations": configuration.iterations,
             "random_seed": configuration.random_seed,
-            "schedule": (
-                "fixed_points"
-                if configuration.fixed_optimizer_points is not None
-                else "adaptive"
-            ),
-            "fixed_points": (
-                [list(point) for point in configuration.fixed_optimizer_points]
-                if configuration.fixed_optimizer_points is not None
-                else None
-            ),
+            "schedule": "fixed_points" if configuration.fixed_optimizer_points is not None else "adaptive",
+            "fixed_points": [list(point) for point in configuration.fixed_optimizer_points] if configuration.fixed_optimizer_points is not None else None,
             "coordinates": list(OPTIMIZER_COORDINATES),
             "round_decimals": configuration.round_decimals,
             "initial_point": configuration.recipe.search.initial_point,
-            "paper_best_evaluated_first": (
-                configuration.recipe.search.initial_point == "paper_best"
-            ),
+            "paper_best_evaluated_first": configuration.recipe.search.initial_point == "paper_best",
             "bounds": {
                 name: list(bounds)
                 for name, bounds in configuration.search_bounds.items()
@@ -301,9 +259,7 @@ def _append_sample(
         if worst_index is None:
             worst_index = (-1, -1)
         values_by_shell = evaluation.density_shells.chi2_per_bin_by_shell
-        values_by_shell_phi = (
-            evaluation.density_shells.chi2_per_bin_by_shell_phi
-        )
+        values_by_shell_phi = evaluation.density_shells.chi2_per_bin_by_shell_phi
         shell_values = " " + " ".join(
             [
                 str(int(evaluation.density_shell_phi_gate_passed)),
@@ -356,9 +312,7 @@ def _prepared_execution(
     stage: str,
 ) -> PreparedExecution:
     if prepared is None:
-        result = require_preflight(
-            preflight_and_prepare(configuration, stage=stage)
-        )
+        result = require_preflight(preflight_and_prepare(configuration, stage=stage))
         prepared = result.execution
     if prepared is None:
         raise RuntimeError("numerical preflight did not return prepared inputs")
@@ -379,22 +333,13 @@ def _initialize_run(
             f"cold-start runs require a new output directory: {output_directory}"
         )
     comparison = configuration.to_comparison_config()
-    try:
-        output_directory.mkdir(parents=True, exist_ok=False)
-    except FileExistsError as exc:
-        raise FileExistsError(
-            f"cold-start runs require a new output directory: {output_directory}"
-        ) from exc
+    output_directory.mkdir(parents=True, exist_ok=False)
 
     write_resolved_config(
         output_directory / "resolved_config.json",
         resolved_configuration_document(configuration),
     )
-    input_artifact = (
-        output_directory / "fixed_seed_weights.npz"
-        if prepared.weight_audit is not None
-        else output_directory / "weight_model_inputs.npz"
-    )
+    input_artifact = output_directory / ("fixed_seed_weights.npz" if prepared.weight_audit is not None else "weight_model_inputs.npz")
     np.savez_compressed(
         input_artifact,
         artifact_schema_version=np.asarray(1),
@@ -404,27 +349,15 @@ def _initialize_run(
         r_edges=comparison.density_grid.r_edges,
         z_edges=comparison.density_grid.z_edges,
         phi_edges=comparison.density_grid.phi_edges,
-        weight_source=np.asarray(
-            "catalogue_column"
-            if prepared.weight_audit is not None
-            else "trial_density_solution"
-        ),
+        weight_source=np.asarray("catalogue_column" if prepared.weight_audit is not None else "trial_density_solution"),
         weight_column=np.asarray("w" if prepared.weight_audit is not None else ""),
         catalog_path=np.asarray(str(prepared.model.catalog_path)),
         density_path=np.asarray(str(prepared.model.density_path)),
     )
+    shell_count = len(comparison.objective.density_shell_edges) - 1 if comparison.objective.density_shell_edges is not None else 0
     sample_file = output_directory / "sample.dat"
     sample_file.write_text(
-        sample_header(
-            comparison.density_grid.shape[-1],
-            comparison.include_velocity,
-            n_density_shells=(
-                len(comparison.objective.density_shell_edges) - 1
-                if comparison.objective.density_shell_edges is not None
-                else 0
-            ),
-        )
-        + "\n"
+        sample_header(comparison.density_grid.shape[-1], comparison.include_velocity, n_density_shells=shell_count) + "\n"
     )
     return output_directory, sample_file
 
@@ -442,31 +375,18 @@ def _run_trials(
     comparison = configuration.to_comparison_config()
     best_objective = np.inf
     for iteration, suggested in enumerate(suggestions):
-        evaluated, parameters = rounded_trial(
-            suggested,
-            decimals=configuration.round_decimals,
-        )
+        evaluated, parameters = rounded_trial(suggested, decimals=configuration.round_decimals)
         evaluation = evaluate_prepared_model(parameters, prepared.model)
         objective = evaluation.selected_objective
         if tell is not None:
             tell(evaluated, objective)
         _append_sample(
-            sample_file,
-            iteration=iteration,
-            evaluated=evaluated,
-            objective=objective,
-            evaluation=evaluation,
-            include_velocity=comparison.include_velocity,
+            sample_file, iteration=iteration, evaluated=evaluated, objective=objective,
+            evaluation=evaluation, include_velocity=comparison.include_velocity,
             decimals=configuration.round_decimals,
         )
         if objective < best_objective:
-            save_best_evaluation(
-                output_directory,
-                evaluation,
-                parameters,
-                iteration=iteration,
-                objective=objective,
-            )
+            save_best_evaluation(output_directory, evaluation, parameters, iteration=iteration, objective=objective)
             best_objective = objective
         print(
             f"iteration={iteration} objective={objective:.6g} "

@@ -74,12 +74,7 @@ def _normalized_target(
 ) -> tuple[FloatArray, FloatArray]:
     if mode == "absolute":
         return target_density.copy(), target_error.copy()
-    mass = float(
-        np.sum(
-            target_density[fit_mask]
-            * response.grid.volumes[fit_mask]
-        )
-    )
+    mass = float(np.sum(target_density[fit_mask] * response.grid.volumes[fit_mask]))
     if not np.isfinite(mass) or mass <= 0:
         raise ValueError("target density has no positive mass in the fit region")
     return target_density / mass, target_error / mass
@@ -121,13 +116,8 @@ def _build_weight_problem(
     if not np.any(active_columns):
         raise ValueError("no orbit responds inside the density fit region")
     inverse_error = 1.0 / error.reshape(-1)[row_mask]
-    design = full_design[:, active_columns].multiply(
-        inverse_error[:, None]
-    ).tocsr()
-    observed = np.asarray(
-        target.reshape(-1)[row_mask] * inverse_error,
-        dtype=float,
-    )
+    design = full_design[:, active_columns].multiply(inverse_error[:, None]).tocsr()
+    observed = np.asarray(target.reshape(-1)[row_mask] * inverse_error, dtype=float)
     return _WeightProblem(
         design=design,
         observed=observed,
@@ -144,13 +134,7 @@ def _augmented_sparse_problem(problem: _WeightProblem) -> tuple[Any, FloatArray]
     from scipy.sparse import eye, vstack
 
     n_weights = problem.design.shape[1]
-    design = vstack(
-        [
-            problem.design,
-            np.sqrt(problem.regularization) * eye(n_weights, format="csr"),
-        ],
-        format="csr",
-    )
+    design = vstack([problem.design, np.sqrt(problem.regularization) * eye(n_weights, format="csr")], format="csr")
     observed = np.concatenate([problem.observed, np.zeros(n_weights)])
     return design, observed
 
@@ -229,20 +213,14 @@ def _primal_kkt_residual(
     weights: FloatArray,
 ) -> tuple[float, float]:
     residual = problem.design @ weights - problem.observed
-    gradient = np.asarray(
-        problem.design.T @ residual + problem.regularization * weights,
-        dtype=float,
-    )
+    gradient = np.asarray(problem.design.T @ residual + problem.regularization * weights, dtype=float)
     threshold = float(np.max(weights)) * 1e-12 if weights.size else 0.0
     positive = weights > threshold
     violation = 0.0
     if np.any(positive):
         violation = float(np.max(np.abs(gradient[positive])))
     if np.any(~positive):
-        violation = max(
-            violation,
-            float(np.max(np.maximum(-gradient[~positive], 0.0))),
-        )
+        violation = max(violation, float(np.max(np.maximum(-gradient[~positive], 0.0))))
     reference = np.asarray(problem.design.T @ problem.observed, dtype=float)
     scale = max(1.0, float(np.max(np.abs(reference))))
     return violation, violation / scale
@@ -254,17 +232,9 @@ def _dual_value_gradient_weights(
 ) -> tuple[float, FloatArray, FloatArray]:
     projected = np.maximum(-(problem.design.T @ dual), 0.0)
     weights = np.asarray(projected / problem.regularization, dtype=float)
-    value = (
-        0.5 * float(np.dot(dual, dual))
-        + float(np.dot(problem.observed, dual))
-        + 0.5
-        / problem.regularization
-        * float(np.dot(projected, projected))
-    )
-    gradient = np.asarray(
-        dual + problem.observed - problem.design @ weights,
-        dtype=float,
-    )
+    value = (0.5 * float(np.dot(dual, dual)) + float(np.dot(problem.observed, dual))
+             + 0.5 / problem.regularization * float(np.dot(projected, projected)))
+    gradient = np.asarray(dual + problem.observed - problem.design @ weights, dtype=float)
     return value, gradient, weights
 
 
@@ -290,15 +260,10 @@ def _solve_dual_ridge(
     for iteration in range(1, int(settings.max_iter) + 1):
         value, gradient, weights = _dual_value_gradient_weights(problem, dual)
         raw_kkt, normalized_kkt = _primal_kkt_residual(problem, weights)
-        normalized_dual_gradient = (
-            float(np.max(np.abs(gradient))) / dual_scale
-        )
+        normalized_dual_gradient = float(np.max(np.abs(gradient))) / dual_scale
         optimality = raw_kkt
         iterations = iteration - 1
-        if (
-            normalized_kkt <= tolerance
-            and normalized_dual_gradient <= tolerance
-        ):
+        if normalized_kkt <= tolerance and normalized_dual_gradient <= tolerance:
             success = True
             status = 1
             message = "dual ridge converged by primal KKT and dual gradient"
@@ -312,11 +277,7 @@ def _solve_dual_ridge(
             hessian += gram.toarray() / problem.regularization
         try:
             factor = cho_factor(hessian, lower=True, check_finite=False)
-            direction = cho_solve(
-                factor,
-                -gradient,
-                check_finite=False,
-            )
+            direction = cho_solve(factor, -gradient, check_finite=False)
         except (LinAlgError, ValueError) as exc:
             message = f"dual ridge Newton factorization failed: {exc}"
             status = -1
@@ -330,13 +291,8 @@ def _solve_dual_ridge(
         accepted = False
         for _ in range(60):
             candidate = dual + step * direction
-            candidate_value, _, _ = _dual_value_gradient_weights(
-                problem,
-                candidate,
-            )
-            if np.isfinite(candidate_value) and candidate_value <= (
-                value + 1e-4 * step * slope
-            ):
+            candidate_value, _, _ = _dual_value_gradient_weights(problem, candidate)
+            if np.isfinite(candidate_value) and candidate_value <= (value + 1e-4 * step * slope):
                 dual = candidate
                 accepted = True
                 break
@@ -397,29 +353,15 @@ def solve_density_weights(
             "target density and error must match the orbit-response grid"
         )
     fit_mask = density_fit_mask(target, error, response.grid, density_fit)
-    target, error = _normalized_target(
-        target,
-        error,
-        fit_mask,
-        response,
-        settings.target_normalization or "absolute",
-    )
+    target, error = _normalized_target(target, error, fit_mask, response, settings.target_normalization or "absolute")
     regularization = float(settings.regularization_strength)
-    problem = _build_weight_problem(
-        response,
-        target,
-        error,
-        fit_mask,
-        regularization,
-    )
+    problem = _build_weight_problem(response, target, error, fit_mask, regularization)
 
     started = time.perf_counter()
     backend = _solve_backend(problem, settings)
     solve_wall_seconds = time.perf_counter() - started
     active_weights = np.asarray(backend.weights, dtype=float)
-    finite_nonnegative = (
-        np.all(np.isfinite(active_weights)) and np.all(active_weights >= 0)
-    )
+    finite_nonnegative = np.all(np.isfinite(active_weights)) and np.all(active_weights >= 0)
     raw_kkt, normalized_kkt = _primal_kkt_residual(problem, active_weights)
     tolerance = float(settings.solver_tolerance)
     if settings.solver == "lsq_linear":
@@ -428,11 +370,7 @@ def solve_density_weights(
         # old production runs into invalid trials.
         converged = backend.success and finite_nonnegative
     else:
-        converged = (
-            backend.success
-            and finite_nonnegative
-            and normalized_kkt <= tolerance
-        )
+        converged = backend.success and finite_nonnegative and normalized_kkt <= tolerance
 
     successful_weights = np.zeros(problem.successful_orbit_count, dtype=float)
     successful_weights[problem.active_columns] = active_weights
@@ -441,9 +379,7 @@ def solve_density_weights(
     model_density = response.model_density(seed_weights)
     total = float(np.sum(seed_weights))
     squared = float(np.dot(seed_weights, seed_weights))
-    maximum_fraction = (
-        float(np.max(seed_weights)) / total if total > 0 else 0.0
-    )
+    maximum_fraction = float(np.max(seed_weights)) / total if total > 0 else 0.0
     active_threshold = max(float(np.max(seed_weights)) * 1e-12, 0.0)
     regularization_penalty = regularization * squared
     density_residual = problem.design @ active_weights - problem.observed
@@ -463,9 +399,7 @@ def solve_density_weights(
         status=backend.status,
         message=backend.message,
         iterations=backend.iterations,
-        optimality=(
-            backend.optimality if np.isfinite(backend.optimality) else raw_kkt
-        ),
+        optimality=backend.optimality if np.isfinite(backend.optimality) else raw_kkt,
         solver_cost=0.5 * inner_objective,
         solver_backend=str(settings.solver),
         kkt_residual=normalized_kkt,

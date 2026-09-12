@@ -25,13 +25,7 @@ def build_convergence_figure(samples: np.ndarray):
 
     figure, axis = plt.subplots(figsize=(7.5, 4.5), constrained_layout=True)
     axis.scatter(iteration, objective, s=6, alpha=0.35, label="trial objective")
-    axis.plot(
-        iteration,
-        best_so_far,
-        color="red",
-        linewidth=1.5,
-        label="best-so-far",
-    )
+    axis.plot(iteration, best_so_far, color="red", linewidth=1.5, label="best-so-far")
     best_iteration = int(iteration[np.argmin(objective)])
     axis.axvline(best_iteration, color="0.5", linestyle="--", alpha=0.7)
     axis.set_xlabel("iteration")

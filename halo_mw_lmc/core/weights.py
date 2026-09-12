@@ -44,38 +44,14 @@ def catalogue_weight_audit(
     phi = np.arctan2(initial[:, 1], initial[:, 0])
     seed_counts = grid.histogram(radius, z, phi)
     cell_weight_sum = grid.histogram(radius, z, phi, weights=weight_values)
-    cell_weight_sq_sum = grid.histogram(
-        radius,
-        z,
-        phi,
-        weights=weight_values**2,
-    )
-    initial_density = np.divide(
-        cell_weight_sum,
-        grid.volumes,
-        out=np.zeros_like(cell_weight_sum),
-        where=grid.volumes > 0,
-    )
+    cell_weight_sq_sum = grid.histogram(radius, z, phi, weights=weight_values**2)
+    initial_density = np.divide(cell_weight_sum, grid.volumes, out=np.zeros_like(cell_weight_sum), where=grid.volumes > 0)
 
     ir, iz, iphi, in_grid = grid.bin_indices(radius, z, phi)
     cell_max_weight = np.zeros(grid.shape, dtype=float)
-    np.maximum.at(
-        cell_max_weight,
-        (ir[in_grid], iz[in_grid], iphi[in_grid]),
-        weight_values[in_grid],
-    )
-    cell_effective_seed_count = np.divide(
-        cell_weight_sum**2,
-        cell_weight_sq_sum,
-        out=np.zeros_like(cell_weight_sum),
-        where=cell_weight_sq_sum > 0,
-    )
-    cell_max_weight_fraction = np.divide(
-        cell_max_weight,
-        cell_weight_sum,
-        out=np.zeros_like(cell_weight_sum),
-        where=cell_weight_sum > 0,
-    )
+    np.maximum.at(cell_max_weight, (ir[in_grid], iz[in_grid], iphi[in_grid]), weight_values[in_grid])
+    cell_effective_seed_count = np.divide(cell_weight_sum**2, cell_weight_sq_sum, out=np.zeros_like(cell_weight_sum), where=cell_weight_sq_sum > 0)
+    cell_max_weight_fraction = np.divide(cell_max_weight, cell_weight_sum, out=np.zeros_like(cell_weight_sum), where=cell_weight_sum > 0)
 
     total_weight = float(np.sum(weight_values))
     weight_sq_sum = float(np.sum(weight_values**2))
@@ -95,12 +71,8 @@ def catalogue_weight_audit(
         "in_grid_seed_count": np.asarray(np.count_nonzero(in_grid)),
         "total_weight": np.asarray(total_weight),
         "in_grid_weight": np.asarray(float(np.sum(weight_values[in_grid]))),
-        "effective_seed_count": np.asarray(
-            total_weight**2 / weight_sq_sum if weight_sq_sum > 0 else 0.0
-        ),
-        "max_weight_fraction": np.asarray(
-            float(np.max(weight_values)) / total_weight if total_weight > 0 else 0.0
-        ),
+        "effective_seed_count": np.asarray(total_weight**2 / weight_sq_sum if weight_sq_sum > 0 else 0.0),
+        "max_weight_fraction": np.asarray(float(np.max(weight_values)) / total_weight if total_weight > 0 else 0.0),
     }
 
 
@@ -176,12 +148,7 @@ def representative_weights_from_target(
     finite_target = np.isfinite(target) & (target >= 0)
     target_mass = np.where(finite_target, target * grid.volumes, 0.0)
     supported = finite_target & (seed_counts >= minimum_seed_count)
-    cell_weight = np.divide(
-        target_mass,
-        seed_counts,
-        out=np.zeros_like(target_mass),
-        where=supported,
-    )
+    cell_weight = np.divide(target_mass, seed_counts, out=np.zeros_like(target_mass), where=supported)
 
     weights = np.zeros(x_values.size, dtype=float)
     valid_seed = in_grid & supported[

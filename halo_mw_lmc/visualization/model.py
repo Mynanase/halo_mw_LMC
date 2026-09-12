@@ -74,11 +74,7 @@ def _fit_origin_centered_ellipse(
     condition = float(np.linalg.cond(design))
     if not np.isfinite(condition) or condition > maximum_condition:
         return None
-    coefficients, _, _, _ = np.linalg.lstsq(
-        design,
-        np.ones(points.shape[0], dtype=float),
-        rcond=None,
-    )
+    coefficients, _, _, _ = np.linalg.lstsq(design, np.ones(points.shape[0], dtype=float), rcond=None)
     u, v = coefficients
     if not np.isfinite(u) or not np.isfinite(v) or u <= 0 or v <= 0:
         return None
@@ -142,12 +138,7 @@ def isodensity_shape_profile(
     import matplotlib.pyplot as plt
 
     figure, axis = plt.subplots()
-    contours = axis.contour(
-        r_centers,
-        z_centers,
-        np.ma.array(plane.T, mask=~valid.T),
-        levels=levels,
-    )
+    contours = axis.contour(r_centers, z_centers, np.ma.array(plane.T, mask=~valid.T), levels=levels)
     segments_by_level = contours.allsegs
     plt.close(figure)
 
@@ -200,14 +191,8 @@ def _draw_contours(axis, density: np.ndarray, grid) -> None:
     if levels.size:
         r_centers, z_centers, _ = grid.centers
         axis.contour(
-            r_centers,
-            z_centers,
-            _log_density(density).T,
-            levels=levels,
-            colors="black",
-            linewidths=0.55,
-            linestyles="--",
-            alpha=0.75,
+            r_centers, z_centers, _log_density(density).T, levels=levels,
+            colors="black", linewidths=0.55, linestyles="--", alpha=0.75,
         )
 
 
@@ -266,53 +251,29 @@ def plot_density_comparison(
         sharey=True,
     )
     extent = [grid.r_edges[0], grid.r_edges[-1], grid.z_edges[0], grid.z_edges[-1]]
-    fitted_data = np.where(
-        comparison.fit_mask,
-        comparison.data_density,
-        np.nan,
-    )
-    fitted_model = np.where(
-        comparison.fit_mask,
-        comparison.model_density,
-        np.nan,
-    )
+    fitted_data = np.where(comparison.fit_mask, comparison.data_density, np.nan)
+    fitted_model = np.where(comparison.fit_mask, comparison.model_density, np.nan)
     log_min, log_max = _positive_log_limits(fitted_data, fitted_model)
     relative_error = np.divide(
-        comparison.data_error,
-        comparison.data_density,
-        out=np.full_like(comparison.data_error, np.nan),
-        where=comparison.data_density > 0,
+        comparison.data_error, comparison.data_density,
+        out=np.full_like(comparison.data_error, np.nan), where=comparison.data_density > 0,
     )
     relative_error[~comparison.fit_mask] = np.nan
     finite_relative_error = relative_error[np.isfinite(relative_error)]
-    relative_max = (
-        float(np.nanpercentile(finite_relative_error, 95))
-        if finite_relative_error.size
-        else 1.0
-    )
+    relative_max = float(np.nanpercentile(finite_relative_error, 95)) if finite_relative_error.size else 1.0
     relative_max = max(relative_max, np.finfo(float).eps)
 
-    average_data = _azimuthal_density_average(
-        comparison.data_density,
-        comparison,
-    )
-    average_model = _azimuthal_density_average(
-        comparison.model_density,
-        comparison,
-    )
+    average_data = _azimuthal_density_average(comparison.data_density, comparison)
+    average_model = _azimuthal_density_average(comparison.model_density, comparison)
     phi_weights = np.diff(comparison.grid.phi_edges) / (2 * np.pi)
     average_error = np.sqrt(np.sum((comparison.data_error * phi_weights[None, None, :]) ** 2, axis=2))
     average_relative_error = np.divide(
-        average_error,
-        average_data,
-        out=np.full_like(average_error, np.nan),
-        where=average_data > 0,
+        average_error, average_data,
+        out=np.full_like(average_error, np.nan), where=average_data > 0,
     )
     average_residual = np.divide(
-        average_data - average_model,
-        average_error,
-        out=np.full_like(average_error, np.nan),
-        where=average_error > 0,
+        average_data - average_model, average_error,
+        out=np.full_like(average_error, np.nan), where=average_error > 0,
     )
     average_fit_mask = _density_fit_display_mask(comparison, None)
     panels = [
@@ -328,28 +289,14 @@ def plot_density_comparison(
         (
             (
                 f"{phi_lo:.0f}° ≤ φ < {phi_hi:.0f}°",
-                _masked_density_panel(
-                    comparison.data_density[:, :, iphi],
-                    _density_fit_display_mask(comparison, iphi),
-                ),
-                _masked_density_panel(
-                    comparison.model_density[:, :, iphi],
-                    _density_fit_display_mask(comparison, iphi),
-                ),
-                _masked_density_panel(
-                    relative_error[:, :, iphi],
-                    _density_fit_display_mask(comparison, iphi),
-                ),
-                _masked_density_panel(
-                    comparison.residual[:, :, iphi],
-                    _density_fit_display_mask(comparison, iphi),
-                ),
+                _masked_density_panel(comparison.data_density[:, :, iphi], _density_fit_display_mask(comparison, iphi)),
+                _masked_density_panel(comparison.model_density[:, :, iphi], _density_fit_display_mask(comparison, iphi)),
+                _masked_density_panel(relative_error[:, :, iphi], _density_fit_display_mask(comparison, iphi)),
+                _masked_density_panel(comparison.residual[:, :, iphi], _density_fit_display_mask(comparison, iphi)),
             )
         )
         for iphi, (phi_lo, phi_hi) in enumerate(
-            np.rad2deg(
-                np.column_stack((grid.phi_edges[:-1], grid.phi_edges[1:]))
-            )
+            np.rad2deg(np.column_stack((grid.phi_edges[:-1], grid.phi_edges[1:])))
         )
     )
 
@@ -364,32 +311,17 @@ def plot_density_comparison(
         axes[0, column].set_title(title)
         for row, density_slice in enumerate((data_slice, model_slice)):
             density_image = axes[row, column].imshow(
-                _log_density(density_slice).T,
-                origin="lower",
-                extent=extent,
-                aspect="auto",
-                cmap="viridis",
-                vmin=log_min,
-                vmax=log_max,
+                _log_density(density_slice).T, origin="lower", extent=extent, aspect="auto",
+                cmap="viridis", vmin=log_min, vmax=log_max,
             )
             _draw_contours(axes[row, column], density_slice, grid)
         relative_image = axes[2, column].imshow(
-            relative_slice.T,
-            origin="lower",
-            extent=extent,
-            aspect="auto",
-            cmap="magma",
-            vmin=0,
-            vmax=relative_max,
+            relative_slice.T, origin="lower", extent=extent, aspect="auto",
+            cmap="magma", vmin=0, vmax=relative_max,
         )
         residual_image = axes[3, column].imshow(
-            residual_slice.T,
-            origin="lower",
-            extent=extent,
-            aspect="auto",
-            cmap="coolwarm",
-            vmin=-3,
-            vmax=3,
+            residual_slice.T, origin="lower", extent=extent, aspect="auto",
+            cmap="coolwarm", vmin=-3, vmax=3,
         )
         axes[3, column].set_xlabel("R [kpc]")
 
@@ -406,11 +338,7 @@ def plot_density_comparison(
     if relative_image is not None:
         figure.colorbar(relative_image, ax=axes[2, :], label="relative error")
     if residual_image is not None:
-        figure.colorbar(
-            residual_image,
-            ax=axes[3, :],
-            label="standardized residual",
-        )
+        figure.colorbar(residual_image, ax=axes[3, :], label="standardized residual")
     figure.suptitle(
         f"φ-resolved density: global scale={comparison.scale:.5g}, "
         f"χ²={comparison.chi2:.3f}"
@@ -434,50 +362,24 @@ def plot_density_phi_pages(
     output_directory.mkdir(parents=True, exist_ok=True)
     grid = comparison.grid
     extent = [grid.r_edges[0], grid.r_edges[-1], grid.z_edges[0], grid.z_edges[-1]]
-    fitted_data = np.where(
-        comparison.fit_mask,
-        comparison.data_density,
-        np.nan,
-    )
-    fitted_model = np.where(
-        comparison.fit_mask,
-        comparison.model_density,
-        np.nan,
-    )
+    fitted_data = np.where(comparison.fit_mask, comparison.data_density, np.nan)
+    fitted_model = np.where(comparison.fit_mask, comparison.model_density, np.nan)
     log_min, log_max = _positive_log_limits(fitted_data, fitted_model)
     relative_error = np.divide(
-        comparison.data_error,
-        comparison.data_density,
-        out=np.full_like(comparison.data_error, np.nan),
-        where=comparison.data_density > 0,
+        comparison.data_error, comparison.data_density,
+        out=np.full_like(comparison.data_error, np.nan), where=comparison.data_density > 0,
     )
     relative_error[~comparison.fit_mask] = np.nan
     finite_relative_error = relative_error[np.isfinite(relative_error)]
-    relative_max = (
-        float(np.nanpercentile(finite_relative_error, 95))
-        if finite_relative_error.size
-        else 1.0
-    )
+    relative_max = float(np.nanpercentile(finite_relative_error, 95)) if finite_relative_error.size else 1.0
     relative_max = max(relative_max, np.finfo(float).eps)
     written: list[Path] = []
     for iphi in range(grid.shape[-1]):
         fit_mask = _density_fit_display_mask(comparison, iphi)
-        data_density = _masked_density_panel(
-            comparison.data_density[:, :, iphi],
-            fit_mask,
-        )
-        model_density = _masked_density_panel(
-            comparison.model_density[:, :, iphi],
-            fit_mask,
-        )
-        relative_slice = _masked_density_panel(
-            relative_error[:, :, iphi],
-            fit_mask,
-        )
-        residual_slice = _masked_density_panel(
-            comparison.residual[:, :, iphi],
-            fit_mask,
-        )
+        data_density = _masked_density_panel(comparison.data_density[:, :, iphi], fit_mask)
+        model_density = _masked_density_panel(comparison.model_density[:, :, iphi], fit_mask)
+        relative_slice = _masked_density_panel(relative_error[:, :, iphi], fit_mask)
+        residual_slice = _masked_density_panel(comparison.residual[:, :, iphi], fit_mask)
         figure, axes = plt.subplots(
             2,
             2,
@@ -492,33 +394,18 @@ def plot_density_phi_pages(
             (axes[0, 1], "Model density", model_density),
         ):
             density_image = axis.imshow(
-                _log_density(density).T,
-                origin="lower",
-                extent=extent,
-                aspect="auto",
-                cmap="viridis",
-                vmin=log_min,
-                vmax=log_max,
+                _log_density(density).T, origin="lower", extent=extent, aspect="auto",
+                cmap="viridis", vmin=log_min, vmax=log_max,
             )
             _draw_contours(axis, density, grid)
             axis.set_title(title)
         error_image = axes[1, 0].imshow(
-            relative_slice.T,
-            origin="lower",
-            extent=extent,
-            aspect="auto",
-            cmap="magma",
-            vmin=0,
-            vmax=relative_max,
+            relative_slice.T, origin="lower", extent=extent, aspect="auto",
+            cmap="magma", vmin=0, vmax=relative_max,
         )
         residual_image = axes[1, 1].imshow(
-            residual_slice.T,
-            origin="lower",
-            extent=extent,
-            aspect="auto",
-            cmap="coolwarm",
-            vmin=-3,
-            vmax=3,
+            residual_slice.T, origin="lower", extent=extent, aspect="auto",
+            cmap="coolwarm", vmin=-3, vmax=3,
         )
         axes[1, 0].set_title("Target relative error")
         axes[1, 1].set_title("Standardized residual")
@@ -560,37 +447,16 @@ def plot_density_shape(
         sharey=True,
     )
     for iphi, axis in enumerate(axes[0]):
-        target = isodensity_shape_profile(
-            comparison.data_density,
-            comparison,
-            iphi,
-        )
-        model = isodensity_shape_profile(
-            comparison.model_density,
-            comparison,
-            iphi,
-        )
-        axis.plot(
-            target.radius,
-            target.axis_ratio,
-            marker="*",
-            color="0.25",
-            label="Target",
-        )
+        target = isodensity_shape_profile(comparison.data_density, comparison, iphi)
+        model = isodensity_shape_profile(comparison.model_density, comparison, iphi)
+        axis.plot(target.radius, target.axis_ratio, marker="*", color="0.25", label="Target")
         axis.plot(model.radius, model.axis_ratio, color="red", label="Model")
         axis.text(
-            0.03,
-            0.04,
-            (
-                f"accepted/rejected levels\n"
-                f"target {target.radius.size}/{target.rejected_level_count}; "
-                f"model {model.radius.size}/{model.rejected_level_count}"
-            ),
-            transform=axis.transAxes,
-            ha="left",
-            va="bottom",
-            fontsize=7,
-            color="0.35",
+            0.03, 0.04,
+            (f"accepted/rejected levels\n"
+             f"target {target.radius.size}/{target.rejected_level_count}; "
+             f"model {model.radius.size}/{model.rejected_level_count}"),
+            transform=axis.transAxes, ha="left", va="bottom", fontsize=7, color="0.35",
         )
         phi_lo, phi_hi = np.rad2deg(grid.phi_edges[iphi : iphi + 2])
         axis.set_title(f"{phi_lo:.0f}° ≤ φ < {phi_hi:.0f}°")
@@ -634,14 +500,7 @@ def plot_density_shell_gate(
         figsize=(max(6.0, 1.4 * values.shape[1]), 1.0 + values.shape[0]),
         constrained_layout=True,
     )
-    image = axis.imshow(
-        values,
-        origin="lower",
-        aspect="auto",
-        cmap="magma",
-        vmin=0.0,
-        vmax=upper,
-    )
+    image = axis.imshow(values, origin="lower", aspect="auto", cmap="magma", vmin=0.0, vmax=upper)
     for shell in range(values.shape[0]):
         for phi in range(values.shape[1]):
             value = values[shell, phi]
@@ -656,38 +515,23 @@ def plot_density_shell_gate(
                 or (limit is not None and value > limit)
             )
             axis.text(
-                phi,
-                shell,
-                label,
-                ha="center",
-                va="center",
-                fontsize=7,
+                phi, shell, label, ha="center", va="center", fontsize=7,
                 color="white" if failed or value > 0.45 * upper else "black",
                 fontweight="bold" if failed else "normal",
             )
     phi_labels = [
         f"{lower:.0f}°–{upper:.0f}°"
-        for lower, upper in zip(
-            np.rad2deg(phi_edges[:-1]),
-            np.rad2deg(phi_edges[1:]),
-        )
+        for lower, upper in zip(np.rad2deg(phi_edges[:-1]), np.rad2deg(phi_edges[1:]))
     ]
     shell_labels = [
         f"{lower:g}–{upper:g}"
-        for lower, upper in zip(
-            diagnostics.radius_edges[:-1],
-            diagnostics.radius_edges[1:],
-        )
+        for lower, upper in zip(diagnostics.radius_edges[:-1], diagnostics.radius_edges[1:])
     ]
     axis.set_xticks(np.arange(values.shape[1]), phi_labels)
     axis.set_yticks(np.arange(values.shape[0]), shell_labels)
     axis.set_xlabel("Azimuth sector")
     axis.set_ylabel("Spherical-radius shell [kpc]")
-    gate_passed = bool(
-        np.all(counts > 0)
-        and np.all(np.isfinite(values))
-        and (limit is None or np.all(values <= limit))
-    )
+    gate_passed = bool(np.all(counts > 0) and np.all(np.isfinite(values)) and (limit is None or np.all(values <= limit)))
     limit_text = "diagnostic only" if limit is None else f"limit={limit:g}"
     axis.set_title(
         f"Density χ² per fitted bin by shell and φ ({limit_text}; "
@@ -714,38 +558,27 @@ def _velocity_panel_values(
             float(comparison.data_occupancy[radius_index, theta_index, phi_index]),
         )
 
-    data_occupancy = np.sum(
-        comparison.data_occupancy[radius_index, theta_index, :]
-    )
+    data_occupancy = np.sum(comparison.data_occupancy[radius_index, theta_index, :])
     data_counts = np.sum(
         comparison.data_probability[radius_index, theta_index, :, :]
         * comparison.data_occupancy[radius_index, theta_index, :, None],
         axis=0,
     )
     data_probability = np.divide(
-        data_counts,
-        data_occupancy,
-        out=np.zeros_like(data_counts),
-        where=data_occupancy > 0,
+        data_counts, data_occupancy,
+        out=np.zeros_like(data_counts), where=data_occupancy > 0,
     )
-    data_uncertainty = multinomial_histogram_uncertainty(
-        data_probability[None, :],
-        np.asarray([data_occupancy]),
-    )[0]
+    data_uncertainty = multinomial_histogram_uncertainty(data_probability[None, :], np.asarray([data_occupancy]))[0]
 
-    model_occupancy = np.sum(
-        comparison.model_occupancy[radius_index, theta_index, :]
-    )
+    model_occupancy = np.sum(comparison.model_occupancy[radius_index, theta_index, :])
     model_counts = np.sum(
         comparison.model_probability[radius_index, theta_index, :, :]
         * comparison.model_occupancy[radius_index, theta_index, :, None],
         axis=0,
     )
     model_probability = np.divide(
-        model_counts,
-        model_occupancy,
-        out=np.zeros_like(model_counts),
-        where=model_occupancy > 0,
+        model_counts, model_occupancy,
+        out=np.zeros_like(model_counts), where=model_occupancy > 0,
     )
     return data_probability, data_uncertainty, model_probability, float(data_occupancy)
 
@@ -775,10 +608,7 @@ def _coarsen_velocity_panel(
     coarse_centers = 0.5 * (coarse_edges[:-1] + coarse_edges[1:])
     coarse_data = np.add.reduceat(data, coarse_starts)
     coarse_model = np.add.reduceat(model, coarse_starts)
-    coarse_uncertainty = multinomial_histogram_uncertainty(
-        coarse_data[None, :],
-        np.asarray([data_occupancy], dtype=float),
-    )[0]
+    coarse_uncertainty = multinomial_histogram_uncertainty(coarse_data[None, :], np.asarray([data_occupancy], dtype=float))[0]
     return coarse_centers, coarse_data, coarse_uncertainty, coarse_model
 
 
@@ -804,11 +634,7 @@ def plot_velocity_distributions(
     if any(comparisons[name].grid.shape != grid.shape for name in required):
         raise ValueError("velocity comparisons do not share one grid")
 
-    radial_indices = [
-        index
-        for index, lower in enumerate(grid.radius_edges[:-1])
-        if lower >= minimum_radius
-    ]
+    radial_indices = [index for index, lower in enumerate(grid.radius_edges[:-1]) if lower >= minimum_radius]
     if not radial_indices:
         radial_indices = list(range(grid.shape[0]))
     selected_theta = [index for index in theta_indices if index < grid.shape[1]]
@@ -838,53 +664,17 @@ def plot_velocity_distributions(
                 for theta_column, itheta in enumerate(selected_theta):
                     column = component_index * ntheta + theta_column
                     axis = axes[row, column]
-                    data, uncertainty, model, data_occupancy = (
-                        _velocity_panel_values(
-                            comparison,
-                            iradius,
-                            itheta,
-                            iphi,
-                        )
-                    )
+                    data, uncertainty, model, data_occupancy = _velocity_panel_values(comparison, iradius, itheta, iphi)
                     centers, data, uncertainty, model = _coarsen_velocity_panel(
-                        grid.velocity_edges,
-                        data,
-                        model,
-                        data_occupancy,
-                        velocity_bin_factor,
+                        grid.velocity_edges, data, model, data_occupancy, velocity_bin_factor,
                     )
                     if data_occupancy > 0:
-                        data_line = axis.plot(
-                            centers,
-                            data,
-                            color="0.45",
-                            linewidth=1.5,
-                            label="Data",
-                        )[0]
-                        axis.plot(
-                            centers,
-                            np.clip(data - uncertainty, 0, None),
-                            color="0.6",
-                            linewidth=0.8,
-                            linestyle="--",
-                        )
-                        axis.plot(
-                            centers,
-                            data + uncertainty,
-                            color="0.6",
-                            linewidth=0.8,
-                            linestyle="--",
-                            label="Data ±1σ",
-                        )
+                        data_line = axis.plot(centers, data, color="0.45", linewidth=1.5, label="Data")[0]
+                        axis.plot(centers, np.clip(data - uncertainty, 0, None), color="0.6", linewidth=0.8, linestyle="--")
+                        axis.plot(centers, data + uncertainty, color="0.6", linewidth=0.8, linestyle="--", label="Data ±1σ")
                     else:
                         data_line = None
-                    model_line = axis.plot(
-                        centers,
-                        model,
-                        color="red",
-                        linewidth=1.5,
-                        label="Model",
-                    )[0]
+                    model_line = axis.plot(centers, model, color="red", linewidth=1.5, label="Model")[0]
                     if legend_handles is None and data_line is not None:
                         legend_handles = (data_line, model_line)
                     axis.set_yticks([])
@@ -900,33 +690,17 @@ def plot_velocity_distributions(
                         r_lo, r_hi = grid.radius_edges[iradius : iradius + 2]
                         axis.set_ylabel(f"{r_lo:g}–{r_hi:g} kpc")
                     occupancy = int(data_occupancy)
-                    axis.text(
-                        0.97,
-                        0.92,
-                        f"N={occupancy}",
-                        transform=axis.transAxes,
-                        ha="right",
-                        va="top",
-                        fontsize=6,
-                        color="0.35",
-                    )
+                    axis.text(0.97, 0.92, f"N={occupancy}", transform=axis.transAxes, ha="right", va="top", fontsize=6, color="0.35")
         if iphi is None:
             title = "Velocity distributions, φ averaged"
             filename = "velocity_phi_average.pdf"
         else:
             phi_lo, phi_hi = np.rad2deg(grid.phi_edges[iphi : iphi + 2])
-            title = (
-                f"Velocity distributions, {phi_lo:.0f}° ≤ φ < {phi_hi:.0f}°"
-            )
+            title = f"Velocity distributions, {phi_lo:.0f}° ≤ φ < {phi_hi:.0f}°"
             filename = f"velocity_phi{iphi:02d}.pdf"
         figure.suptitle(title, x=0.01, ha="left")
         if legend_handles is not None:
-            figure.legend(
-                legend_handles,
-                ("Data", "Model"),
-                loc="outside upper right",
-                ncol=2,
-            )
+            figure.legend(legend_handles, ("Data", "Model"), loc="outside upper right", ncol=2)
         path = output_directory / filename
         figure.savefig(path, bbox_inches="tight")
         plt.close(figure)
@@ -954,19 +728,8 @@ def plot_model_diagnostics(
     written = [overview, shape]
     if density_shells is not None:
         shell_gate = output_directory / "density_shell_phi_gate.pdf"
-        plot_density_shell_gate(
-            density_shells,
-            density.grid.phi_edges,
-            shell_gate,
-            limit=density_shell_phi_limit,
-        )
+        plot_density_shell_gate(density_shells, density.grid.phi_edges, shell_gate, limit=density_shell_phi_limit)
         written.append(shell_gate)
     written.extend(plot_density_phi_pages(density, output_directory))
-    written.extend(
-        plot_velocity_distributions(
-            velocities,
-            output_directory,
-            velocity_bin_factor=velocity_bin_factor,
-        )
-    )
+    written.extend(plot_velocity_distributions(velocities, output_directory, velocity_bin_factor=velocity_bin_factor))
     return written

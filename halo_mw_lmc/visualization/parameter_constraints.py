@@ -581,12 +581,7 @@ def _panel_axes(
         x_limits = bounds[4]
         y_limits = bounds[2]
     elif panel.name == "rs_rho0":
-        log_rs_limits = np.asarray(
-            [
-                (bounds[3, 0] - bounds[2, 1]) / 2.0,
-                (bounds[3, 1] - bounds[2, 0]) / 2.0,
-            ]
-        )
+        log_rs_limits = np.asarray([(bounds[3, 0] - bounds[2, 1]) / 2.0, (bounds[3, 1] - bounds[2, 0]) / 2.0])
         x_limits = 10.0**log_rs_limits
         y_limits = bounds[2]
     elif panel.name == "qhalo_phalo":
@@ -701,24 +696,15 @@ def _bounded_local_minimum(
     best_value = float(_predict_mean(surrogate, initial)[0])
 
     def objective(nuisance: np.ndarray) -> float:
-        embedded = _embed_panel_points(
-            panel,
-            x_value,
-            y_value,
-            nuisance,
-            bounds,
-        )
+        embedded = _embed_panel_points(panel, x_value, y_value, nuisance, bounds)
         if embedded is None or not np.all(np.isfinite(embedded)):
             return np.inf
         return float(_predict_mean(surrogate, embedded)[0])
 
     for start in starts:
         result = minimize(
-            objective,
-            np.asarray(start, dtype=float),
-            method="L-BFGS-B",
-            bounds=[(0.0, 1.0)] * 3,
-            options={"maxiter": maxiter, "ftol": 1e-9},
+            objective, np.asarray(start, dtype=float), method="L-BFGS-B",
+            bounds=[(0.0, 1.0)] * 3, options={"maxiter": maxiter, "ftol": 1e-9},
         )
         candidate = np.clip(np.asarray(result.x, dtype=float), 0.0, 1.0)
         value = objective(candidate)
@@ -789,13 +775,7 @@ def profile_surrogate_surface(
 
     for y_index, y_value in enumerate(y):
         for x_index, x_value in enumerate(x):
-            candidates = _embed_panel_points(
-                panel,
-                x_value,
-                y_value,
-                sobol,
-                bounds,
-            )
+            candidates = _embed_panel_points(panel, x_value, y_value, sobol, bounds)
             if candidates is None:
                 continue
             # ``rs``-derived corner panels can produce out-of-domain nuisance
@@ -810,25 +790,12 @@ def profile_surrogate_surface(
                 continue
             count = min(settings.local_starts, finite.size)
             start_rows = valid_rows[finite]
-            ordering = start_rows[
-                np.argsort(candidate_values[finite], kind="stable")[:count]
-            ]
+            ordering = start_rows[np.argsort(candidate_values[finite], kind="stable")[:count]]
             nuisance, value = _bounded_local_minimum(
-                surrogate,
-                panel,
-                x_value,
-                y_value,
-                sobol[ordering],
-                bounds,
+                surrogate, panel, x_value, y_value, sobol[ordering], bounds,
                 maxiter=settings.local_maxiter,
             )
-            best_point = _embed_panel_points(
-                panel,
-                x_value,
-                y_value,
-                nuisance,
-                bounds,
-            )
+            best_point = _embed_panel_points(panel, x_value, y_value, nuisance, bounds)
             if best_point is None or not np.all(np.isfinite(best_point)):
                 continue
             prediction, std = surrogate.predict(best_point, return_std=True)
@@ -844,11 +811,7 @@ def profile_surrogate_surface(
         distance, _ = tree.query(minimizers[valid_minimizers], k=1)
         support_distance[valid_minimizers] = distance
     radius = _support_radius(support, settings.support_quantile)
-    reliable = (
-        finite_values
-        & (support_distance <= radius)
-        & (standard_deviation <= settings.maximum_predictive_std)
-    )
+    reliable = (finite_values & (support_distance <= radius) & (standard_deviation <= settings.maximum_predictive_std))
     # Restore physical objective units for the raw profiled surface; the
     # predictive-standard-deviation mask above stays in scaled units.
     if objective_scale != 1.0:
@@ -960,12 +923,7 @@ def _cleaned_reliable(reliable: np.ndarray) -> np.ndarray:
     if convolve is not None:
         kernel = np.ones((3, 3), dtype=float)
         kernel[1, 1] = 0.0
-        neighbors = convolve(
-            reliable.astype(float),
-            kernel,
-            mode="constant",
-            cval=0.0,
-        )
+        neighbors = convolve(reliable.astype(float), kernel, mode="constant", cval=0.0)
     else:
         padded = np.pad(reliable.astype(float), 1, mode="constant", constant_values=0.0)
         for di in (-1, 0, 1):
@@ -1005,15 +963,9 @@ def _draw_profile_contour(
     for level in DIAGNOSTIC_LEVELS:
         if low < level < high:
             axis.contour(
-                surface.x,
-                surface.y,
-                masked,
-                levels=[level],
-                colors=[color],
-                linestyles=[linestyle],
-                linewidths=_DIAGNOSTIC_LEVEL_LINEWIDTHS.get(
-                    level, _DIAGNOSTIC_LEVEL_LINEWIDTHS[DIAGNOSTIC_LEVELS[0]]
-                ),
+                surface.x, surface.y, masked, levels=[level],
+                colors=[color], linestyles=[linestyle],
+                linewidths=_DIAGNOSTIC_LEVEL_LINEWIDTHS.get(level, _DIAGNOSTIC_LEVEL_LINEWIDTHS[DIAGNOSTIC_LEVELS[0]]),
             )
             drawn[level] = True
         else:
@@ -1056,27 +1008,9 @@ def _draw_panel_annotations(
     """Annotate unresolved 2.30 and support-boundary truncation for a panel."""
 
     if not drawn.get(2.30, False):
-        axis.text(
-            0.03,
-            0.97,
-            "2.30 unresolved",
-            transform=axis.transAxes,
-            ha="left",
-            va="top",
-            fontsize=7,
-            color="0.45",
-        )
+        axis.text(0.03, 0.97, "2.30 unresolved", transform=axis.transAxes, ha="left", va="top", fontsize=7, color="0.45")
     if truncated:
-        axis.text(
-            0.97,
-            0.03,
-            "truncated",
-            transform=axis.transAxes,
-            ha="right",
-            va="bottom",
-            fontsize=7,
-            color="0.55",
-        )
+        axis.text(0.97, 0.03, "truncated", transform=axis.transAxes, ha="right", va="bottom", fontsize=7, color="0.55")
 
 
 def _fallback_reason(data: ConstraintSamples, settings: ProfileSettings) -> str | None:
@@ -1109,29 +1043,13 @@ def build_parameter_constraints_figure(
     try:
         data = prepare_constraint_samples(samples, bounds, settings=settings)
     except Exception as exc:
-        figure, axes = plt.subplots(
-            1,
-            3,
-            figsize=(14.0, 4.8),
-            constrained_layout=True,
-        )
+        figure, axes = plt.subplots(1, 3, figsize=(14.0, 4.8), constrained_layout=True)
         for axis, panel in zip(axes, PANELS):
             axis.set_xlabel(panel.x_label)
             axis.set_ylabel(panel.y_label)
             axis.grid(alpha=0.15)
-        figure.text(
-            0.5,
-            0.99,
-            f"parameter constraints unavailable: {type(exc).__name__}: {exc}",
-            ha="center",
-            va="top",
-            fontsize=9,
-            color="0.3",
-        )
-        figure.suptitle(
-            "Five-dimensional GP profile constraints",
-            y=1.08,
-        )
+        figure.text(0.5, 0.99, f"parameter constraints unavailable: {type(exc).__name__}: {exc}", ha="center", va="top", fontsize=9, color="0.3")
+        figure.suptitle("Five-dimensional GP profile constraints", y=1.08)
         return figure
     failure = _fallback_reason(data, settings)
     surfaces: dict[str, dict[str, ProfileSurface]] = {}
@@ -1142,13 +1060,8 @@ def build_parameter_constraints_figure(
             for panel in PANELS:
                 surfaces[panel.name] = {
                     objective: profile_surrogate_surface(
-                        surrogates[objective],
-                        data.display_normalized_coordinates,
-                        data.bounds,
-                        panel,
-                        sobol,
-                        settings=settings,
-                        objective_scale=surrogates[objective].scale,
+                        surrogates[objective], data.display_normalized_coordinates, data.bounds,
+                        panel, sobol, settings=settings, objective_scale=surrogates[objective].scale,
                     )
                     for objective in OBJECTIVE_NAMES
                 }
@@ -1159,15 +1072,8 @@ def build_parameter_constraints_figure(
             failure = f"GP profile unavailable: {type(exc).__name__}: {exc}"
             surfaces = {}
 
-    figure, axes = plt.subplots(
-        1,
-        3,
-        figsize=(14.0, 4.8),
-        constrained_layout=True,
-    )
-    total_delta = data.display_objectives["total"] - np.min(
-        data.display_objectives["total"]
-    )
+    figure, axes = plt.subplots(1, 3, figsize=(14.0, 4.8), constrained_layout=True)
+    total_delta = data.display_objectives["total"] - np.min(data.display_objectives["total"])
     _objective_colors = {"total": "#9b0000", "velocity": "black", "density": "#5573b7"}
     _objective_styles = {"total": "solid", "velocity": "dashed", "density": "dashed"}
     _drawn_levels: dict[str, set[float]] = {objective: set() for objective in OBJECTIVE_NAMES}
@@ -1175,16 +1081,9 @@ def build_parameter_constraints_figure(
     for axis, panel in zip(axes, PANELS):
         sample_x, sample_y = _panel_sample_coordinates(panel, data.display_coordinates)
         scatter = axis.scatter(
-            sample_x,
-            sample_y,
-            c=np.clip(total_delta, 0.0, SCATTER_COLOR_MAXIMUM),
-            vmin=0.0,
-            vmax=SCATTER_COLOR_MAXIMUM,
-            cmap="Spectral",
-            s=16,
-            alpha=0.72,
-            linewidths=0.0,
-            rasterized=True,
+            sample_x, sample_y, c=np.clip(total_delta, 0.0, SCATTER_COLOR_MAXIMUM),
+            vmin=0.0, vmax=SCATTER_COLOR_MAXIMUM, cmap="Spectral", s=16, alpha=0.72,
+            linewidths=0.0, rasterized=True,
         )
         truncated = False
         panel_drawn: set[float] = set()
@@ -1192,10 +1091,8 @@ def build_parameter_constraints_figure(
             if panel.name not in surfaces or objective not in surfaces[panel.name]:
                 continue
             drawn = _draw_profile_contour(
-                axis,
-                surfaces[panel.name][objective],
-                color=_objective_colors[objective],
-                linestyle=_objective_styles[objective],
+                axis, surfaces[panel.name][objective],
+                color=_objective_colors[objective], linestyle=_objective_styles[objective],
             )
             for level, is_drawn in drawn.items():
                 if is_drawn:
@@ -1203,11 +1100,7 @@ def build_parameter_constraints_figure(
                     panel_drawn.add(level)
             truncated |= _contour_touches_boundary(surfaces[panel.name][objective])
         if panel.name in surfaces:
-            _draw_panel_annotations(
-                axis,
-                {level: level in panel_drawn for level in DIAGNOSTIC_LEVELS},
-                truncated=truncated,
-            )
+            _draw_panel_annotations(axis, {level: level in panel_drawn for level in DIAGNOSTIC_LEVELS}, truncated=truncated)
         if panel.name == "qhalo_phalo":
             lower = max(data.bounds[0, 0], data.bounds[1, 0])
             upper = min(data.bounds[0, 1], data.bounds[1, 1])
@@ -1217,31 +1110,18 @@ def build_parameter_constraints_figure(
         axis.grid(alpha=0.15)
 
     if scatter is not None:
-        colorbar = figure.colorbar(
-            scatter,
-            ax=axes,
-            location="top",
-            shrink=0.26,
-            pad=0.02,
-            extend="max",
-        )
+        colorbar = figure.colorbar(scatter, ax=axes, location="top", shrink=0.26, pad=0.02, extend="max")
         colorbar.set_label(r"actual trial $\Delta\chi^2_\mathrm{tot}$")
     legend_handles: list[Line2D] = []
     if any(_drawn_levels.values()):
         for objective in OBJECTIVE_NAMES:
             for level in sorted(_drawn_levels[objective]):
-                legend_handles.append(
-                    Line2D(
-                        [0],
-                        [0],
-                        color=_objective_colors[objective],
-                        linewidth=_DIAGNOSTIC_LEVEL_LINEWIDTHS.get(level, 2.0),
-                        linestyle=_objective_styles[objective],
-                        label=(
-                            f"{objective} $\\Delta Q$ = {_format_level(level)}"
-                        ),
-                    )
-                )
+                legend_handles.append(Line2D(
+                    [0], [0], color=_objective_colors[objective],
+                    linewidth=_DIAGNOSTIC_LEVEL_LINEWIDTHS.get(level, 2.0),
+                    linestyle=_objective_styles[objective],
+                    label=f"{objective} $\\Delta Q$ = {_format_level(level)}",
+                ))
     if failure is None:
         if legend_handles:
             figure.legend(
@@ -1251,36 +1131,16 @@ def build_parameter_constraints_figure(
                 bbox_to_anchor=(0.67, 1.01),
             )
         else:
-            figure.text(
-                0.67,
-                0.99,
-                "no level resolved",
-                ha="center",
-                va="top",
-                fontsize=8,
-                color="0.45",
-            )
+            figure.text(0.67, 0.99, "no level resolved", ha="center", va="top", fontsize=8, color="0.45")
         figure.text(
-            0.5,
-            0.005,
+            0.5, 0.005,
             "Diagnostic GP-surrogate objective differences with diagnostic levels; "
             "contours clip at the support boundary and are truncated there. "
             "Not calibrated confidence intervals.",
-            ha="center",
-            va="bottom",
-            fontsize=8,
-            color="0.35",
+            ha="center", va="bottom", fontsize=8, color="0.35",
         )
     else:
-        figure.text(
-            0.5,
-            0.99,
-            failure,
-            ha="center",
-            va="top",
-            fontsize=9,
-            color="0.3",
-        )
+        figure.text(0.5, 0.99, failure, ha="center", va="top", fontsize=9, color="0.3")
     figure.suptitle(
         "Five-dimensional GP profiled objective-difference diagnostics "
         "(adaptive trials shown as points)",
@@ -1306,14 +1166,7 @@ def _empty_corner_figure(message: str):
             if column > row:
                 axis.set_axis_off()
             elif column == row:
-                axis.text(
-                    0.5,
-                    0.5,
-                    PARAM_LABELS[DISPLAY_ORDER[row]],
-                    ha="center",
-                    va="center",
-                    fontsize=12,
-                )
+                axis.text(0.5, 0.5, PARAM_LABELS[DISPLAY_ORDER[row]], ha="center", va="center", fontsize=12)
                 axis.set_axis_off()
     for panel in CORNER_PANELS:
         axis = axes[panel.row_index, panel.col_index]
@@ -1322,15 +1175,7 @@ def _empty_corner_figure(message: str):
         if panel.row_index == len(DISPLAY_ORDER) - 1:
             axis.set_xlabel(panel.x_label)
         axis.grid(alpha=0.15)
-    figure.text(
-        0.5,
-        1.02,
-        f"parameter constraints unavailable: {message}",
-        ha="center",
-        va="top",
-        fontsize=9,
-        color="0.3",
-    )
+    figure.text(0.5, 1.02, f"parameter constraints unavailable: {message}", ha="center", va="top", fontsize=9, color="0.3")
     figure.suptitle("Five-dimensional GP profiled objective-difference diagnostics", y=1.08)
     return figure
 
@@ -1428,13 +1273,8 @@ def build_parameter_constraints_corner_figure(
             for panel in CORNER_PANELS:
                 surfaces[panel.name] = {
                     objective: profile_surrogate_surface(
-                        surrogates[objective],
-                        data.display_normalized_coordinates,
-                        data.bounds,
-                        panel,
-                        sobol,
-                        settings=corner_settings,
-                        objective_scale=surrogates[objective].scale,
+                        surrogates[objective], data.display_normalized_coordinates, data.bounds,
+                        panel, sobol, settings=corner_settings, objective_scale=surrogates[objective].scale,
                     )
                     for objective in ("total", "density")
                 }
@@ -1453,9 +1293,7 @@ def build_parameter_constraints_corner_figure(
         sharey="row",
         constrained_layout=True,
     )
-    total_delta = data.display_objectives["total"] - np.min(
-        data.display_objectives["total"]
-    )
+    total_delta = data.display_objectives["total"] - np.min(data.display_objectives["total"])
     _objective_colors = {"total": "#9b0000", "density": "#5573b7"}
     _objective_styles = {"total": "solid", "density": "dashed"}
     _drawn_levels: dict[str, set[float]] = {"total": set(), "density": set()}
@@ -1465,21 +1303,11 @@ def build_parameter_constraints_corner_figure(
             axes[row, column].set_axis_off()
     for panel in CORNER_PANELS:
         axis = axes[panel.row_index, panel.col_index]
-        sample_x, sample_y = _panel_sample_coordinates(
-            panel,
-            data.display_coordinates,
-        )
+        sample_x, sample_y = _panel_sample_coordinates(panel, data.display_coordinates)
         scatter = axis.scatter(
-            sample_x,
-            sample_y,
-            c=np.clip(total_delta, 0.0, SCATTER_COLOR_MAXIMUM),
-            vmin=0.0,
-            vmax=SCATTER_COLOR_MAXIMUM,
-            cmap="Spectral",
-            s=10,
-            alpha=0.3,
-            linewidths=0.0,
-            rasterized=True,
+            sample_x, sample_y, c=np.clip(total_delta, 0.0, SCATTER_COLOR_MAXIMUM),
+            vmin=0.0, vmax=SCATTER_COLOR_MAXIMUM, cmap="Spectral", s=10, alpha=0.3,
+            linewidths=0.0, rasterized=True,
         )
         truncated = False
         panel_drawn: set[float] = set()
@@ -1487,10 +1315,8 @@ def build_parameter_constraints_corner_figure(
             if panel.name not in surfaces or objective not in surfaces[panel.name]:
                 continue
             drawn = _draw_profile_contour(
-                axis,
-                surfaces[panel.name][objective],
-                color=_objective_colors[objective],
-                linestyle=_objective_styles[objective],
+                axis, surfaces[panel.name][objective],
+                color=_objective_colors[objective], linestyle=_objective_styles[objective],
             )
             for level, is_drawn in drawn.items():
                 if is_drawn:
@@ -1498,11 +1324,7 @@ def build_parameter_constraints_corner_figure(
                     panel_drawn.add(level)
             truncated |= _contour_touches_boundary(surfaces[panel.name][objective])
         if panel.name in surfaces:
-            _draw_panel_annotations(
-                axis,
-                {level: level in panel_drawn for level in DIAGNOSTIC_LEVELS},
-                truncated=truncated,
-            )
+            _draw_panel_annotations(axis, {level: level in panel_drawn for level in DIAGNOSTIC_LEVELS}, truncated=truncated)
         if {panel.x_param, panel.y_param} == {"qhalo", "phalo"}:
             lower = max(data.bounds[0, 0], data.bounds[1, 0])
             upper = min(data.bounds[0, 1], data.bounds[1, 1])
@@ -1514,42 +1336,22 @@ def build_parameter_constraints_corner_figure(
         axis.grid(alpha=0.15)
 
     for index, axis in enumerate(np.diag(axes)):
-        axis.text(
-            0.5,
-            0.5,
-            PARAM_LABELS[DISPLAY_ORDER[index]],
-            ha="center",
-            va="center",
-            fontsize=12,
-        )
+        axis.text(0.5, 0.5, PARAM_LABELS[DISPLAY_ORDER[index]], ha="center", va="center", fontsize=12)
         axis.set_axis_off()
 
     if scatter is not None:
-        colorbar = figure.colorbar(
-            scatter,
-            ax=axes,
-            location="top",
-            shrink=0.22,
-            pad=0.02,
-            extend="max",
-        )
+        colorbar = figure.colorbar(scatter, ax=axes, location="top", shrink=0.22, pad=0.02, extend="max")
         colorbar.set_label(r"actual trial $\Delta\chi^2_\mathrm{tot}$")
     legend_handles: list[Line2D] = []
     if any(_drawn_levels.values()):
         for objective in ("total", "density"):
             for level in sorted(_drawn_levels[objective]):
-                legend_handles.append(
-                    Line2D(
-                        [0],
-                        [0],
-                        color=_objective_colors[objective],
-                        linewidth=_DIAGNOSTIC_LEVEL_LINEWIDTHS.get(level, 2.0),
-                        linestyle=_objective_styles[objective],
-                        label=(
-                            f"{objective} $\\Delta Q$ = {_format_level(level)}"
-                        ),
-                    )
-                )
+                legend_handles.append(Line2D(
+                    [0], [0], color=_objective_colors[objective],
+                    linewidth=_DIAGNOSTIC_LEVEL_LINEWIDTHS.get(level, 2.0),
+                    linestyle=_objective_styles[objective],
+                    label=f"{objective} $\\Delta Q$ = {_format_level(level)}",
+                ))
     if failure is None:
         if legend_handles:
             figure.legend(
@@ -1560,44 +1362,24 @@ def build_parameter_constraints_corner_figure(
                 frameon=True,
             )
         else:
-            figure.text(
-                0.01,
-                0.99,
-                "no level resolved",
-                ha="left",
-                va="top",
-                fontsize=8,
-                color="0.45",
-            )
+            figure.text(0.01, 0.99, "no level resolved", ha="left", va="top", fontsize=8, color="0.45")
         figure.suptitle(
             "Five-dimensional GP profiled objective-difference diagnostics "
             "(corner view; adaptive trials shown as points)",
             y=1.08,
         )
         figure.text(
-            0.5,
-            1.035,
+            0.5, 1.035,
             "Contours show GP-surrogate-predicted profiled objective differences "
             "within the sampled region, describing objective variation and possible "
             "parameter-degeneracy directions. The current evidence does not reliably "
             "resolve the $\\Delta Q = 2.30$ level; the shown contours are not "
             "calibrated confidence intervals, and no inference is made beyond the "
             "support boundary.",
-            ha="center",
-            va="bottom",
-            fontsize=8,
-            color="0.35",
+            ha="center", va="bottom", fontsize=8, color="0.35",
         )
     else:
-        figure.text(
-            0.5,
-            1.02,
-            failure,
-            ha="center",
-            va="top",
-            fontsize=9,
-            color="0.3",
-        )
+        figure.text(0.5, 1.02, failure, ha="center", va="top", fontsize=9, color="0.3")
         figure.suptitle(
             "Five-dimensional GP profiled objective-difference diagnostics "
             "(corner view; adaptive trials shown as points)",

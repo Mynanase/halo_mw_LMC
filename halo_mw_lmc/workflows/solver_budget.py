@@ -206,10 +206,7 @@ def _point(
             f"{len(SEARCH_PARAMETER_NAMES)} values in "
             f"{', '.join(SEARCH_PARAMETER_NAMES)} order"
         )
-    coordinates = tuple(
-        _finite_number(value, f"{context}.coordinates[{index}]")
-        for index, value in enumerate(raw)
-    )
+    coordinates = tuple(_finite_number(value, f"{context}.coordinates[{index}]") for index, value in enumerate(raw))
     bounds = recipe.search.bounds.as_dict()
     decimals = recipe.search.round_decimals
     for parameter, coordinate in zip(SEARCH_PARAMETER_NAMES, coordinates):
@@ -219,21 +216,12 @@ def _point(
                 f"{context}.coordinates {parameter}={coordinate} lies outside "
                 f"the recipe bounds [{lower}, {upper}]"
             )
-        if not np.isclose(
-            coordinate,
-            round(coordinate, decimals),
-            rtol=0.0,
-            atol=10 ** (-(decimals + 10)),
-        ):
+        if not np.isclose(coordinate, round(coordinate, decimals), rtol=0.0, atol=10 ** (-(decimals + 10))):
             raise ConfigurationError(
                 f"{context}.coordinates {parameter} is not representable with "
                 f"round_decimals={decimals}"
             )
-    return SolverBudgetPoint(
-        name=name,
-        coordinates=coordinates,
-        source=_string(table["source"], f"{context}.source"),
-    )
+    return SolverBudgetPoint(name=name, coordinates=coordinates, source=_string(table["source"], f"{context}.source"))
 
 
 def _method(
@@ -337,49 +325,20 @@ def _thresholds(table: Mapping[str, Any]) -> SolverBudgetThresholds:
     }
     _require_exact_fields(table, expected, "thresholds")
     thresholds = SolverBudgetThresholds(
-        reference_kkt_maximum=_positive_number(
-            table["reference_kkt_maximum"], "thresholds.reference_kkt_maximum"
-        ),
-        inner_objective_relative=_positive_number(
-            table["inner_objective_relative"], "thresholds.inner_objective_relative"
-        ),
-        joint_objective_absolute=_positive_number(
-            table["joint_objective_absolute"], "thresholds.joint_objective_absolute"
-        ),
-        component_absolute=_positive_number(
-            table["component_absolute"], "thresholds.component_absolute"
-        ),
-        pairwise_delta_absolute=_positive_number(
-            table["pairwise_delta_absolute"], "thresholds.pairwise_delta_absolute"
-        ),
-        ranking_flip_reference_difference=_positive_number(
-            table["ranking_flip_reference_difference"],
-            "thresholds.ranking_flip_reference_difference",
-        ),
-        density_prediction_rms=_positive_number(
-            table["density_prediction_rms"], "thresholds.density_prediction_rms"
-        ),
-        velocity_tv_weighted_mean=_positive_number(
-            table["velocity_tv_weighted_mean"], "thresholds.velocity_tv_weighted_mean"
-        ),
-        velocity_tv_cell_maximum=_positive_number(
-            table["velocity_tv_cell_maximum"], "thresholds.velocity_tv_cell_maximum"
-        ),
-        velocity_tv_minimum_observations=_integer(
-            table["velocity_tv_minimum_observations"],
-            "thresholds.velocity_tv_minimum_observations",
-            minimum=1,
-        ),
+        reference_kkt_maximum=_positive_number(table["reference_kkt_maximum"], "thresholds.reference_kkt_maximum"),
+        inner_objective_relative=_positive_number(table["inner_objective_relative"], "thresholds.inner_objective_relative"),
+        joint_objective_absolute=_positive_number(table["joint_objective_absolute"], "thresholds.joint_objective_absolute"),
+        component_absolute=_positive_number(table["component_absolute"], "thresholds.component_absolute"),
+        pairwise_delta_absolute=_positive_number(table["pairwise_delta_absolute"], "thresholds.pairwise_delta_absolute"),
+        ranking_flip_reference_difference=_positive_number(table["ranking_flip_reference_difference"], "thresholds.ranking_flip_reference_difference"),
+        density_prediction_rms=_positive_number(table["density_prediction_rms"], "thresholds.density_prediction_rms"),
+        velocity_tv_weighted_mean=_positive_number(table["velocity_tv_weighted_mean"], "thresholds.velocity_tv_weighted_mean"),
+        velocity_tv_cell_maximum=_positive_number(table["velocity_tv_cell_maximum"], "thresholds.velocity_tv_cell_maximum"),
+        velocity_tv_minimum_observations=_integer(table["velocity_tv_minimum_observations"], "thresholds.velocity_tv_minimum_observations", minimum=1),
         repeat_rtol=_positive_number(table["repeat_rtol"], "thresholds.repeat_rtol"),
         repeat_atol=_positive_number(table["repeat_atol"], "thresholds.repeat_atol"),
-        environment_instability_ratio=_positive_number(
-            table["environment_instability_ratio"],
-            "thresholds.environment_instability_ratio",
-        ),
-        target_full_evaluation_seconds=_positive_number(
-            table["target_full_evaluation_seconds"],
-            "thresholds.target_full_evaluation_seconds",
-        ),
+        environment_instability_ratio=_positive_number(table["environment_instability_ratio"], "thresholds.environment_instability_ratio"),
+        target_full_evaluation_seconds=_positive_number(table["target_full_evaluation_seconds"], "thresholds.target_full_evaluation_seconds"),
     )
     # The repeat tolerance is fixed by the contract; only make it stricter.
     if thresholds.repeat_rtol > 1e-12 or thresholds.repeat_atol > 1e-12:
@@ -418,9 +377,7 @@ def load_solver_budget_plan(
         },
         "solver-budget configuration",
     )
-    schema_version = _integer(
-        document["schema_version"], "schema_version", minimum=1
-    )
+    schema_version = _integer(document["schema_version"], "schema_version", minimum=1)
     if schema_version != SOLVER_BUDGET_SCHEMA_VERSION:
         raise ConfigurationError(
             f"unsupported schema_version: {schema_version}; "
@@ -445,13 +402,7 @@ def load_solver_budget_plan(
     threads_table = _table(document, "threads", "solver-budget configuration")
     thread_names = {name for _, name in THREAD_ENVIRONMENT_VARIABLES}
     _require_exact_fields(threads_table, thread_names, "threads")
-    threads = tuple(
-        (
-            name,
-            _integer(threads_table[name], f"threads.{name}", minimum=1),
-        )
-        for _, name in THREAD_ENVIRONMENT_VARIABLES
-    )
+    threads = tuple((name, _integer(threads_table[name], f"threads.{name}", minimum=1)) for _, name in THREAD_ENVIRONMENT_VARIABLES)
 
     points_table = _table(document, "points", "solver-budget configuration")
     if len(points_table) < 3:
@@ -493,16 +444,7 @@ def load_solver_budget_plan(
     if any(left >= right for left, right in zip(budget_max_iter, budget_max_iter[1:])):
         raise ConfigurationError("budget.max_iter must be strictly increasing")
     for index, level in enumerate(budget_max_iter):
-        resolved_weight_settings(
-            recipe,
-            SolverBudgetMethod(
-                name=f"budget_{level}",
-                solver="lsq_linear",
-                max_iter=level,
-                lsmr_tol=budget_lsmr_tol,
-                solver_tolerance=None,
-            ),
-        )
+        resolved_weight_settings(recipe, SolverBudgetMethod(name=f"budget_{level}", solver="lsq_linear", max_iter=level, lsmr_tol=budget_lsmr_tol, solver_tolerance=None))
 
     phase_list = document["phases"]
     if not isinstance(phase_list, list) or not all(
@@ -600,18 +542,8 @@ def _repository_root() -> Path:
 def _git_provenance() -> dict[str, object]:
     root = _repository_root()
     try:
-        head = subprocess.run(
-            ["git", "-C", str(root), "rev-parse", "HEAD"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout.strip()
-        status = subprocess.run(
-            ["git", "-C", str(root), "status", "--porcelain"],
-            check=True,
-            capture_output=True,
-            text=True,
-        ).stdout
+        head = subprocess.run(["git", "-C", str(root), "rev-parse", "HEAD"], check=True, capture_output=True, text=True).stdout.strip()
+        status = subprocess.run(["git", "-C", str(root), "status", "--porcelain"], check=True, capture_output=True, text=True).stdout
     except (OSError, subprocess.CalledProcessError):
         return {"head": "unknown", "dirty": None}
     return {"head": head, "dirty": bool(status.strip())}
@@ -622,12 +554,7 @@ def _require_gnu_time() -> str:
     if not program.is_file() or not os.access(program, os.X_OK):
         raise RuntimeError(f"GNU time executable not found: {program}")
     try:
-        completed = subprocess.run(
-            [str(program), "--version"],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
+        completed = subprocess.run([str(program), "--version"], check=True, capture_output=True, text=True)
     except (OSError, subprocess.CalledProcessError) as exc:
         raise RuntimeError(f"could not execute GNU time: {program}") from exc
     version_text = (completed.stdout + completed.stderr).lower()
@@ -737,23 +664,15 @@ def run_preflight(plan: SolverBudgetPlan) -> dict[str, object]:
             "joint_objective_absolute": plan.thresholds.joint_objective_absolute,
             "component_absolute": plan.thresholds.component_absolute,
             "pairwise_delta_absolute": plan.thresholds.pairwise_delta_absolute,
-            "ranking_flip_reference_difference": (
-                plan.thresholds.ranking_flip_reference_difference
-            ),
+            "ranking_flip_reference_difference": plan.thresholds.ranking_flip_reference_difference,
             "density_prediction_rms": plan.thresholds.density_prediction_rms,
             "velocity_tv_weighted_mean": plan.thresholds.velocity_tv_weighted_mean,
             "velocity_tv_cell_maximum": plan.thresholds.velocity_tv_cell_maximum,
-            "velocity_tv_minimum_observations": (
-                plan.thresholds.velocity_tv_minimum_observations
-            ),
+            "velocity_tv_minimum_observations": plan.thresholds.velocity_tv_minimum_observations,
             "repeat_rtol": plan.thresholds.repeat_rtol,
             "repeat_atol": plan.thresholds.repeat_atol,
-            "environment_instability_ratio": (
-                plan.thresholds.environment_instability_ratio
-            ),
-            "target_full_evaluation_seconds": (
-                plan.thresholds.target_full_evaluation_seconds
-            ),
+            "environment_instability_ratio": plan.thresholds.environment_instability_ratio,
+            "target_full_evaluation_seconds": plan.thresholds.target_full_evaluation_seconds,
         },
         "inputs": inputs,
         "gnu_time": gnu_time,

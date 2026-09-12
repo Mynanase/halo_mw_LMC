@@ -13,12 +13,7 @@ FloatArray = NDArray[np.float64]
 
 def _edges(values: ArrayLike, name: str) -> FloatArray:
     result = np.asarray(values, dtype=float)
-    if (
-        result.ndim != 1
-        or result.size < 2
-        or not np.all(np.isfinite(result))
-        or np.any(np.diff(result) <= 0)
-    ):
+    if result.ndim != 1 or result.size < 2 or not np.all(np.isfinite(result)) or np.any(np.diff(result) <= 0):
         raise ValueError(f"{name} must be one-dimensional and strictly increasing")
     return result.copy()
 
@@ -109,25 +104,13 @@ def conditional_velocity_histogram(
         valid &= np.isfinite(histogram_weights)
         histogram_weights = histogram_weights[valid]
 
-    samples = np.column_stack(
-        (radius[valid], theta[valid], phi[valid], velocity[valid])
-    )
-    histogram, _ = np.histogramdd(
-        samples,
-        bins=(
-            grid.radius_edges,
-            grid.theta_edges,
-            grid.phi_edges,
-            grid.velocity_edges,
-        ),
-        weights=histogram_weights,
-    )
+    samples = np.column_stack((radius[valid], theta[valid], phi[valid], velocity[valid]))
+    bins = (grid.radius_edges, grid.theta_edges, grid.phi_edges, grid.velocity_edges)
+    histogram, _ = np.histogramdd(samples, bins=bins, weights=histogram_weights)
     occupancy = np.sum(histogram, axis=-1)
     probability = np.divide(
-        histogram,
-        occupancy[..., None],
-        out=np.zeros_like(histogram, dtype=float),
-        where=occupancy[..., None] > 0,
+        histogram, occupancy[..., None],
+        out=np.zeros_like(histogram, dtype=float), where=occupancy[..., None] > 0,
     )
     return probability, occupancy
 
@@ -143,10 +126,8 @@ def multinomial_histogram_uncertainty(
     if probability.shape[:-1] != occupancy.shape:
         raise ValueError("probability and occupancy shapes are inconsistent")
     variance = np.divide(
-        probability * np.clip(1.0 - probability, 0.0, None),
-        occupancy[..., None],
-        out=np.zeros_like(probability),
-        where=occupancy[..., None] > 0,
+        probability * np.clip(1.0 - probability, 0.0, None), occupancy[..., None],
+        out=np.zeros_like(probability), where=occupancy[..., None] > 0,
     )
     return np.sqrt(variance)
 
@@ -184,25 +165,16 @@ def velocity_log_likelihood(
         raise ValueError("minimum_radius must be finite and non-negative")
 
     radius, theta, phi, observed_velocity, velocity_error = np.broadcast_arrays(
-        np.asarray(radius, dtype=float),
-        np.asarray(theta, dtype=float),
-        grid.wrap_phi(phi),
-        np.asarray(observed_velocity, dtype=float),
-        np.asarray(velocity_error, dtype=float),
+        np.asarray(radius, dtype=float), np.asarray(theta, dtype=float), grid.wrap_phi(phi),
+        np.asarray(observed_velocity, dtype=float), np.asarray(velocity_error, dtype=float),
     )
     radius = radius.ravel()
     theta = theta.ravel()
     phi = phi.ravel()
     observed_velocity = observed_velocity.ravel()
     velocity_error = velocity_error.ravel()
-    valid = (
-        np.isfinite(radius)
-        & np.isfinite(theta)
-        & np.isfinite(phi)
-        & np.isfinite(observed_velocity)
-        & np.isfinite(velocity_error)
-        & (velocity_error > 0)
-    )
+    valid = (np.isfinite(radius) & np.isfinite(theta) & np.isfinite(phi)
+             & np.isfinite(observed_velocity) & np.isfinite(velocity_error) & (velocity_error > 0))
     if minimum_radius is not None:
         valid &= radius >= minimum_radius
 

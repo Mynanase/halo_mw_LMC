@@ -61,12 +61,8 @@ class DensityGridConfiguration:
 
     def build(self) -> CylindricalGrid:
         return CylindricalGrid.uniform(
-            n_r=self.n_r,
-            r_range=self.r_range_kpc,
-            n_z=self.n_z,
-            z_range=self.z_range_kpc,
-            n_phi=self.n_phi,
-            phi_origin=np.deg2rad(self.phi_origin_deg),
+            n_r=self.n_r, r_range=self.r_range_kpc, n_z=self.n_z, z_range=self.z_range_kpc,
+            n_phi=self.n_phi, phi_origin=np.deg2rad(self.phi_origin_deg),
         )
 
 
@@ -81,12 +77,9 @@ class DensityFitConfiguration:
 
     def build(self) -> DensityFitSettings:
         return DensityFitSettings(
-            min_abs_z=self.min_abs_z_kpc,
-            min_spherical_radius=self.min_radius_kpc,
-            max_spherical_radius=self.max_radius_kpc,
-            normalization_min_radius=self.normalization_min_radius_kpc,
-            require_positive_data=self.require_positive_target,
-            normalization=self.normalization,
+            min_abs_z=self.min_abs_z_kpc, min_spherical_radius=self.min_radius_kpc,
+            max_spherical_radius=self.max_radius_kpc, normalization_min_radius=self.normalization_min_radius_kpc,
+            require_positive_data=self.require_positive_target, normalization=self.normalization,
         )
 
 
@@ -105,11 +98,7 @@ class VelocityFitConfiguration:
             radius_edges=np.asarray(self.radius_edges_kpc, dtype=float),
             theta_edges=np.deg2rad(np.asarray(self.theta_edges_deg, dtype=float)),
             phi_edges=np.asarray(phi_edges, dtype=float),
-            velocity_edges=np.linspace(
-                self.velocity_range_km_s[0],
-                self.velocity_range_km_s[1],
-                self.velocity_bins + 1,
-            ),
+            velocity_edges=np.linspace(self.velocity_range_km_s[0], self.velocity_range_km_s[1], self.velocity_bins + 1),
         )
 
 
@@ -142,10 +131,7 @@ class SearchBounds:
     gamma: tuple[float, float]
 
     def as_dict(self) -> dict[str, tuple[float, float]]:
-        return {
-            name: getattr(self, name)
-            for name in SEARCH_PARAMETER_NAMES
-        }
+        return {name: getattr(self, name) for name in SEARCH_PARAMETER_NAMES}
 
 
 @dataclass(frozen=True)
@@ -397,25 +383,15 @@ def _fixed_optimizer_points(
     points: list[tuple[float, ...]] = []
     for point_index, raw_point in enumerate(value):
         point_context = f"{context}[{point_index}]"
-        if not isinstance(raw_point, list) or len(raw_point) != len(
-            SEARCH_PARAMETER_NAMES
-        ):
+        if not isinstance(raw_point, list) or len(raw_point) != len(SEARCH_PARAMETER_NAMES):
             raise ConfigurationError(
                 f"{point_context} must contain exactly "
                 f"{len(SEARCH_PARAMETER_NAMES)} coordinates in "
                 f"{', '.join(SEARCH_PARAMETER_NAMES)} order"
             )
-        point = tuple(
-            _number(coordinate, f"{point_context}[{coordinate_index}]")
-            for coordinate_index, coordinate in enumerate(raw_point)
-        )
+        point = tuple(_number(coordinate, f"{point_context}[{coordinate_index}]") for coordinate_index, coordinate in enumerate(raw_point))
         for name, coordinate in zip(SEARCH_PARAMETER_NAMES, point):
-            if not math.isclose(
-                coordinate,
-                round(coordinate, round_decimals),
-                rel_tol=0.0,
-                abs_tol=10 ** (-(round_decimals + 10)),
-            ):
+            if not math.isclose(coordinate, round(coordinate, round_decimals), rel_tol=0.0, abs_tol=10 ** (-(round_decimals + 10))):
                 raise ConfigurationError(
                     f"{point_context} coordinate {name} must be representable "
                     f"with round_decimals={round_decimals}"
@@ -452,27 +428,13 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
     source, document = _read_toml(path, "recipe configuration")
     _require_exact_fields(
         document,
-        {
-            "schema_version",
-            "name",
-            "potential",
-            "density_grid",
-            "density_fit",
-            "velocity_fit",
-            "weight_model",
-            "objective",
-            "orbits",
-            "search",
-        },
+        {"schema_version", "name", "potential", "density_grid", "density_fit", "velocity_fit", "weight_model", "objective", "orbits", "search"},
         "recipe",
     )
 
     potential_table = _table(document, "potential", "recipe")
     _require_exact_fields(potential_table, {"recipe"}, "recipe.potential")
-    potential_name = _string(
-        potential_table["recipe"],
-        "recipe.potential.recipe",
-    )
+    potential_name = _string(potential_table["recipe"], "recipe.potential.recipe")
     if potential_name != ZHU_2026_POTENTIAL_NAME:
         raise ConfigurationError(
             f"unsupported potential recipe: {potential_name!r}; "
@@ -483,14 +445,7 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
     grid_table = _table(document, "density_grid", "recipe")
     _require_exact_fields(
         grid_table,
-        {
-            "n_r",
-            "r_range_kpc",
-            "n_z",
-            "z_range_kpc",
-            "n_phi",
-            "phi_origin_deg",
-        },
+        {"n_r", "r_range_kpc", "n_z", "z_range_kpc", "n_phi", "phi_origin_deg"},
         "recipe.density_grid",
     )
     r_range = _pair(grid_table["r_range_kpc"], "recipe.density_grid.r_range_kpc")
@@ -502,52 +457,28 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
         n_r=_integer(grid_table["n_r"], "recipe.density_grid.n_r", minimum=1),
         r_range_kpc=r_range,
         n_z=_integer(grid_table["n_z"], "recipe.density_grid.n_z", minimum=1),
-        z_range_kpc=_pair(
-            grid_table["z_range_kpc"], "recipe.density_grid.z_range_kpc"
-        ),
-        n_phi=_integer(
-            grid_table["n_phi"], "recipe.density_grid.n_phi", minimum=1
-        ),
-        phi_origin_deg=_number(
-            grid_table["phi_origin_deg"], "recipe.density_grid.phi_origin_deg"
-        ),
+        z_range_kpc=_pair(grid_table["z_range_kpc"], "recipe.density_grid.z_range_kpc"),
+        n_phi=_integer(grid_table["n_phi"], "recipe.density_grid.n_phi", minimum=1),
+        phi_origin_deg=_number(grid_table["phi_origin_deg"], "recipe.density_grid.phi_origin_deg"),
     )
 
     density_fit_table = _table(document, "density_fit", "recipe")
     _require_exact_fields(
         density_fit_table,
-        {
-            "min_abs_z_kpc",
-            "min_radius_kpc",
-            "max_radius_kpc",
-            "normalization_min_radius_kpc",
-            "require_positive_target",
-            "normalization",
-        },
+        {"min_abs_z_kpc", "min_radius_kpc", "max_radius_kpc", "normalization_min_radius_kpc", "require_positive_target", "normalization"},
         "recipe.density_fit",
     )
-    min_abs_z = _number(
-        density_fit_table["min_abs_z_kpc"], "recipe.density_fit.min_abs_z_kpc"
-    )
-    min_radius = _number(
-        density_fit_table["min_radius_kpc"], "recipe.density_fit.min_radius_kpc"
-    )
-    max_radius = _number(
-        density_fit_table["max_radius_kpc"], "recipe.density_fit.max_radius_kpc"
-    )
-    normalization_min_radius = _number(
-        density_fit_table["normalization_min_radius_kpc"],
-        "recipe.density_fit.normalization_min_radius_kpc",
-    )
+    min_abs_z = _number(density_fit_table["min_abs_z_kpc"], "recipe.density_fit.min_abs_z_kpc")
+    min_radius = _number(density_fit_table["min_radius_kpc"], "recipe.density_fit.min_radius_kpc")
+    max_radius = _number(density_fit_table["max_radius_kpc"], "recipe.density_fit.max_radius_kpc")
+    normalization_min_radius = _number(density_fit_table["normalization_min_radius_kpc"], "recipe.density_fit.normalization_min_radius_kpc")
     if min_abs_z < 0 or min_radius < 0 or normalization_min_radius < 0:
         raise ConfigurationError("density-fit radii cannot be negative")
     if min_radius >= max_radius:
         raise ConfigurationError(
             "recipe.density_fit radius interval must be strictly increasing"
         )
-    normalization = _string(
-        density_fit_table["normalization"], "recipe.density_fit.normalization"
-    )
+    normalization = _string(density_fit_table["normalization"], "recipe.density_fit.normalization")
     if normalization not in {"volume", "weighted_least_squares", "none"}:
         raise ConfigurationError(
             "recipe.density_fit.normalization must be 'volume', "
@@ -558,42 +489,25 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
         min_radius_kpc=min_radius,
         max_radius_kpc=max_radius,
         normalization_min_radius_kpc=normalization_min_radius,
-        require_positive_target=_boolean(
-            density_fit_table["require_positive_target"],
-            "recipe.density_fit.require_positive_target",
-        ),
+        require_positive_target=_boolean(density_fit_table["require_positive_target"], "recipe.density_fit.require_positive_target"),
         normalization=normalization,
     )
 
     velocity_table = _table(document, "velocity_fit", "recipe")
     _require_exact_fields(
         velocity_table,
-        {
-            "enabled",
-            "min_radius_kpc",
-            "probability_floor",
-            "radius_edges_kpc",
-            "theta_edges_deg",
-            "velocity_range_km_s",
-            "velocity_bins",
-        },
+        {"enabled", "min_radius_kpc", "probability_floor", "radius_edges_kpc", "theta_edges_deg", "velocity_range_km_s", "velocity_bins"},
         "recipe.velocity_fit",
     )
-    velocity_min_radius = _number(
-        velocity_table["min_radius_kpc"], "recipe.velocity_fit.min_radius_kpc"
-    )
+    velocity_min_radius = _number(velocity_table["min_radius_kpc"], "recipe.velocity_fit.min_radius_kpc")
     if velocity_min_radius < 0:
         raise ConfigurationError("recipe.velocity_fit.min_radius_kpc cannot be negative")
-    radius_edges = _edges(
-        velocity_table["radius_edges_kpc"], "recipe.velocity_fit.radius_edges_kpc"
-    )
+    radius_edges = _edges(velocity_table["radius_edges_kpc"], "recipe.velocity_fit.radius_edges_kpc")
     if radius_edges[0] < 0:
         raise ConfigurationError(
             "recipe.velocity_fit.radius_edges_kpc cannot include negative radii"
         )
-    theta_edges = _edges(
-        velocity_table["theta_edges_deg"], "recipe.velocity_fit.theta_edges_deg"
-    )
+    theta_edges = _edges(velocity_table["theta_edges_deg"], "recipe.velocity_fit.theta_edges_deg")
     if theta_edges[0] < -90 or theta_edges[-1] > 90:
         raise ConfigurationError(
             "recipe.velocity_fit.theta_edges_deg must lie within [-90, 90]"
@@ -601,21 +515,11 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
     velocity_fit = VelocityFitConfiguration(
         enabled=_boolean(velocity_table["enabled"], "recipe.velocity_fit.enabled"),
         min_radius_kpc=velocity_min_radius,
-        probability_floor=_positive_number(
-            velocity_table["probability_floor"],
-            "recipe.velocity_fit.probability_floor",
-        ),
+        probability_floor=_positive_number(velocity_table["probability_floor"], "recipe.velocity_fit.probability_floor"),
         radius_edges_kpc=radius_edges,
         theta_edges_deg=theta_edges,
-        velocity_range_km_s=_pair(
-            velocity_table["velocity_range_km_s"],
-            "recipe.velocity_fit.velocity_range_km_s",
-        ),
-        velocity_bins=_integer(
-            velocity_table["velocity_bins"],
-            "recipe.velocity_fit.velocity_bins",
-            minimum=1,
-        ),
+        velocity_range_km_s=_pair(velocity_table["velocity_range_km_s"], "recipe.velocity_fit.velocity_range_km_s"),
+        velocity_bins=_integer(velocity_table["velocity_bins"], "recipe.velocity_fit.velocity_bins", minimum=1),
     )
 
     weight_table = _table(document, "weight_model", "recipe")
@@ -651,39 +555,12 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
             weight_model = WeightModelSettings(
                 mode=weight_mode,
                 solver=weight_solver,
-                target_normalization=_string(
-                    weight_table["target_normalization"],
-                    "recipe.weight_model.target_normalization",
-                ),
-                regularization=_string(
-                    weight_table["regularization"],
-                    "recipe.weight_model.regularization",
-                ),
-                regularization_strength=_number(
-                    weight_table["regularization_strength"],
-                    "recipe.weight_model.regularization_strength",
-                ),
-                max_iter=_integer(
-                    weight_table["max_iter"],
-                    "recipe.weight_model.max_iter",
-                    minimum=1,
-                ),
-                solver_tolerance=(
-                    _positive_number(
-                        weight_table["solver_tolerance"],
-                        "recipe.weight_model.solver_tolerance",
-                    )
-                    if "solver_tolerance" in weight_table
-                    else None
-                ),
-                lsmr_tol=(
-                    _positive_number(
-                        weight_table["lsmr_tol"],
-                        "recipe.weight_model.lsmr_tol",
-                    )
-                    if "lsmr_tol" in weight_table
-                    else None
-                ),
+                target_normalization=_string(weight_table["target_normalization"], "recipe.weight_model.target_normalization"),
+                regularization=_string(weight_table["regularization"], "recipe.weight_model.regularization"),
+                regularization_strength=_number(weight_table["regularization_strength"], "recipe.weight_model.regularization_strength"),
+                max_iter=_integer(weight_table["max_iter"], "recipe.weight_model.max_iter", minimum=1),
+                solver_tolerance=_positive_number(weight_table["solver_tolerance"], "recipe.weight_model.solver_tolerance") if "solver_tolerance" in weight_table else None,
+                lsmr_tol=_positive_number(weight_table["lsmr_tol"], "recipe.weight_model.lsmr_tol") if "lsmr_tol" in weight_table else None,
             )
         except ValueError as exc:
             raise ConfigurationError(str(exc)) from exc
@@ -712,19 +589,10 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
             {"mode", "density_max_chi2_per_bin"} | configured_shell_fields,
             "recipe.objective",
         )
-        limit = _positive_number(
-            objective_table["density_max_chi2_per_bin"],
-            "recipe.objective.density_max_chi2_per_bin",
-        )
+        limit = _positive_number(objective_table["density_max_chi2_per_bin"], "recipe.objective.density_max_chi2_per_bin")
         if configured_shell_fields:
-            shell_edges = _edges(
-                objective_table["density_shell_edges_kpc"],
-                "recipe.objective.density_shell_edges_kpc",
-            )
-            shell_phi_limit = _positive_number(
-                objective_table["density_shell_phi_max_chi2_per_bin"],
-                "recipe.objective.density_shell_phi_max_chi2_per_bin",
-            )
+            shell_edges = _edges(objective_table["density_shell_edges_kpc"], "recipe.objective.density_shell_edges_kpc")
+            shell_phi_limit = _positive_number(objective_table["density_shell_phi_max_chi2_per_bin"], "recipe.objective.density_shell_phi_max_chi2_per_bin")
             if not np.isclose(shell_edges[0], density_fit.min_radius_kpc):
                 raise ConfigurationError(
                     "density shell edges must start at density_fit.min_radius_kpc"
@@ -741,14 +609,8 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
                 raise ConfigurationError(
                     "the last velocity radius edge must match the last density shell edge"
                 )
-            unmatched = [
-                edge
-                for edge in shell_edges
-                if not any(
-                    np.isclose(edge, velocity_edge)
-                    for velocity_edge in velocity_fit.radius_edges_kpc
-                )
-            ]
+            unmatched = [edge for edge in shell_edges
+                         if not any(np.isclose(edge, velocity_edge) for velocity_edge in velocity_fit.radius_edges_kpc)]
             if unmatched:
                 raise ConfigurationError(
                     "density shell edges must also be velocity radius edges"
@@ -791,21 +653,14 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
     _require_exact_fields(orbit_table, expected_orbit_fields, "recipe.orbits")
     divisor_policy = None
     if weight_model.mode == "catalogue_fixed":
-        divisor_policy = _string(
-            orbit_table["sample_weight_divisor"],
-            "recipe.orbits.sample_weight_divisor",
-        )
+        divisor_policy = _string(orbit_table["sample_weight_divisor"], "recipe.orbits.sample_weight_divisor")
         if divisor_policy != "half_samples":
             raise ConfigurationError(
                 "recipe.orbits.sample_weight_divisor must be 'half_samples'"
             )
     orbits = OrbitConfiguration(
         periods=_positive_number(orbit_table["periods"], "recipe.orbits.periods"),
-        samples_per_orbit=_integer(
-            orbit_table["samples_per_orbit"],
-            "recipe.orbits.samples_per_orbit",
-            minimum=1,
-        ),
+        samples_per_orbit=_integer(orbit_table["samples_per_orbit"], "recipe.orbits.samples_per_orbit", minimum=1),
         sample_weight_divisor=divisor_policy,
     )
 
@@ -815,18 +670,12 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
         {"initial_point", "round_decimals", "bounds"},
         "recipe.search",
     )
-    initial_point = _string(
-        search_table["initial_point"], "recipe.search.initial_point"
-    )
+    initial_point = _string(search_table["initial_point"], "recipe.search.initial_point")
     if initial_point not in {"paper_best", "optimizer"}:
         raise ConfigurationError(
             "recipe.search.initial_point must be 'paper_best' or 'optimizer'"
         )
-    round_decimals = _integer(
-        search_table["round_decimals"],
-        "recipe.search.round_decimals",
-        minimum=0,
-    )
+    round_decimals = _integer(search_table["round_decimals"], "recipe.search.round_decimals", minimum=0)
     bounds_table = _table(search_table, "bounds", "recipe.search")
     _require_exact_fields(
         bounds_table,
@@ -845,12 +694,7 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
         raise ConfigurationError("gamma search bounds must satisfy 0 <= gamma < 3")
     for name, interval in bounds.as_dict().items():
         for endpoint in interval:
-            if not math.isclose(
-                endpoint,
-                round(endpoint, round_decimals),
-                rel_tol=0.0,
-                abs_tol=10 ** (-(round_decimals + 10)),
-            ):
+            if not math.isclose(endpoint, round(endpoint, round_decimals), rel_tol=0.0, abs_tol=10 ** (-(round_decimals + 10))):
                 raise ConfigurationError(
                     f"recipe.search.bounds.{name} endpoints must be representable "
                     f"with round_decimals={round_decimals}"
@@ -860,16 +704,11 @@ def load_recipe_configuration(path: str | Path) -> RecipeConfiguration:
             "qhalo": round(ZHU_2026_BEST_FIT["qhalo"], round_decimals),
             "phalo": round(ZHU_2026_BEST_FIT["phalo"], round_decimals),
             "rho0": round(ZHU_2026_BEST_FIT["rho0"], round_decimals),
-            "rho0_plus_2logrs": round(
-                ZHU_2026_BEST_FIT["rho0"]
-                + 2 * ZHU_2026_BEST_FIT["log_rs"],
-                round_decimals,
-            ),
+            "rho0_plus_2logrs": round(ZHU_2026_BEST_FIT["rho0"] + 2 * ZHU_2026_BEST_FIT["log_rs"], round_decimals),
             "gamma": round(ZHU_2026_BEST_FIT["gamma"], round_decimals),
         }
         outside = [
-            name
-            for name, (lower, upper) in bounds.as_dict().items()
+            name for name, (lower, upper) in bounds.as_dict().items()
             if not lower <= paper_best[name] <= upper
         ]
         if outside:
@@ -900,15 +739,7 @@ def load_run_configuration(path: str | Path) -> RunConfiguration:
     source, document = _read_toml(path, "run configuration")
     _require_exact_fields(
         document,
-        {
-            "schema_version",
-            "recipe",
-            "run",
-            "data",
-            "optimizer",
-            "report",
-            "coverage",
-        },
+        {"schema_version", "recipe", "run", "data", "optimizer", "report", "coverage"},
         "run configuration",
     )
     recipe_path = _resolved_path(document["recipe"], source, "run configuration.recipe")
@@ -989,14 +820,7 @@ def load_synthetic_density_configuration(
     source, document = _read_toml(path, "synthetic density configuration")
     _require_exact_fields(
         document,
-        {
-            "schema_version",
-            "recipe",
-            "model",
-            "quadrature",
-            "uncertainty",
-            "output",
-        },
+        {"schema_version", "recipe", "model", "quadrature", "uncertainty", "output"},
         "synthetic density configuration",
     )
     recipe_path = _resolved_path(document["recipe"], source, "synthetic density configuration.recipe")

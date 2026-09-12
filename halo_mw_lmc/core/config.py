@@ -45,15 +45,7 @@ class WeightModelSettings:
                 "weight mode must be 'catalogue_fixed' or 'density_solved'"
             )
         if self.mode == "catalogue_fixed":
-            if any(
-                value is not None
-                for value in (
-                    self.solver,
-                    self.target_normalization,
-                    self.regularization,
-                    self.solver_tolerance,
-                )
-            ) or self.regularization_strength != 0:
+            if any(value is not None for value in (self.solver, self.target_normalization, self.regularization, self.solver_tolerance)) or self.regularization_strength != 0:
                 raise ValueError(
                     "catalogue_fixed weights cannot define solver options"
                 )
@@ -69,23 +61,15 @@ class WeightModelSettings:
             )
         if self.regularization != "l2":
             raise ValueError("density_solved currently requires regularization='l2'")
-        if (
-            not np.isfinite(self.regularization_strength)
-            or self.regularization_strength < 0
-        ):
+        if not np.isfinite(self.regularization_strength) or self.regularization_strength < 0:
             raise ValueError("regularization_strength must be finite and non-negative")
         if self.max_iter < 1:
             raise ValueError("max_iter must be a positive integer")
         if self.solver_tolerance is None:
             object.__setattr__(self, "solver_tolerance", 1e-8)
-        elif (
-            not np.isfinite(self.solver_tolerance)
-            or self.solver_tolerance <= 0
-        ):
+        elif not np.isfinite(self.solver_tolerance) or self.solver_tolerance <= 0:
             raise ValueError("solver_tolerance must be a positive finite number")
-        if self.lsmr_tol is not None and (
-            not np.isfinite(self.lsmr_tol) or self.lsmr_tol <= 0
-        ):
+        if self.lsmr_tol is not None and (not np.isfinite(self.lsmr_tol) or self.lsmr_tol <= 0):
             raise ValueError("lsmr_tol must be None or a positive finite number")
         if self.solver == "lsq_linear" and self.lsmr_tol is None:
             # None intentionally retains SciPy's historical "auto" behavior.
@@ -113,11 +97,7 @@ class ObjectiveSettings:
                 "objective mode must be 'velocity_only' or 'density_velocity'"
             )
         if self.mode == "velocity_only":
-            if (
-                self.density_max_chi2_per_bin is None
-                or not np.isfinite(self.density_max_chi2_per_bin)
-                or self.density_max_chi2_per_bin <= 0
-            ):
+            if self.density_max_chi2_per_bin is None or not np.isfinite(self.density_max_chi2_per_bin) or self.density_max_chi2_per_bin <= 0:
                 raise ValueError(
                     "velocity_only requires a positive density chi2-per-bin limit"
                 )
@@ -129,12 +109,7 @@ class ObjectiveSettings:
                 )
             if has_edges:
                 edges = np.asarray(self.density_shell_edges, dtype=float)
-                if (
-                    edges.ndim != 1
-                    or edges.size < 2
-                    or not np.all(np.isfinite(edges))
-                    or np.any(np.diff(edges) <= 0)
-                ):
+                if edges.ndim != 1 or edges.size < 2 or not np.all(np.isfinite(edges)) or np.any(np.diff(edges) <= 0):
                     raise ValueError(
                         "density_shell_edges must be finite and strictly increasing"
                     )
@@ -143,19 +118,12 @@ class ObjectiveSettings:
                     raise ValueError(
                         "density shell-phi chi2-per-bin limit must be positive"
                     )
-                object.__setattr__(
-                    self,
-                    "density_shell_edges",
-                    tuple(float(value) for value in edges),
-                )
+                object.__setattr__(self, "density_shell_edges", tuple(float(value) for value in edges))
         elif self.density_max_chi2_per_bin is not None:
             raise ValueError(
                 "density_velocity does not use a density chi2-per-bin gate"
             )
-        elif (
-            self.density_shell_edges is not None
-            or self.density_shell_phi_max_chi2_per_bin is not None
-        ):
+        elif self.density_shell_edges is not None or self.density_shell_phi_max_chi2_per_bin is not None:
             raise ValueError("density_velocity does not use density shell gates")
 
 
@@ -209,15 +177,9 @@ class ZhuComparisonConfig:
     def __post_init__(self) -> None:
         if self.orbit_samples_per_orbit < 1:
             raise ValueError("orbit_samples_per_orbit must be positive")
-        if (
-            not np.isfinite(self.velocity_fit_min_radius)
-            or self.velocity_fit_min_radius < 0
-        ):
+        if not np.isfinite(self.velocity_fit_min_radius) or self.velocity_fit_min_radius < 0:
             raise ValueError("velocity_fit_min_radius must be finite and non-negative")
-        if (
-            not np.isfinite(self.velocity_probability_floor)
-            or self.velocity_probability_floor <= 0
-        ):
+        if not np.isfinite(self.velocity_probability_floor) or self.velocity_probability_floor <= 0:
             raise ValueError("velocity_probability_floor must be finite and positive")
         if not np.isfinite(self.orbit_periods) or self.orbit_periods <= 0:
             raise ValueError("orbit_periods must be finite and positive")
@@ -247,20 +209,10 @@ class ZhuComparisonConfig:
     ) -> "ZhuComparisonConfig":
         phi_edges = np.linspace(-np.pi, np.pi, n_phi + 1)
         return cls(
-            density_grid=CylindricalGrid.uniform(
-                n_r=n_rz,
-                r_range=(0.0, rz_max),
-                n_z=n_rz,
-                z_range=(0.0, rz_max),
-                n_phi=n_phi,
-            ),
+            density_grid=CylindricalGrid.uniform(n_r=n_rz, r_range=(0.0, rz_max), n_z=n_rz, z_range=(0.0, rz_max), n_phi=n_phi),
             velocity_grid=SphericalVelocityGrid(
-                radius_edges=np.array(
-                    [4, 6, 8, 10, 12, 15, 20, 30, 50], dtype=float
-                ),
-                theta_edges=np.deg2rad(
-                    np.array([0, 15, 30, 45, 60, 90], dtype=float)
-                ),
+                radius_edges=np.array([4, 6, 8, 10, 12, 15, 20, 30, 50], dtype=float),
+                theta_edges=np.deg2rad(np.array([0, 15, 30, 45, 60, 90], dtype=float)),
                 phi_edges=phi_edges,
                 velocity_edges=np.linspace(-800, 800, 202),
             ),

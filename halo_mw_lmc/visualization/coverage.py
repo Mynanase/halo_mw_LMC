@@ -47,14 +47,8 @@ def _hexbin_panel(
 ):
     from matplotlib.colors import LogNorm
 
-    valid = (
-        np.isfinite(x)
-        & np.isfinite(y)
-        & (x >= xlim[0])
-        & (x <= xlim[1])
-        & (y >= ylim[0])
-        & (y <= ylim[1])
-    )
+    valid = (np.isfinite(x) & np.isfinite(y)
+             & (x >= xlim[0]) & (x <= xlim[1]) & (y >= ylim[0]) & (y <= ylim[1]))
     x_valid = np.asarray(x[valid], dtype=float)
     y_valid = np.asarray(y[valid], dtype=float)
     if x_valid.size == 0:
@@ -64,25 +58,11 @@ def _hexbin_panel(
         return None
 
     image = axis.hexbin(
-        x_valid,
-        y_valid,
-        gridsize=48,
-        extent=(*xlim, *ylim),
-        mincnt=1,
-        norm=LogNorm(),
-        cmap="viridis",
-        linewidths=0,
+        x_valid, y_valid, gridsize=48, extent=(*xlim, *ylim), mincnt=1,
+        norm=LogNorm(), cmap="viridis", linewidths=0,
     )
     selected = _sample_indices(x_valid.size, maximum_points, seed)
-    axis.scatter(
-        x_valid[selected],
-        y_valid[selected],
-        s=1.0,
-        color="black",
-        alpha=0.12,
-        linewidths=0,
-        rasterized=True,
-    )
+    axis.scatter(x_valid[selected], y_valid[selected], s=1.0, color="black", alpha=0.12, linewidths=0, rasterized=True)
     axis.set_xlim(*xlim)
     axis.set_ylim(*ylim)
     axis.set_xlabel(xlabel)
@@ -118,15 +98,9 @@ def plot_position_projections(
     figure, axes = plt.subplots(2, 3, figsize=(15, 9), constrained_layout=True)
     for index, (axis, panel) in enumerate(zip(axes.flat, projections)):
         image = _hexbin_panel(
-            axis,
-            panel[0],
-            panel[1],
-            xlim=panel[2],
-            ylim=panel[3],
-            xlabel=panel[4],
-            ylabel=panel[5],
-            maximum_points=maximum_points,
-            seed=random_state + index,
+            axis, panel[0], panel[1], xlim=panel[2], ylim=panel[3],
+            xlabel=panel[4], ylabel=panel[5],
+            maximum_points=maximum_points, seed=random_state + index,
         )
         if image is not None:
             figure.colorbar(image, ax=axis, label="stars per hexagon")
@@ -167,19 +141,10 @@ def plot_velocity_projections(
         (phase.azimuthal_velocity, phase.polar_velocity, "vφ [km s⁻¹]", "vθ [km s⁻¹]"),
     )
     figure, axes = plt.subplots(2, 3, figsize=(15, 9), constrained_layout=True)
-    for index, (axis, (x, y, xlabel, ylabel)) in enumerate(
-        zip(axes.flat, projections)
-    ):
+    for index, (axis, (x, y, xlabel, ylabel)) in enumerate(zip(axes.flat, projections)):
         image = _hexbin_panel(
-            axis,
-            x,
-            y,
-            xlim=limit,
-            ylim=limit,
-            xlabel=xlabel,
-            ylabel=ylabel,
-            maximum_points=maximum_points,
-            seed=random_state + index,
+            axis, x, y, xlim=limit, ylim=limit, xlabel=xlabel, ylabel=ylabel,
+            maximum_points=maximum_points, seed=random_state + index,
         )
         if image is not None:
             figure.colorbar(image, ax=axis, label="stars per hexagon")
@@ -215,27 +180,15 @@ def _plot_spatial_occupancy(
     import matplotlib.pyplot as plt
 
     count_panels = [np.sum(counts, axis=2), *[counts[:, :, i] for i in range(counts.shape[2])]]
+    total_counts = np.sum(counts, axis=2)
+    total_volumes = np.sum(volumes, axis=2)
     density_panels = [
-        np.divide(
-            np.sum(counts, axis=2),
-            np.sum(volumes, axis=2),
-            out=np.zeros_like(np.sum(counts, axis=2)),
-            where=np.sum(volumes, axis=2) > 0,
-        ),
-        *[
-            np.divide(
-                counts[:, :, i],
-                volumes[:, :, i],
-                out=np.zeros_like(counts[:, :, i]),
-                where=volumes[:, :, i] > 0,
-            )
-            for i in range(counts.shape[2])
-        ],
+        np.divide(total_counts, total_volumes, out=np.zeros_like(total_counts), where=total_volumes > 0),
+        *[np.divide(counts[:, :, i], volumes[:, :, i], out=np.zeros_like(counts[:, :, i]), where=volumes[:, :, i] > 0)
+          for i in range(counts.shape[2])],
     ]
     count_norm = _log_norm(np.concatenate([panel.ravel() for panel in count_panels]))
-    density_norm = _log_norm(
-        np.concatenate([panel.ravel() for panel in density_panels])
-    )
+    density_norm = _log_norm(np.concatenate([panel.ravel() for panel in density_panels]))
     ncolumns = len(count_panels)
     figure, axes = plt.subplots(
         2,
@@ -263,11 +216,7 @@ def _plot_spatial_occupancy(
             & (point_y >= y_edges[0])
             & (point_y <= y_edges[-1])
         )
-        selected_local = _sample_indices(
-            candidates.size,
-            maximum_points,
-            random_state + column,
-        )
+        selected_local = _sample_indices(candidates.size, maximum_points, random_state + column)
         selected = candidates[selected_local]
         for row, (panels, norm, row_label) in enumerate(
             (
@@ -277,28 +226,12 @@ def _plot_spatial_occupancy(
         ):
             axis = axes[row, column]
             masked = np.ma.masked_less_equal(panels[column], 0)
-            image = axis.pcolormesh(
-                x_edges,
-                y_edges,
-                masked.T,
-                shading="auto",
-                cmap="viridis",
-                norm=norm,
-                rasterized=True,
-            )
+            image = axis.pcolormesh(x_edges, y_edges, masked.T, shading="auto", cmap="viridis", norm=norm, rasterized=True)
             if row == 0:
                 count_image = image
             else:
                 density_image = image
-            axis.scatter(
-                point_x[selected],
-                point_y[selected],
-                s=1.0,
-                color="black",
-                alpha=0.22,
-                linewidths=0,
-                rasterized=True,
-            )
+            axis.scatter(point_x[selected], point_y[selected], s=1.0, color="black", alpha=0.22, linewidths=0, rasterized=True)
             axis.grid(alpha=0.12)
             if row == 0:
                 axis.set_title(panel_title)
@@ -309,11 +242,7 @@ def _plot_spatial_occupancy(
     if count_image is not None:
         figure.colorbar(count_image, ax=axes[0, :], label="stars per cell")
     if density_image is not None:
-        figure.colorbar(
-            density_image,
-            ax=axes[1, :],
-            label="stars kpc⁻³",
-        )
+        figure.colorbar(density_image, ax=axes[1, :], label="stars kpc⁻³")
     figure.suptitle(title, x=0.01, ha="left")
     path = Path(output)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -392,12 +321,7 @@ def _plot_profile_family(
     total_counts = np.sum(counts, axis=1)
     total_volumes = np.sum(volumes, axis=1)
     total = (
-        np.divide(
-            total_counts,
-            total_volumes,
-            out=np.zeros_like(total_counts),
-            where=total_volumes > 0,
-        )
+        np.divide(total_counts, total_volumes, out=np.zeros_like(total_counts), where=total_volumes > 0)
         if density
         else total_counts
     )
@@ -405,23 +329,12 @@ def _plot_profile_family(
     colors = plt.colormaps["tab10"]
     for iphi in range(counts.shape[1]):
         values = (
-            np.divide(
-                counts[:, iphi],
-                volumes[:, iphi],
-                out=np.zeros_like(counts[:, iphi]),
-                where=volumes[:, iphi] > 0,
-            )
+            np.divide(counts[:, iphi], volumes[:, iphi], out=np.zeros_like(counts[:, iphi]), where=volumes[:, iphi] > 0)
             if density
             else counts[:, iphi]
         )
         lower, upper = np.rad2deg(phi_edges[iphi : iphi + 2])
-        axis.step(
-            centers,
-            values,
-            where="mid",
-            color=colors(iphi % 10),
-            label=f"{lower:.0f}°–{upper:.0f}°",
-        )
+        axis.step(centers, values, where="mid", color=colors(iphi % 10), label=f"{lower:.0f}°–{upper:.0f}°")
     positive = total[total > 0]
     linthresh = max(float(np.min(positive)) / 2.0, np.finfo(float).tiny) if positive.size else 1.0
     axis.set_yscale("symlog", linthresh=linthresh)
@@ -442,57 +355,18 @@ def plot_sampling_profiles(
     rt_counts = coverage.rtheta_phi_counts
     rt_volumes = coverage.spherical_cell_volumes
     r_centers, z_centers, _ = coverage.rzphi_grid.centers
-    spherical_centers = 0.5 * (
-        coverage.spherical_radius_edges[:-1]
-        + coverage.spherical_radius_edges[1:]
-    )
-    theta_centers = np.rad2deg(
-        0.5 * (coverage.theta_edges[:-1] + coverage.theta_edges[1:])
-    )
+    spherical_centers = 0.5 * (coverage.spherical_radius_edges[:-1] + coverage.spherical_radius_edges[1:])
+    theta_centers = np.rad2deg(0.5 * (coverage.theta_edges[:-1] + coverage.theta_edges[1:]))
     profiles = (
-        (
-            r_centers,
-            np.sum(rz_counts, axis=1),
-            np.sum(rz_volumes, axis=1),
-            "R [kpc]",
-        ),
-        (
-            z_centers,
-            np.sum(rz_counts, axis=0),
-            np.sum(rz_volumes, axis=0),
-            "z [kpc]",
-        ),
-        (
-            spherical_centers,
-            np.sum(rt_counts, axis=1),
-            np.sum(rt_volumes, axis=1),
-            "r [kpc]",
-        ),
-        (
-            theta_centers,
-            np.sum(rt_counts, axis=0),
-            np.sum(rt_volumes, axis=0),
-            "θ [deg]",
-        ),
+        (r_centers, np.sum(rz_counts, axis=1), np.sum(rz_volumes, axis=1), "R [kpc]"),
+        (z_centers, np.sum(rz_counts, axis=0), np.sum(rz_volumes, axis=0), "z [kpc]"),
+        (spherical_centers, np.sum(rt_counts, axis=1), np.sum(rt_volumes, axis=1), "r [kpc]"),
+        (theta_centers, np.sum(rt_counts, axis=0), np.sum(rt_volumes, axis=0), "θ [deg]"),
     )
     figure, axes = plt.subplots(2, 4, figsize=(17, 8), constrained_layout=True)
     for column, (centers, counts, volumes, xlabel) in enumerate(profiles):
-        _plot_profile_family(
-            axes[0, column],
-            centers,
-            counts,
-            volumes,
-            coverage.phi_edges,
-            density=False,
-        )
-        _plot_profile_family(
-            axes[1, column],
-            centers,
-            counts,
-            volumes,
-            coverage.phi_edges,
-            density=True,
-        )
+        _plot_profile_family(axes[0, column], centers, counts, volumes, coverage.phi_edges, density=False)
+        _plot_profile_family(axes[1, column], centers, counts, volumes, coverage.phi_edges, density=True)
         axes[0, column].set_xlabel(xlabel)
         axes[1, column].set_xlabel(xlabel)
         if column == 0:
@@ -543,22 +417,10 @@ def plot_coverage_summary(
         fontsize=11,
     )
 
-    phi_centers = np.rad2deg(
-        0.5 * (coverage.phi_edges[:-1] + coverage.phi_edges[1:])
-    )
+    phi_centers = np.rad2deg(0.5 * (coverage.phi_edges[:-1] + coverage.phi_edges[1:]))
     width = 0.38 * np.rad2deg(np.diff(coverage.phi_edges))
-    axes[0, 1].bar(
-        phi_centers - width / 2,
-        rz["rows_by_phi"],
-        width=width,
-        label="R-z-φ grid",
-    )
-    axes[0, 1].bar(
-        phi_centers + width / 2,
-        rt["rows_by_phi"],
-        width=width,
-        label="r-θ-φ grid",
-    )
+    axes[0, 1].bar(phi_centers - width / 2, rz["rows_by_phi"], width=width, label="R-z-φ grid")
+    axes[0, 1].bar(phi_centers + width / 2, rt["rows_by_phi"], width=width, label="r-θ-φ grid")
     axes[0, 1].set_xlabel("φ-bin center [deg]")
     axes[0, 1].set_ylabel("Stars in grid")
     axes[0, 1].legend()
@@ -571,9 +433,7 @@ def plot_coverage_summary(
         positive = counts[counts > 0]
         if positive.size:
             upper = max(int(np.max(positive)), 1)
-            bins = np.unique(
-                np.geomspace(1, upper + 1, min(24, upper + 1)).astype(int)
-            )
+            bins = np.unique(np.geomspace(1, upper + 1, min(24, upper + 1)).astype(int))
             if bins.size < 2:
                 bins = np.array([0.5, 1.5])
             axis.hist(positive, bins=bins, color="0.35")
@@ -608,33 +468,14 @@ def plot_all_data_coverage(
     return [
         plot_coverage_summary(coverage, output / "coverage_summary.pdf"),
         plot_position_projections(
-            coverage,
-            output / "position_projections.pdf",
-            spatial_limit=spatial_limit,
-            maximum_points=maximum_points,
-            random_state=random_state,
+            coverage, output / "position_projections.pdf",
+            spatial_limit=spatial_limit, maximum_points=maximum_points, random_state=random_state,
         ),
         plot_velocity_projections(
-            coverage,
-            output / "velocity_projections.pdf",
-            velocity_limit=velocity_limit,
-            maximum_points=maximum_points,
-            random_state=random_state,
+            coverage, output / "velocity_projections.pdf",
+            velocity_limit=velocity_limit, maximum_points=maximum_points, random_state=random_state,
         ),
-        plot_rzphi_coverage(
-            coverage,
-            output / "rzphi_coverage.pdf",
-            maximum_points=maximum_points,
-            random_state=random_state,
-        ),
-        plot_rtheta_phi_coverage(
-            coverage,
-            output / "rtheta_phi_coverage.pdf",
-            maximum_points=maximum_points,
-            random_state=random_state,
-        ),
-        plot_sampling_profiles(
-            coverage,
-            output / "sampling_profiles.pdf",
-        ),
+        plot_rzphi_coverage(coverage, output / "rzphi_coverage.pdf", maximum_points=maximum_points, random_state=random_state),
+        plot_rtheta_phi_coverage(coverage, output / "rtheta_phi_coverage.pdf", maximum_points=maximum_points, random_state=random_state),
+        plot_sampling_profiles(coverage, output / "sampling_profiles.pdf"),
     ]

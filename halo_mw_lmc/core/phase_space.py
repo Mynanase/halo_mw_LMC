@@ -46,22 +46,7 @@ def cartesian_to_spherical_phase_space(
     sin_phi = np.sin(phi)
     cos_theta = np.cos(theta)
     sin_theta = np.sin(theta)
-    radial_velocity = (
-        vx * cos_phi * cos_theta
-        + vy * sin_phi * cos_theta
-        + vz * sin_theta
-    )
+    radial_velocity = vx * cos_phi * cos_theta + vy * sin_phi * cos_theta + vz * sin_theta
     azimuthal_velocity = -vx * sin_phi + vy * cos_phi
-    polar_velocity = (
-        -vx * cos_phi * sin_theta
-        - vy * sin_phi * sin_theta
-        + vz * cos_theta
-    )
-    return SphericalPhaseSpace(
-        radius=radius,
-        theta=theta,
-        phi=phi,
-        radial_velocity=radial_velocity,
-        azimuthal_velocity=azimuthal_velocity,
-        polar_velocity=polar_velocity,
-    )
+    polar_velocity = -vx * cos_phi * sin_theta - vy * sin_phi * sin_theta + vz * cos_theta
+    return SphericalPhaseSpace(radius, theta, phi, radial_velocity, azimuthal_velocity, polar_velocity)

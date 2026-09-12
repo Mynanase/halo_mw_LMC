@@ -106,19 +106,10 @@ def orbit_weight_histograms(
     """Return active-orbit counts and percent of total weight in each bin."""
 
     bin_edges = np.asarray(edges, dtype=float)
-    if (
-        bin_edges.ndim != 1
-        or bin_edges.size < 3
-        or not np.all(np.isfinite(bin_edges))
-        or not np.all(np.diff(bin_edges) > 0)
-    ):
+    if bin_edges.ndim != 1 or bin_edges.size < 3 or not np.all(np.isfinite(bin_edges)) or not np.all(np.diff(bin_edges) > 0):
         raise ValueError("histogram edges must be finite and strictly increasing")
     count, _ = np.histogram(summary.log10_active_fraction, bins=bin_edges)
-    weight_share, _ = np.histogram(
-        summary.log10_active_fraction,
-        bins=bin_edges,
-        weights=summary.normalized_weights[summary.active_mask] * 100.0,
-    )
+    weight_share, _ = np.histogram(summary.log10_active_fraction, bins=bin_edges, weights=summary.normalized_weights[summary.active_mask] * 100.0)
     return count.astype(float), weight_share.astype(float)
 
 
@@ -154,40 +145,20 @@ def plot_orbit_weight_histograms(
         count, weight_share = orbit_weight_histograms(summary, edges)
         count_axis, weight_axis = axes[row]
         count_axis.stairs(count, edges, fill=True, alpha=0.75, color="C0")
-        weight_axis.stairs(
-            np.where(weight_share > 0, weight_share, np.nan),
-            edges,
-            fill=True,
-            alpha=0.75,
-            color="C1",
-        )
+        weight_axis.stairs(np.where(weight_share > 0, weight_share, np.nan), edges, fill=True, alpha=0.75, color="C1")
         for axis in (count_axis, weight_axis):
             axis.set_yscale("log")
             axis.grid(axis="y", which="both", linewidth=0.45, alpha=0.35)
             axis.set_xlim(edges[0], edges[-1])
         count_axis.set_ylabel("Orbit count")
         weight_axis.set_ylabel("Weight share [%]")
-        count_axis.text(
-            0.02,
-            0.92,
-            label,
-            transform=count_axis.transAxes,
-            ha="left",
-            va="top",
-            fontweight="bold",
-        )
+        count_axis.text(0.02, 0.92, label, transform=count_axis.transAxes, ha="left", va="top", fontweight="bold")
         weight_axis.text(
-            0.02,
-            0.92,
-            (
-                f"active {summary.active_orbit_count:,}/{summary.orbit_count:,}; "
-                f"N_eff={summary.effective_orbit_count:.1f}; "
-                f"max={100.0 * summary.maximum_weight_fraction:.2f}%"
-            ),
-            transform=weight_axis.transAxes,
-            ha="left",
-            va="top",
-            fontsize="small",
+            0.02, 0.92,
+            (f"active {summary.active_orbit_count:,}/{summary.orbit_count:,}; "
+             f"N_eff={summary.effective_orbit_count:.1f}; "
+             f"max={100.0 * summary.maximum_weight_fraction:.2f}%"),
+            transform=weight_axis.transAxes, ha="left", va="top", fontsize="small",
         )
 
     axes[0, 0].set_title("Active orbit count per bin")

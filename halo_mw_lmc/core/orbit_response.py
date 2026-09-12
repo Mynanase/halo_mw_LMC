@@ -135,25 +135,12 @@ def build_orbit_density_response(
         phase_space = library.phase_space[start:stop]
         radius = np.hypot(phase_space[:, 0], phase_space[:, 1])
         phi = np.arctan2(phase_space[:, 1], phase_space[:, 0])
-        ir, iz, iphi, in_grid = grid.bin_indices(
-            radius,
-            phase_space[:, 2],
-            phi,
-        )
+        ir, iz, iphi, in_grid = grid.bin_indices(radius, phase_space[:, 2], phi)
         if not np.any(in_grid):
             continue
-        flat_cell = np.ravel_multi_index(
-            (ir[in_grid], iz[in_grid], iphi[in_grid]),
-            grid.shape,
-        )
+        flat_cell = np.ravel_multi_index((ir[in_grid], iz[in_grid], iphi[in_grid]), grid.shape)
         columns = column_by_seed[seed_index[start:stop][in_grid]]
-        chunk = coo_matrix(
-            (
-                np.ones(flat_cell.size, dtype=float),
-                (flat_cell, columns),
-            ),
-            shape=response_shape,
-        ).tocsr()
+        chunk = coo_matrix((np.ones(flat_cell.size, dtype=float), (flat_cell, columns)), shape=response_shape).tocsr()
         occupancy = occupancy + chunk
     occupancy.sum_duplicates()
     inverse_samples = 1.0 / sample_count.astype(float)

@@ -260,6 +260,7 @@ def _evaluation_arrays(
     objective: float,
 ) -> dict[str, np.ndarray]:
     density = evaluation.density
+    w = evaluation.weight_solution
     arrays: dict[str, np.ndarray] = {
         "schema_version": np.asarray(BEST_EVALUATION_SCHEMA_VERSION),
         "snapshot_generation": np.asarray(generation),
@@ -271,10 +272,7 @@ def _evaluation_arrays(
         "density_model": np.asarray(density.model_density),
         "density_residual": np.asarray(density.residual),
         "density_fit_mask": np.asarray(density.fit_mask, dtype=bool),
-        "density_normalization_mask": np.asarray(
-            density.normalization_mask,
-            dtype=bool,
-        ),
+        "density_normalization_mask": np.asarray(density.normalization_mask, dtype=bool),
         "density_scale": np.asarray(density.scale),
         "density_chi2": np.asarray(density.chi2),
         "density_chi2_by_phi": np.asarray(density.chi2_by_phi),
@@ -282,59 +280,21 @@ def _evaluation_arrays(
         "density_r_edges": np.asarray(density.grid.r_edges),
         "density_z_edges": np.asarray(density.grid.z_edges),
         "density_phi_edges": np.asarray(density.grid.phi_edges),
-        "weight_seed_weights": np.asarray(
-            evaluation.weight_solution.seed_weights
-        ),
-        "weight_inner_objective": np.asarray(
-            evaluation.weight_solution.inner_objective
-        ),
-        "weight_regularization_penalty": np.asarray(
-            evaluation.weight_solution.regularization_penalty
-        ),
-        "weight_effective_orbit_count": np.asarray(
-            evaluation.weight_solution.effective_orbit_count
-        ),
-        "weight_maximum_fraction": np.asarray(
-            evaluation.weight_solution.maximum_weight_fraction
-        ),
-        "weight_active_orbit_count": np.asarray(
-            evaluation.weight_solution.active_orbit_count,
-            dtype=np.int64,
-        ),
-        "weight_converged": np.asarray(
-            evaluation.weight_solution.converged,
-            dtype=bool,
-        ),
-        "weight_status": np.asarray(
-            evaluation.weight_solution.status,
-            dtype=np.int64,
-        ),
-        "weight_iterations": np.asarray(
-            evaluation.weight_solution.iterations,
-            dtype=np.int64,
-        ),
-        "weight_optimality": np.asarray(
-            evaluation.weight_solution.optimality,
-            dtype=float,
-        ),
-        "weight_solver_cost": np.asarray(
-            evaluation.weight_solution.solver_cost,
-            dtype=float,
-        ),
-        "weight_solver_backend": np.asarray(
-            evaluation.weight_solution.solver_backend,
-        ),
-        "weight_solver_kkt_residual": np.asarray(
-            evaluation.weight_solution.kkt_residual,
-            dtype=float,
-        ),
-        "weight_solver_wall_seconds": np.asarray(
-            evaluation.weight_solution.solve_wall_seconds,
-            dtype=float,
-        ),
-        "weight_problem_fingerprint": np.asarray(
-            evaluation.weight_solution.problem_fingerprint,
-        ),
+        "weight_seed_weights": np.asarray(w.seed_weights),
+        "weight_inner_objective": np.asarray(w.inner_objective),
+        "weight_regularization_penalty": np.asarray(w.regularization_penalty),
+        "weight_effective_orbit_count": np.asarray(w.effective_orbit_count),
+        "weight_maximum_fraction": np.asarray(w.maximum_weight_fraction),
+        "weight_active_orbit_count": np.asarray(w.active_orbit_count, dtype=np.int64),
+        "weight_converged": np.asarray(w.converged, dtype=bool),
+        "weight_status": np.asarray(w.status, dtype=np.int64),
+        "weight_iterations": np.asarray(w.iterations, dtype=np.int64),
+        "weight_optimality": np.asarray(w.optimality, dtype=float),
+        "weight_solver_cost": np.asarray(w.solver_cost, dtype=float),
+        "weight_solver_backend": np.asarray(w.solver_backend),
+        "weight_solver_kkt_residual": np.asarray(w.kkt_residual, dtype=float),
+        "weight_solver_wall_seconds": np.asarray(w.solve_wall_seconds, dtype=float),
+        "weight_problem_fingerprint": np.asarray(w.problem_fingerprint),
     }
     shells = evaluation.density_shells
     if shells is None:
@@ -344,9 +304,7 @@ def _evaluation_arrays(
                 "density_shell_chi2": np.array([], dtype=float),
                 "density_shell_valid_bins": np.array([], dtype=np.int64),
                 "density_shell_phi_chi2": np.empty((0, density.grid.shape[-1])),
-                "density_shell_phi_valid_bins": np.empty(
-                    (0, density.grid.shape[-1]), dtype=np.int64
-                ),
+                "density_shell_phi_valid_bins": np.empty((0, density.grid.shape[-1]), dtype=np.int64),
             }
         )
     else:
@@ -354,43 +312,18 @@ def _evaluation_arrays(
             {
                 "density_shell_edges": np.asarray(shells.radius_edges),
                 "density_shell_chi2": np.asarray(shells.chi2_by_shell),
-                "density_shell_valid_bins": np.asarray(
-                    shells.valid_bins_by_shell, dtype=np.int64
-                ),
+                "density_shell_valid_bins": np.asarray(shells.valid_bins_by_shell, dtype=np.int64),
                 "density_shell_phi_chi2": np.asarray(shells.chi2_by_shell_phi),
-                "density_shell_phi_valid_bins": np.asarray(
-                    shells.valid_bins_by_shell_phi, dtype=np.int64
-                ),
+                "density_shell_phi_valid_bins": np.asarray(shells.valid_bins_by_shell_phi, dtype=np.int64),
             }
         )
     support = evaluation.orbit_support_audit
     arrays["orbit_support_available"] = np.asarray(support is not None, dtype=bool)
-    arrays["orbit_density_supported_count"] = np.asarray(
-        support.density_supported_orbit_count if support is not None else -1,
-        dtype=np.int64,
-    )
-    arrays["orbit_velocity_supported_count"] = np.asarray(
-        support.velocity_supported_orbit_count if support is not None else -1,
-        dtype=np.int64,
-    )
-    arrays["orbit_zero_density_response_velocity_count"] = np.asarray(
-        support.zero_density_response_velocity_orbit_count
-        if support is not None
-        else -1,
-        dtype=np.int64,
-    )
-    arrays["orbit_zero_density_response_velocity_sample_count"] = np.asarray(
-        support.zero_density_response_velocity_sample_count
-        if support is not None
-        else -1,
-        dtype=np.int64,
-    )
-    arrays["orbit_zero_density_response_velocity_weight_sum"] = np.asarray(
-        support.zero_density_response_velocity_weight_sum
-        if support is not None
-        else np.nan,
-        dtype=float,
-    )
+    arrays["orbit_density_supported_count"] = np.asarray(support.density_supported_orbit_count if support is not None else -1, dtype=np.int64)
+    arrays["orbit_velocity_supported_count"] = np.asarray(support.velocity_supported_orbit_count if support is not None else -1, dtype=np.int64)
+    arrays["orbit_zero_density_response_velocity_count"] = np.asarray(support.zero_density_response_velocity_orbit_count if support is not None else -1, dtype=np.int64)
+    arrays["orbit_zero_density_response_velocity_sample_count"] = np.asarray(support.zero_density_response_velocity_sample_count if support is not None else -1, dtype=np.int64)
+    arrays["orbit_zero_density_response_velocity_weight_sum"] = np.asarray(support.zero_density_response_velocity_weight_sum if support is not None else np.nan, dtype=float)
     components = tuple(evaluation.velocity_distributions)
     arrays["velocity_components"] = np.asarray(components, dtype="U16")
     if components:
@@ -408,30 +341,14 @@ def _evaluation_arrays(
         prefix = f"velocity_{component}"
         arrays.update(
             {
-                f"{prefix}_data_probability": np.asarray(
-                    distribution.data_probability
-                ),
-                f"{prefix}_data_uncertainty": np.asarray(
-                    distribution.data_uncertainty
-                ),
-                f"{prefix}_data_occupancy": np.asarray(
-                    distribution.data_occupancy
-                ),
-                f"{prefix}_model_probability": np.asarray(
-                    distribution.model_probability
-                ),
-                f"{prefix}_model_occupancy": np.asarray(
-                    distribution.model_occupancy
-                ),
-                f"{prefix}_loglike": np.asarray(
-                    evaluation.velocity_loglike[component]
-                ),
-                f"{prefix}_loglike_by_phi": np.asarray(
-                    evaluation.velocity_loglike_by_phi[component]
-                ),
-                f"{prefix}_stars_by_phi": np.asarray(
-                    evaluation.velocity_stars_by_phi[component]
-                ),
+                f"{prefix}_data_probability": np.asarray(distribution.data_probability),
+                f"{prefix}_data_uncertainty": np.asarray(distribution.data_uncertainty),
+                f"{prefix}_data_occupancy": np.asarray(distribution.data_occupancy),
+                f"{prefix}_model_probability": np.asarray(distribution.model_probability),
+                f"{prefix}_model_occupancy": np.asarray(distribution.model_occupancy),
+                f"{prefix}_loglike": np.asarray(evaluation.velocity_loglike[component]),
+                f"{prefix}_loglike_by_phi": np.asarray(evaluation.velocity_loglike_by_phi[component]),
+                f"{prefix}_stars_by_phi": np.asarray(evaluation.velocity_stars_by_phi[component]),
             }
         )
     return arrays
@@ -494,42 +411,26 @@ def save_best_evaluation(
         "include_velocity": bool(evaluation.velocity_distributions),
         "weight_mode": evaluation.weight_mode,
         "weight_solver_message": evaluation.weight_solution.message,
-        "weight_solver_iterations": int(
-            evaluation.weight_solution.iterations
-        ),
-        "weight_solver_optimality": float(
-            evaluation.weight_solution.optimality
-        ),
+        "weight_solver_iterations": int(evaluation.weight_solution.iterations),
+        "weight_solver_optimality": float(evaluation.weight_solution.optimality),
         "weight_solver_cost": float(evaluation.weight_solution.solver_cost),
         "weight_solver_backend": evaluation.weight_solution.solver_backend,
-        "weight_solver_kkt_residual": float(
-            evaluation.weight_solution.kkt_residual
-        ),
-        "weight_solver_wall_seconds": float(
-            evaluation.weight_solution.solve_wall_seconds
-        ),
-        "weight_problem_fingerprint": (
-            evaluation.weight_solution.problem_fingerprint
-        ),
+        "weight_solver_kkt_residual": float(evaluation.weight_solution.kkt_residual),
+        "weight_solver_wall_seconds": float(evaluation.weight_solution.solve_wall_seconds),
+        "weight_problem_fingerprint": evaluation.weight_solution.problem_fingerprint,
         "objective_mode": evaluation.objective_mode,
         "objective_velocity": float(evaluation.objective_velocity),
-        "objective_density_velocity": float(
-            evaluation.objective_density_velocity
-        ),
+        "objective_density_velocity": float(evaluation.objective_density_velocity),
         "density_chi2_per_bin": float(evaluation.density_chi2_per_bin),
         "density_max_chi2_per_bin": evaluation.density_max_chi2_per_bin,
-        "density_shell_phi_max_chi2_per_bin": (
-            evaluation.density_shell_phi_max_chi2_per_bin
-        ),
+        "density_shell_phi_max_chi2_per_bin": evaluation.density_shell_phi_max_chi2_per_bin,
         "density_shell_phi_gate_passed": (
             evaluation.density_shell_phi_gate_passed
             if evaluation.density_shells is not None
             else None
         ),
         "density_worst_shell_phi_chi2_per_bin": (
-            worst_shell_phi
-            if evaluation.density_shells is not None
-            else None
+            worst_shell_phi if evaluation.density_shells is not None else None
         ),
         "density_worst_shell_phi_index": (
             list(evaluation.density_worst_shell_phi_index)
@@ -543,24 +444,12 @@ def save_best_evaluation(
         ),
         "orbit_support_audit": (
             {
-                "density_supported_orbit_count": (
-                    evaluation.orbit_support_audit.density_supported_orbit_count
-                ),
-                "velocity_supported_orbit_count": (
-                    evaluation.orbit_support_audit.velocity_supported_orbit_count
-                ),
-                "zero_density_response_velocity_orbit_count": (
-                    evaluation.orbit_support_audit.zero_density_response_velocity_orbit_count
-                ),
-                "zero_density_response_velocity_orbit_fraction": (
-                    evaluation.orbit_support_audit.zero_density_response_velocity_orbit_fraction
-                ),
-                "zero_density_response_velocity_sample_count": (
-                    evaluation.orbit_support_audit.zero_density_response_velocity_sample_count
-                ),
-                "zero_density_response_velocity_weight_sum": (
-                    evaluation.orbit_support_audit.zero_density_response_velocity_weight_sum
-                ),
+                "density_supported_orbit_count": evaluation.orbit_support_audit.density_supported_orbit_count,
+                "velocity_supported_orbit_count": evaluation.orbit_support_audit.velocity_supported_orbit_count,
+                "zero_density_response_velocity_orbit_count": evaluation.orbit_support_audit.zero_density_response_velocity_orbit_count,
+                "zero_density_response_velocity_orbit_fraction": evaluation.orbit_support_audit.zero_density_response_velocity_orbit_fraction,
+                "zero_density_response_velocity_sample_count": evaluation.orbit_support_audit.zero_density_response_velocity_sample_count,
+                "zero_density_response_velocity_weight_sum": evaluation.orbit_support_audit.zero_density_response_velocity_weight_sum,
             }
             if evaluation.orbit_support_audit is not None
             else None
@@ -683,9 +572,7 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
                 scale=float(archive["density_scale"]),
                 chi2=float(archive["density_chi2"]),
                 chi2_by_phi=archive["density_chi2_by_phi"].copy(),
-                valid_bins_by_phi=archive["density_valid_bins_by_phi"].astype(
-                    np.int64
-                ),
+                valid_bins_by_phi=archive["density_valid_bins_by_phi"].astype(np.int64),
                 grid=grid,
             )
             seed_weights = archive["weight_seed_weights"].copy()
@@ -699,15 +586,9 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
                 target_density=density.data_density.copy(),
                 target_error=density.data_error.copy(),
                 inner_objective=float(archive["weight_inner_objective"]),
-                regularization_penalty=float(
-                    archive["weight_regularization_penalty"]
-                ),
-                effective_orbit_count=float(
-                    archive["weight_effective_orbit_count"]
-                ),
-                maximum_weight_fraction=float(
-                    archive["weight_maximum_fraction"]
-                ),
+                regularization_penalty=float(archive["weight_regularization_penalty"]),
+                effective_orbit_count=float(archive["weight_effective_orbit_count"]),
+                maximum_weight_fraction=float(archive["weight_maximum_fraction"]),
                 active_orbit_count=int(archive["weight_active_orbit_count"]),
                 converged=bool(archive["weight_converged"]),
                 status=int(archive["weight_status"]),
@@ -715,26 +596,10 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
                 iterations=int(archive.get("weight_iterations", 0)),
                 optimality=float(archive.get("weight_optimality", np.inf)),
                 solver_cost=float(archive.get("weight_solver_cost", np.inf)),
-                solver_backend=(
-                    str(archive["weight_solver_backend"].item())
-                    if archive_schema >= 4
-                    else str(metadata.get("weight_solver_backend", "legacy"))
-                ),
-                kkt_residual=(
-                    float(archive["weight_solver_kkt_residual"])
-                    if archive_schema >= 4
-                    else np.inf
-                ),
-                solve_wall_seconds=(
-                    float(archive["weight_solver_wall_seconds"])
-                    if archive_schema >= 4
-                    else 0.0
-                ),
-                problem_fingerprint=(
-                    str(archive["weight_problem_fingerprint"].item())
-                    if archive_schema >= 4
-                    else ""
-                ),
+                solver_backend=str(archive["weight_solver_backend"].item()) if archive_schema >= 4 else str(metadata.get("weight_solver_backend", "legacy")),
+                kkt_residual=float(archive["weight_solver_kkt_residual"]) if archive_schema >= 4 else np.inf,
+                solve_wall_seconds=float(archive["weight_solver_wall_seconds"]) if archive_schema >= 4 else 0.0,
+                problem_fingerprint=str(archive["weight_problem_fingerprint"].item()) if archive_schema >= 4 else "",
             )
             n_phi = grid.shape[-1]
             for name in ("density_chi2_by_phi", "density_valid_bins_by_phi"):
@@ -780,37 +645,17 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
                     density_shells = DensityShellDiagnostics(
                         radius_edges=shell_edges,
                         chi2_by_shell=archive["density_shell_chi2"].copy(),
-                        valid_bins_by_shell=archive[
-                            "density_shell_valid_bins"
-                        ].astype(np.int64),
-                        chi2_by_shell_phi=archive[
-                            "density_shell_phi_chi2"
-                        ].copy(),
-                        valid_bins_by_shell_phi=archive[
-                            "density_shell_phi_valid_bins"
-                        ].astype(np.int64),
+                        valid_bins_by_shell=archive["density_shell_valid_bins"].astype(np.int64),
+                        chi2_by_shell_phi=archive["density_shell_phi_chi2"].copy(),
+                        valid_bins_by_shell_phi=archive["density_shell_phi_valid_bins"].astype(np.int64),
                     )
                 if bool(archive["orbit_support_available"]):
                     orbit_support_audit = OrbitSupportAudit(
-                        density_supported_orbit_count=int(
-                            archive["orbit_density_supported_count"]
-                        ),
-                        velocity_supported_orbit_count=int(
-                            archive["orbit_velocity_supported_count"]
-                        ),
-                        zero_density_response_velocity_orbit_count=int(
-                            archive["orbit_zero_density_response_velocity_count"]
-                        ),
-                        zero_density_response_velocity_sample_count=int(
-                            archive[
-                                "orbit_zero_density_response_velocity_sample_count"
-                            ]
-                        ),
-                        zero_density_response_velocity_weight_sum=float(
-                            archive[
-                                "orbit_zero_density_response_velocity_weight_sum"
-                            ]
-                        ),
+                        density_supported_orbit_count=int(archive["orbit_density_supported_count"]),
+                        velocity_supported_orbit_count=int(archive["orbit_velocity_supported_count"]),
+                        zero_density_response_velocity_orbit_count=int(archive["orbit_zero_density_response_velocity_count"]),
+                        zero_density_response_velocity_sample_count=int(archive["orbit_zero_density_response_velocity_sample_count"]),
+                        zero_density_response_velocity_weight_sum=float(archive["orbit_zero_density_response_velocity_weight_sum"]),
                     )
 
             components = tuple(str(value) for value in archive["velocity_components"])
@@ -850,11 +695,7 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
                     _required_arrays(archive, names, evaluation_path)
                     probability_shape = velocity_grid.shape
                     occupancy_shape = velocity_grid.shape[:-1]
-                    for suffix in (
-                        "data_probability",
-                        "data_uncertainty",
-                        "model_probability",
-                    ):
+                    for suffix in ("data_probability", "data_uncertainty", "model_probability"):
                         if archive[f"{prefix}_{suffix}"].shape != probability_shape:
                             raise ValueError(
                                 f"velocity component {component} has an invalid "
@@ -867,9 +708,7 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
                                 f"{suffix} shape"
                             )
                     for suffix in ("loglike_by_phi", "stars_by_phi"):
-                        if archive[f"{prefix}_{suffix}"].shape != (
-                            velocity_grid.shape[2],
-                        ):
+                        if archive[f"{prefix}_{suffix}"].shape != (velocity_grid.shape[2],):
                             raise ValueError(
                                 f"velocity component {component} has an invalid "
                                 f"{suffix} shape"
@@ -877,27 +716,15 @@ def load_best_evaluation(run_directory: str | Path) -> StoredBestEvaluation:
                     distributions[component] = VelocityDistributionComparison(
                         component=component,
                         grid=velocity_grid,
-                        data_probability=archive[
-                            f"{prefix}_data_probability"
-                        ].copy(),
-                        data_uncertainty=archive[
-                            f"{prefix}_data_uncertainty"
-                        ].copy(),
+                        data_probability=archive[f"{prefix}_data_probability"].copy(),
+                        data_uncertainty=archive[f"{prefix}_data_uncertainty"].copy(),
                         data_occupancy=archive[f"{prefix}_data_occupancy"].copy(),
-                        model_probability=archive[
-                            f"{prefix}_model_probability"
-                        ].copy(),
-                        model_occupancy=archive[
-                            f"{prefix}_model_occupancy"
-                        ].copy(),
+                        model_probability=archive[f"{prefix}_model_probability"].copy(),
+                        model_occupancy=archive[f"{prefix}_model_occupancy"].copy(),
                     )
                     loglike[component] = float(archive[f"{prefix}_loglike"])
-                    by_phi[component] = archive[
-                        f"{prefix}_loglike_by_phi"
-                    ].copy()
-                    stars[component] = archive[f"{prefix}_stars_by_phi"].astype(
-                        np.int64
-                    )
+                    by_phi[component] = archive[f"{prefix}_loglike_by_phi"].copy()
+                    stars[component] = archive[f"{prefix}_stars_by_phi"].astype(np.int64)
     except (KeyError, OSError, TypeError, ValueError) as exc:
         if isinstance(exc, ValueError) and str(exc).startswith(
             ("unsupported", "array ", "velocity component", "best-evaluation")

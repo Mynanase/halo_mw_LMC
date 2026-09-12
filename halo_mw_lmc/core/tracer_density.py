@@ -96,16 +96,8 @@ class DesiKGiantsDensityModel:
         spherical_radius = np.sqrt(x * x + y * y + z * z)
         p = self._polynomial(spherical_radius, self.p0, self.p_coefficients)
         q = self._polynomial(spherical_radius, self.q0, self.q_coefficients)
-        phi = self._polynomial(
-            spherical_radius,
-            self.phi0_rad,
-            self.phi_coefficients,
-        )
-        theta = self._polynomial(
-            spherical_radius,
-            self.theta0_rad,
-            self.theta_coefficients,
-        )
+        phi = self._polynomial(spherical_radius, self.phi0_rad, self.phi_coefficients)
+        theta = self._polynomial(spherical_radius, self.theta0_rad, self.theta_coefficients)
         if np.any(np.isfinite(p) & (p <= 0)) or np.any(np.isfinite(q) & (q <= 0)):
             raise ValueError("DESI density axis ratios became non-positive")
 
@@ -113,44 +105,21 @@ class DesiKGiantsDensityModel:
         sin_phi = np.sin(phi)
         cos_theta = np.cos(theta)
         sin_theta = np.sin(theta)
-        rotated_x = (
-            x * cos_phi * cos_theta
-            - y * sin_phi
-            + z * cos_phi * sin_theta
-        )
-        rotated_y = (
-            x * sin_phi * cos_theta
-            + y * cos_phi
-            + z * sin_phi * sin_theta
-        )
+        rotated_x = x * cos_phi * cos_theta - y * sin_phi + z * cos_phi * sin_theta
+        rotated_y = x * sin_phi * cos_theta + y * cos_phi + z * sin_phi * sin_theta
         rotated_z = -x * sin_theta + z * cos_theta
-        ellipsoidal_radius = np.sqrt(
-            rotated_x * rotated_x
-            + rotated_y * rotated_y / (p * p)
-            + rotated_z * rotated_z / (q * q)
-        )
+        ellipsoidal_radius = np.sqrt(rotated_x * rotated_x + rotated_y * rotated_y / (p * p) + rotated_z * rotated_z / (q * q))
 
         first_break, second_break = self.break_radii_kpc
         inner_slope, middle_slope, outer_slope = self.slopes
         density = np.empty_like(ellipsoidal_radius, dtype=float)
         inner = ellipsoidal_radius < first_break
-        middle = (
-            (ellipsoidal_radius >= first_break)
-            & (ellipsoidal_radius < second_break)
-        )
+        middle = (ellipsoidal_radius >= first_break) & (ellipsoidal_radius < second_break)
         outer = ellipsoidal_radius >= second_break
         with np.errstate(divide="ignore", invalid="ignore", over="ignore"):
-            density[inner] = (
-                ellipsoidal_radius[inner] / first_break
-            ) ** (-inner_slope)
-            density[middle] = (
-                ellipsoidal_radius[middle] / first_break
-            ) ** (-middle_slope)
-            density[outer] = (
-                second_break / first_break
-            ) ** (-middle_slope) * (
-                ellipsoidal_radius[outer] / second_break
-            ) ** (-outer_slope)
+            density[inner] = (ellipsoidal_radius[inner] / first_break) ** (-inner_slope)
+            density[middle] = (ellipsoidal_radius[middle] / first_break) ** (-middle_slope)
+            density[outer] = (second_break / first_break) ** (-middle_slope) * (ellipsoidal_radius[outer] / second_break) ** (-outer_slope)
         return density
 
 
@@ -192,12 +161,7 @@ def cell_average_cylindrical_density(
     x = radius * np.cos(phi)
     y = radius * np.sin(phi)
     density = np.asarray(density_function(x, y, z), dtype=float)
-    expected_shape = (
-        *grid.shape,
-        quadrature_order,
-        quadrature_order,
-        quadrature_order,
-    )
+    expected_shape = (*grid.shape, quadrature_order, quadrature_order, quadrature_order)
     if density.shape != expected_shape:
         density = np.broadcast_to(density, expected_shape)
     if not np.all(np.isfinite(density)) or np.any(density <= 0):

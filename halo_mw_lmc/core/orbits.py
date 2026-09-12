@@ -82,9 +82,8 @@ def integrate_agama_orbits(
         kwargs["Omega"] = pattern_speed
 
     if quiet:
-        with Path("/dev/null").open("w") as sink:
-            with redirect_stdout(sink), redirect_stderr(sink):
-                raw_orbits = __import__("agama").orbit(**kwargs)
+        with Path("/dev/null").open("w") as sink, redirect_stdout(sink), redirect_stderr(sink):
+            raw_orbits = __import__("agama").orbit(**kwargs)
     else:
         raw_orbits = __import__("agama").orbit(**kwargs)
 

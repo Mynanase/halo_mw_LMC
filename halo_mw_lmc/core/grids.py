@@ -158,9 +158,7 @@ class CylindricalGrid:
             valid &= np.isfinite(weight_values)
             weight_values = weight_values[valid]
 
-        samples = np.column_stack(
-            (radius_values[valid], z_values[valid], phi_values[valid])
-        )
+        samples = np.column_stack((radius_values[valid], z_values[valid], phi_values[valid]))
         histogram, _ = np.histogramdd(
             samples,
             bins=(self.r_edges, self.z_edges, self.phi_edges),

@@ -230,9 +230,7 @@ def compare_density(
             raise ValueError("the model has no positive mass in the normalization region")
         scale = float(data_mass / model_mass)
     else:
-        numerator = np.sum(
-            data[fit_mask] * model[fit_mask] / error[fit_mask] ** 2
-        )
+        numerator = np.sum(data[fit_mask] * model[fit_mask] / error[fit_mask] ** 2)
         denominator = np.sum(model[fit_mask] ** 2 / error[fit_mask] ** 2)
         if not np.isfinite(denominator) or denominator <= 0:
             raise ValueError("the model cannot be normalized in the fit region")
@@ -240,9 +238,7 @@ def compare_density(
 
     scaled_model = scale * model
     residual = np.full(grid.shape, np.nan, dtype=float)
-    residual[fit_mask] = (
-        data[fit_mask] - scaled_model[fit_mask]
-    ) / error[fit_mask]
+    residual[fit_mask] = (data[fit_mask] - scaled_model[fit_mask]) / error[fit_mask]
     squared = np.where(fit_mask, residual**2, 0.0)
     chi2_by_phi = np.sum(squared, axis=(0, 1))
     valid_by_phi = np.sum(fit_mask, axis=(0, 1), dtype=np.int64)

@@ -123,10 +123,7 @@ def inspect_run(
     sample_path = run / "sample.dat"
     if sample_path.exists():
         try:
-            samples = load_sample_table(
-                sample_path,
-                required_columns=("iteration", "objective"),
-            )
+            samples = load_sample_table(sample_path, required_columns=("iteration", "objective"))
             artifacts["sample"] = True
             completed = int(samples.size)
             current_best = best_sample(samples)
@@ -153,16 +150,8 @@ def inspect_run(
             best = load_best_evaluation(run)
             artifacts["best_evaluation"] = True
             if current_best is not None:
-                matches = (
-                    _safe_int(metadata.get("iteration"))
-                    == int(current_best["iteration"])
-                    and np.isclose(
-                        float(metadata.get("objective")),
-                        float(current_best["objective"]),
-                        rtol=1e-7,
-                        atol=1e-10,
-                    )
-                )
+                matches = (_safe_int(metadata.get("iteration")) == int(current_best["iteration"])
+                           and np.isclose(float(metadata.get("objective")), float(current_best["objective"]), rtol=1e-7, atol=1e-10))
                 artifacts["best_matches_sample"] = bool(matches)
                 if not matches:
                     warnings.append("best snapshot is stale relative to sample.dat")
@@ -240,18 +229,10 @@ def inspect_run(
     weight_document = None
     orbit_document = None
     if metadata is not None:
-        density_chi2_per_bin = _safe_float(
-            metadata.get("density_chi2_per_bin")
-        )
-        density_global_limit = _safe_float(
-            metadata.get("density_max_chi2_per_bin")
-        )
+        density_chi2_per_bin = _safe_float(metadata.get("density_chi2_per_bin"))
+        density_global_limit = _safe_float(metadata.get("density_max_chi2_per_bin"))
         density_global_gate = metadata.get("density_gate_passed")
-        if (
-            density_global_gate is None
-            and density_chi2_per_bin is not None
-            and density_global_limit is not None
-        ):
+        if density_global_gate is None and density_chi2_per_bin is not None and density_global_limit is not None:
             density_global_gate = density_chi2_per_bin <= density_global_limit
         best_document = {
             "generation": metadata.get("generation"),
@@ -259,23 +240,15 @@ def inspect_run(
             "parameters": metadata.get("parameters"),
             "objective": _safe_float(metadata.get("objective")),
             "objective_velocity": _safe_float(metadata.get("objective_velocity")),
-            "objective_density_velocity": _safe_float(
-                metadata.get("objective_density_velocity")
-            ),
+            "objective_density_velocity": _safe_float(metadata.get("objective_density_velocity")),
         }
         density_document = {
             "chi2_per_bin": density_chi2_per_bin,
             "global_limit": density_global_limit,
             "global_gate_passed": density_global_gate,
-            "shell_phi_limit": _safe_float(
-                metadata.get("density_shell_phi_max_chi2_per_bin")
-            ),
-            "shell_phi_gate_passed": metadata.get(
-                "density_shell_phi_gate_passed"
-            ),
-            "worst_shell_phi_chi2_per_bin": _safe_float(
-                metadata.get("density_worst_shell_phi_chi2_per_bin")
-            ),
+            "shell_phi_limit": _safe_float(metadata.get("density_shell_phi_max_chi2_per_bin")),
+            "shell_phi_gate_passed": metadata.get("density_shell_phi_gate_passed"),
+            "worst_shell_phi_chi2_per_bin": _safe_float(metadata.get("density_worst_shell_phi_chi2_per_bin")),
             "worst_shell_phi_index": metadata.get("density_worst_shell_phi_index"),
         }
         weight_document = {
@@ -286,12 +259,8 @@ def inspect_run(
             "solver_iterations": _safe_int(metadata.get("weight_solver_iterations")),
             "solver_optimality": _safe_float(metadata.get("weight_solver_optimality")),
             "solver_cost": _safe_float(metadata.get("weight_solver_cost")),
-            "solver_kkt_residual": _safe_float(
-                metadata.get("weight_solver_kkt_residual")
-            ),
-            "solver_wall_seconds": _safe_float(
-                metadata.get("weight_solver_wall_seconds")
-            ),
+            "solver_kkt_residual": _safe_float(metadata.get("weight_solver_kkt_residual")),
+            "solver_wall_seconds": _safe_float(metadata.get("weight_solver_wall_seconds")),
             "problem_fingerprint": metadata.get("weight_problem_fingerprint"),
             "message": metadata.get("weight_solver_message"),
         }
