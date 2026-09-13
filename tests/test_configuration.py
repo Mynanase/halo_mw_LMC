@@ -27,6 +27,31 @@ def comparable_recipe(recipe: dict) -> dict:
 REPOSITORY = Path(__file__).resolve().parents[1]
 RUN_FILE = REPOSITORY / "configs" / "runs" / "fix_weight.toml"
 RECIPE_FILE = REPOSITORY / "configs" / "recipes" / "zhu_2026_fixed_weight.toml"
+RECIPE_NESTED_RUN_TEMPLATE = """\
+schema_version = 1
+recipe = "{recipe_dir}/recipe.toml"
+
+[run]
+id = "flatten-parity-paper-best"
+output_dir = "../runs/20260913-flatten-parity/paper-best"
+
+[data]
+catalog = "inputs/catalog.txt"
+target_density = "inputs/density.txt"
+
+[optimizer]
+iterations = 2
+random_seed = 7
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../runs/20260913-flatten-parity/coverage/paper-best"
+maximum_points = 10
+velocity_limit_km_s = 500.0
+random_seed = 11
+"""
 DENSITY_SOLVED_RUN_FILE = REPOSITORY / "configs" / "runs" / "density_solved.toml"
 BENCHMARK_RUN_FILE = (
     REPOSITORY / "configs" / "runs" / "density_solved_benchmark.toml"
@@ -462,6 +487,35 @@ class ConfigurationTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(ValueError, "configured together"):
                 load_recipe_configuration(path)
+
+    def test_nested_family_variant_output_dir_resolves_from_run_file(self):
+        """Two-level runs/<family>/<variant> output dirs resolve like flat ones."""
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            recipes = root / "recipe-files"
+            runs = root / "run-files"
+            recipes.mkdir()
+            runs.mkdir()
+            recipe_path = recipes / "recipe.toml"
+            recipe_path.write_text(RECIPE_FILE.read_text())
+            run_path = runs / "run.toml"
+            run_path.write_text(
+                RECIPE_NESTED_RUN_TEMPLATE.format(recipe_dir=recipes)
+            )
+
+            configuration = load_run_configuration(run_path)
+
+        self.assertEqual(
+            configuration["run"]["id"], "flatten-parity-paper-best"
+        )
+        self.assertEqual(
+            configuration["run"]["output_dir"],
+            (root / "runs/20260913-flatten-parity/paper-best").resolve(),
+        )
+        self.assertEqual(
+            configuration["coverage"]["output_dir"],
+            (root / "runs/20260913-flatten-parity/coverage/paper-best").resolve(),
+        )
 
     def test_every_relative_path_is_resolved_from_its_declaring_file(self):
         with tempfile.TemporaryDirectory() as directory:

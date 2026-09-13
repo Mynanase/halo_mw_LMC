@@ -51,6 +51,11 @@ it is used. The keys are the contract and are documented once here.
                      "random_seed"},
     }
 
+New experiments (2026-09 onward) place run output under
+``runs/<YYYYMMDD>-<family>/<variant>`` and coverage under the same family's
+``coverage/<variant>``; see ``runs/README.md`` for the convention. Legacy flat
+run directories and their TOMLs stay frozen.
+
 ``resolve_model(recipe)`` picks the numerical subset threaded into
 prepare/evaluate/optimize (everything except ``source_path``, ``schema_version``,
 ``name``, ``potential``, and ``search``).
