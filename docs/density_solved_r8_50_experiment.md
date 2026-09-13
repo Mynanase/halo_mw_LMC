@@ -14,9 +14,15 @@ run ID, optimization output, and coverage output are all separate:
 ```text
 configs/recipes/zhu_2026_density_solved_r8_50.toml
 configs/runs/density_solved_r8_50_benchmark.toml
-runs/density-solved-r8-50-paper-best-benchmark/
-data_coverage-density-solved-r8-50-paper-best-benchmark/
+runs/legacy/density-solved-r8-50-paper-best-benchmark/
 ```
+
+（原平铺目录已按 2026-09-13 的 runs/ 两层规范迁移至 `runs/legacy/`，叶子名不变。）
+
+The checked-in `data_coverage-density-solved-r8-50-paper-best-benchmark/`
+evidence directory and its `tar.gz` snapshots were retired to the local
+untracked `.archive/` on 2026-09-13; regenerate coverage evidence with
+`halo-mw-lmc coverage` if needed.
 
 The existing synthetic NPZ is reusable because both recipes use the same
 `25x25x4` `(R,z,phi)` grid. The density fit mask is calculated at run time and

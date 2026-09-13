@@ -176,3 +176,26 @@ dataclass 配置树与 exact-field TOML 校验已替换为普通 dict 配置
 check-in 配置全部可加载。本文 §2 记录的分层边界在 `main` 上继续有效；
 生产 parity 验收结论仅适用于扁平化之前的代码，扁平分支合并前需重做同标准
 验收。分支契约见 [architecture.md](architecture.md) 顶部的分支说明。
+
+## 7. 2026-09-13 追记：扁平化生产 parity 验收与 runs/ 两层规范
+
+同标准 parity 验收已在扁平分支上完成：以新结构配置
+`configs/runs/flatten_parity_paper_best.toml` 重跑
+paper-best 单点 8–40 kpc 基准（同 recipe、同数据、同 seed、冷启动新目录），
+best objective `133666.96061010682` 与扁平化前基准
+`runs/legacy/density-solved-r8-40-paper-best-benchmark` 逐位一致；
+`sample.dat` 数值列逐位相同（新 sample.dat 按新 schema 多 3 列诊断列：
+`zero_weight_fraction`、`weight_solver_kkt_residual`、`weight_solver_wall_seconds`），
+`best/evaluation.npz` 与
+`weight_model_inputs.npz` 的共有数组全部 bit-exact（NaN 模式相同），
+差异仅为新 evaluation schema v4 新增的 solver 诊断列
+（backend/kkt/fingerprint/wall_seconds）与 `weight_solver_cost`
+尾数差 1.5e-13（远小于 rtol=1e-12 标准）。验收证据在新结构首个
+family `runs/20260913-flatten-parity/paper-best`。
+
+同日完成 runs/ 目录清理与两层规范：历史 36 个平铺 run 目录精简为 19 个
+保留目录（17 个 retired 至本地 `.archive/runs-retired/`），随后一次性迁移至
+`runs/legacy/`（叶子名不变，双 manifest 证明零内容变化）；新实验统一采用
+`runs/<YYYYMMDD>-<family>/<variant>` 两层结构与同族
+`coverage/<variant>` 输出，约定见本机 `runs/README.md`（不入库）；
+`discover_runs` 已支持两层发现（带嵌套用例测试）。
