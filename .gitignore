@@ -37,6 +37,7 @@ __pycache__/
 
 # === Local agent context / private research material ===
 .agent-local/
+.archive/
 
 # === txt data files (observational data, not source code) ===
 *.txt
