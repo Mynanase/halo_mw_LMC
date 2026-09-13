@@ -154,6 +154,30 @@ class RunArtifactTests(unittest.TestCase):
         self.assertEqual(summary.samples.shape, (2,))
         self.assertEqual(float(summary.weight_audit["total_weight"]), 3.0)
 
+    def test_discover_runs_finds_family_variant_nests(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            legacy = root / "legacy-flat-run"
+            legacy.mkdir()
+            write_resolved_config(
+                legacy / "resolved_config.json", {"run": {"id": "legacy"}}
+            )
+            family = root / "20260913-flatten-parity"
+            variant = family / "paper-best"
+            variant.mkdir(parents=True)
+            write_resolved_config(
+                variant / "resolved_config.json",
+                {"run": {"id": "flatten-parity-paper-best"}},
+            )
+            coverage = family / "coverage"
+            (coverage / "paper-best").mkdir(parents=True)
+            plain = family / "notes"
+            plain.mkdir()
+
+            discovered = discover_runs(root)
+
+        self.assertEqual(discovered, [variant.resolve(), legacy.resolve()])
+
     def test_unknown_best_metadata_schema_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             save_best_evaluation(

@@ -136,20 +136,43 @@ def write_resolved_config(path: str | Path, document: Mapping[str, object]) -> N
 
 
 def discover_runs(root: str | Path) -> list[Path]:
-    """Find immediate child run directories without opening source data."""
+    """Find run directories (immediate children or family/variant nests).
+
+    A directory counts as a run when it contains ``resolved_config.json`` or
+    ``run_config.json``. Immediate children are checked first; a child without
+    either marker (for example a ``<YYYYMMDD>-<family>`` directory) is scanned
+    one level down so the two-level ``runs/<family>/<variant>`` layout is
+    discovered too. Coverage directories carry no marker and stay excluded.
+    """
 
     directory = Path(root).expanduser()
     if not directory.exists() or not directory.is_dir():
         return []
+
+    def is_run_directory(candidate: Path) -> bool:
+        return (candidate / "resolved_config.json").exists() or (
+            candidate / "run_config.json"
+        ).exists()
+
     result = []
     for candidate in directory.iterdir():
         if not candidate.is_dir():
             continue
-        if (candidate / "resolved_config.json").exists() or (
-            candidate / "run_config.json"
-        ).exists():
+        if is_run_directory(candidate):
             result.append(candidate.resolve())
-    return sorted(result, key=lambda path: path.name)
+        else:
+            try:
+                nested_children = sorted(
+                    candidate.iterdir(), key=lambda p: p.name
+                )
+            except OSError:
+                continue
+            result.extend(
+                nested.resolve()
+                for nested in nested_children
+                if nested.is_dir() and is_run_directory(nested)
+            )
+    return sorted(result, key=lambda path: str(path))
 
 
 def _load_json(path: Path) -> dict[str, object]:
