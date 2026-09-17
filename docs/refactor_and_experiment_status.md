@@ -257,3 +257,14 @@ family `runs/20260913-flatten-parity/paper-best`。
 unittest 225/226 通过，唯一 error 为 benchmark 冷启动目录检查撞上当日上午
 module-CLI orx 基准留在 `runs/density-solved-r8-40-paper-best-benchmark` 的
 输出目录（测试行为符合设计，与本役改动无关）。
+
+同日再记（§11 更正 + §12 oracle 重解）：§12 实现的小数组测试发现
+`equal_weight_distortion` 漏乘成员数 n_k，§10/§11 的 D 与 coherence 数值
+全部作废并已重算（投影 chi2 与重解结果不受影响；排序结论幸存，oracle 的
+D 优势实为约 3 倍）。oracle 束重解实验（`grouping_mode="response_kmeans"`）：
+k=1024 重解 chi2 2.644 不过门槛——1024 束即使分组接近已实现最优也不可行；
+**k=2304 过门槛（1.162，优于 (f_z,E)@4096 的 1.606，束数近半，solve 13.4 s，
+N_eff 698 对 66.6）**，成为新的已知最优工作点；其 J 低于 full 是 §7 平滑
+机制在门槛内侧的表现，非更优拟合；k-means 分组 74.6 s 使 end-to-end
+（100.6 s）仍慢于 (f_z,E)@4096（约 68 s）。完整记录见修复方案 §10/§11
+更正与 §12。
