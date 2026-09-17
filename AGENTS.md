@@ -53,10 +53,18 @@ and experiment status out of this file.
 
 - Production/server commands use `conda run -n halo_lmc python <command>`;
   local debugging uses `conda run -n dp-jax python <command>`.
+- The canonical compute host is the SSH alias `tycho` (119.78.226.107); its
+  checkout at `/home/tqiu/halo_mw_LMC` is this repository. Non-interactive
+  SSH shells there have no `conda` on PATH: invoke
+  `/home/tqiu/miniforge3/envs/halo_lmc/bin/python` directly instead.
 - Never silently switch environments or install/upgrade packages. Probe and
   report missing dependencies; use a disposable environment for build trials.
 - AGAMA is vendored at `Agama-master/` with exact casing. Do not manage it
   with pip/Conda; rebuild it with its repository build after an ABI mismatch.
+  The vendored build reports version 1.0 and loads only via
+  `PYTHONPATH=$REPO/Agama-master`; PyPI offers only 1.0.0, so no newer
+  install path exists. agama 1.0 lacks `transformCelestialCoords` and
+  `getGalactocentricFromGalactic`.
 - The repository `.venv` is not a preferred scientific runtime.
 - Read `.agent-local/notes/runtime-environments.md` when present for current
   probes, and verify again before expensive runs.
@@ -65,6 +73,33 @@ and experiment status out of this file.
 conda run -n halo_lmc python -m unittest discover -s tests -v
 conda run -n halo_lmc python -m compileall -q halo_mw_lmc apps/results.py
 ```
+
+## Legacy LMC diagnostic environment
+
+Facts established by the 2026-09-17 audit of the archived workflows; they are
+durable repository facts, not experiment status:
+
+- `archive/legacy_workflows/run_skopt_mw.py` can never run as committed:
+  its import `Bayes_oint_mw_disk2` exists in no Git object or branch and is
+  absent from the server checkout as well. Do not attempt to repair it by
+  renaming `back/Bayes_oint_mw_disk2_LMC.py`; there is no evidence they are
+  interchangeable.
+- `archive/legacy_workflows/run_skopt_LMC_back.py` is not valid Python
+  (missing commas in the search-space list), and its evaluator
+  `Bayes_oint_LMC_back.int_one_LMC` additionally calls Agama APIs that the
+  vendored agama 1.0 build does not provide.
+- The legacy `lamost_dr8_SFlast_cut4_NS_LMCc` catalogue exists nowhere under
+  `/home/tqiu`. `data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt`
+  (11250 stars) carries all six phase-space columns the evaluator reads
+  (`x_gc`..`vz_gc`) and is the sanctioned catalogue for legacy diagnostics.
+- The agama-1.0-compatible LMC initial condition, computed by replicating
+  Agama's `getGalactocentricFromGalactic` with astropy and Agama defaults
+  (R0=8.122 kpc, z_sun=0.0208 kpc, v_sun=(12.9, 245.6, 7.78) km/s):
+  posvelLMC = (-0.614, -41.02, -26.833) kpc, (-69.843, -221.662, 214.119)
+  km/s, i.e. 49.0 kpc from the Galactic centre moving at 316 km/s —
+  consistent with the LMC's known Galactocentric state.
+- One patched `int_one_LMC` call against the 4phi catalogue costs about 3 s
+  on tycho; budget legacy grid scans accordingly.
 
 ## Stable scientific invariants
 
