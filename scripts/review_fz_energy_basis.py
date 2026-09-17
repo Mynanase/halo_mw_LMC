@@ -142,9 +142,9 @@ def equal_weight_distortion(design_dense, assignments, k_total):
     mean_sq = np.zeros(k_total)
     mean_sq[populated] = np.sum(sums[populated] ** 2, axis=1) / member[populated] ** 2
     coherence = np.zeros(k_total)
-    coherence[populated] = mean_sq[populated] / bundle_sq[populated]
+    coherence[populated] = member[populated] * mean_sq[populated] / bundle_sq[populated]
     return {
-        "distortion": 1.0 - float(np.sum(mean_sq)) / total,
+        "distortion": 1.0 - float(np.sum(member * mean_sq)) / total,
         "coherence_median": float(np.median(coherence[populated])),
         "coherence_member_weighted_mean": float(np.sum(member[populated] * coherence[populated]) / np.sum(member)),
         "populated_bundles": int(np.count_nonzero(populated)),

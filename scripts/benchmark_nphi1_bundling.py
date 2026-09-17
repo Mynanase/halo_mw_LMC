@@ -9,6 +9,9 @@ sum_k(n_k * u_k^2)``, and the strict active-orbit -> successful-seed ->
 full-seed backfill of bundle weights; plus the stage-2 driver that runs
 full/bundled/random on one frozen orbit library through the shared
 production scoring boundary.
+Section 12 adds the response-kmeans grouping mode: bundles from k-means on
+the error-normalized density design columns (the plan §11 audit oracle),
+re-solved through the same shared solve/score path.
 
 The bundled solve solves for one weight u_k per bundle; the per-orbit weight
 is ``w = u[assignment]``, so the L2 penalty on w maps to ``sum_k n_k u_k^2``
@@ -221,6 +224,64 @@ def resolve_grouping_variables(experiment: dict) -> list[str]:
     return names
 
 
+def resolve_grouping_mode(experiment: dict) -> tuple[str, int | None, int | None, int, int]:
+    """Read `grouping_mode` (default "variables") and its mode-specific keys.
+
+    "variables" is the §2/§6/§10 quantile partition in two orbit variables
+    (`n_lambda` x `n_energy`). "response_kmeans" is the §12 oracle bundling:
+    k-means on the error-normalized response columns with `kmeans_bundles`
+    centers and `kmeans_seed` (default 0, the §11 audit seed, so the same
+    design reproduces the audit oracle assignments bit-for-bit).
+    """
+
+    mode = str(experiment.get("grouping_mode", "variables"))
+    if mode == "variables":
+        return mode, int(experiment["n_lambda"]), int(experiment["n_energy"]), 0, 0
+    if mode == "response_kmeans":
+        bundles = int(experiment["kmeans_bundles"])
+        if bundles <= 0:
+            raise ValueError("kmeans_bundles must be a positive integer")
+        return mode, None, None, bundles, int(experiment.get("kmeans_seed", 0))
+    raise ValueError(f"unsupported grouping_mode: {mode}; supported: variables, response_kmeans")
+
+
+def response_kmeans_assignments(design, bundle_count, seed=0):
+    """Equal-weight bundles from k-means on the error-normalized response columns.
+
+    Groups the active-orbit design columns with the §11 audit's kmeans++/Lloyd
+    implementation (same seed and iteration budget, so the same design
+    reproduces the audit oracle assignments bit-for-bit); returns the
+    assignments plus the audit-definition equal-weight distortion record.
+    The grouping input is the density design only -- the velocity objective
+    never enters the grouping.
+    """
+
+    sys.path.insert(0, str(REPO / "scripts"))
+    from audit_third_invariant import kmeans_columns
+    from review_fz_energy_basis import equal_weight_distortion
+
+    design_dense = np.asarray(design.todense(), dtype=float)
+    assignments = np.asarray(
+        kmeans_columns(design_dense.T.copy(), int(bundle_count), seed=seed), dtype=np.int64,
+    )
+    distortion = equal_weight_distortion(design_dense, assignments, int(bundle_count))
+    return assignments, {
+        "equal_weight_distortion": distortion["distortion"],
+        "populated_bundles": distortion["populated_bundles"],
+    }
+
+
+def equal_weight_distortion_of(design, assignments):
+    """D and populated-bundle count of one equal-weight partition (§11 definition)."""
+
+    sys.path.insert(0, str(REPO / "scripts"))
+    from review_fz_energy_basis import equal_weight_distortion
+
+    design_dense = np.asarray(design.todense(), dtype=float)
+    record = equal_weight_distortion(design_dense, assignments, int(np.max(assignments)) + 1)
+    return {"equal_weight_distortion": record["distortion"], "populated_bundles": record["populated_bundles"]}
+
+
 def dominant_frequency(series, dt):
     """Hann-windowed FFT peak with log-parabola interpolation; cycles per time unit.
 
@@ -425,9 +486,8 @@ def main(config_path: str) -> None:
     frozen_path = REPO / experiment["frozen_cache"]
     frozen_provenance_path = REPO / experiment["frozen_provenance"]
     output_dir = REPO / experiment["output_dir"]
-    n_lambda = int(experiment["n_lambda"])
-    n_energy = int(experiment["n_energy"])
-    grouping_variables = resolve_grouping_variables(experiment)
+    grouping_mode, n_lambda, n_energy, kmeans_bundles, kmeans_seed = resolve_grouping_mode(experiment)
+    grouping_variables = resolve_grouping_variables(experiment) if grouping_mode == "variables" else None
     random_seed = int(experiment["random_seed"])
     if int(experiment["repeat_runs"]) != 1:
         raise ValueError("this driver implements the single-measurement round only (repeat_runs = 1)")
@@ -494,33 +554,41 @@ def main(config_path: str) -> None:
 
     # ---- grouping: per-seed mean lambda_z and energy in the frozen potential ----
     frozen_provenance = json.loads(frozen_provenance_path.read_text())
-    recorded_parameters = frozen_provenance.get("potential_parameters")
-    if recorded_parameters:
-        grouping_note = "potential parameters taken from the frozen-run provenance record"
-        parameters = ZhuHaloParameters(
-            rho0=recorded_parameters["rho0"], log_rs=recorded_parameters["log_rs"],
-            phalo=recorded_parameters["phalo"], qhalo=recorded_parameters["qhalo"],
-            gamma=recorded_parameters["gamma"],
+    successful = response.successful_seed_index
+    if grouping_mode == "variables":
+        recorded_parameters = frozen_provenance.get("potential_parameters")
+        if recorded_parameters:
+            grouping_note = "potential parameters taken from the frozen-run provenance record"
+            parameters = ZhuHaloParameters(
+                rho0=recorded_parameters["rho0"], log_rs=recorded_parameters["log_rs"],
+                phalo=recorded_parameters["phalo"], qhalo=recorded_parameters["qhalo"],
+                gamma=recorded_parameters["gamma"],
+            )
+        else:
+            grouping_note = (
+                "frozen provenance records no potential parameters; grouping uses "
+                "ZHU_2026_BEST_FIT with log_rs=log10(70), which differs from the "
+                "production analytic anchor log_rs=1.845; valid only for comparison "
+                "within this one frozen library"
+            )
+            parameters = ZhuHaloParameters(
+                rho0=ZHU_2026_BEST_FIT["rho0"], log_rs=ZHU_2026_BEST_FIT["log_rs"],
+                phalo=ZHU_2026_BEST_FIT["phalo"], qhalo=ZHU_2026_BEST_FIT["qhalo"],
+                gamma=ZHU_2026_BEST_FIT["gamma"],
+            )
+        potential = build_potential_from_parameters(parameters)
+        orbit_variables, grouping_seconds = compute_orbit_variables(
+            grouping_variables, library, successful, potential,
         )
+        print(f"grouping variables {grouping_variables} in {grouping_seconds:.2f}s "
+              f"(n bins {n_lambda}x{n_energy})")
     else:
         grouping_note = (
-            "frozen provenance records no potential parameters; grouping uses "
-            "ZHU_2026_BEST_FIT with log_rs=log10(70), which differs from the "
-            "production analytic anchor log_rs=1.845; valid only for comparison "
-            "within this one frozen library"
+            "response k-means grouping on the error-normalized density design "
+            "columns (§12 oracle); no orbit variables and no potential are used, "
+            "and the velocity objective never enters the grouping"
         )
-        parameters = ZhuHaloParameters(
-            rho0=ZHU_2026_BEST_FIT["rho0"], log_rs=ZHU_2026_BEST_FIT["log_rs"],
-            phalo=ZHU_2026_BEST_FIT["phalo"], qhalo=ZHU_2026_BEST_FIT["qhalo"],
-            gamma=ZHU_2026_BEST_FIT["gamma"],
-        )
-    potential = build_potential_from_parameters(parameters)
-    successful = response.successful_seed_index
-    orbit_variables, grouping_seconds = compute_orbit_variables(
-        grouping_variables, library, successful, potential,
-    )
-    print(f"grouping variables {grouping_variables} in {grouping_seconds:.2f}s "
-          f"(n bins {n_lambda}x{n_energy})")
+        orbit_variables = None
 
     # ---- shared inner problem: identical normalization path as production ----
     fit_keys = {
@@ -602,11 +670,23 @@ def main(config_path: str) -> None:
         }
         return case, arrays, evaluation, u
 
-    assignments, k_total = quantile_bundle_grid(
-        orbit_variables[grouping_variables[0]][active_columns],
-        orbit_variables[grouping_variables[1]][active_columns],
-        n_lambda, n_energy,
-    )
+    if grouping_mode == "variables":
+        assignments, k_total = quantile_bundle_grid(
+            orbit_variables[grouping_variables[0]][active_columns],
+            orbit_variables[grouping_variables[1]][active_columns],
+            n_lambda, n_energy,
+        )
+        distortion_bundled = equal_weight_distortion_of(design, assignments)
+    else:
+        started = time.perf_counter()
+        assignments, distortion_bundled = response_kmeans_assignments(
+            design, kmeans_bundles, seed=kmeans_seed,
+        )
+        grouping_seconds = time.perf_counter() - started
+        k_total = int(np.max(assignments)) + 1
+        print(f"response k-means grouping k={kmeans_bundles} in {grouping_seconds:.2f}s "
+              f"(D={distortion_bundled['equal_weight_distortion']:.4f}, "
+              f"populated={distortion_bundled['populated_bundles']})")
     bundled_case, bundled_arrays, evaluation_bundled, u_bundled = run_bundled_case("bundled", assignments)
 
     rng = np.random.default_rng(random_seed)
@@ -619,6 +699,9 @@ def main(config_path: str) -> None:
     ):
         raise ValueError("random membership does not preserve the physical bundle member counts")
     random_case, random_arrays, evaluation_random, u_random = run_bundled_case("random", random_assignments)
+    distortion_random = equal_weight_distortion_of(design, random_assignments)
+    bundled_case.update(distortion_bundled)
+    random_case.update(distortion_random)
     for case in (bundled_case, random_case):
         case["timings_seconds"]["end_to_end_seconds"] = (
             response_seconds + grouping_seconds + case["timings_seconds"]["total_outer"]
@@ -717,23 +800,24 @@ def main(config_path: str) -> None:
     }
     (output_dir / "provenance.json").write_text(json.dumps(provenance, indent=2, default=str) + "\n")
 
-    np.savez(
-        output_dir / "bundles.npz",
-        assignments=assignments,
-        random_assignments=random_assignments,
-        member_count=np.bincount(assignments, minlength=k_total),
-        random_member_count=np.bincount(random_assignments, minlength=k_total),
-        u_bundled=u_bundled,
-        u_random=u_random,
-        seed_weights_bundled=bundled_arrays["seed_weights"],
-        seed_weights_random=random_arrays["seed_weights"],
-        orbit_var_first=orbit_variables[grouping_variables[0]],
-        orbit_var_second=orbit_variables[grouping_variables[1]],
-        successful_seed_index=successful,
-        target_normalized=target_normalized,
-        error_normalized=error_normalized,
-        fit_mask=mask,
-    )
+    bundle_payload = {
+        "assignments": assignments,
+        "random_assignments": random_assignments,
+        "member_count": np.bincount(assignments, minlength=k_total),
+        "random_member_count": np.bincount(random_assignments, minlength=k_total),
+        "u_bundled": u_bundled,
+        "u_random": u_random,
+        "seed_weights_bundled": bundled_arrays["seed_weights"],
+        "seed_weights_random": random_arrays["seed_weights"],
+        "successful_seed_index": successful,
+        "target_normalized": target_normalized,
+        "error_normalized": error_normalized,
+        "fit_mask": mask,
+    }
+    if grouping_mode == "variables":
+        bundle_payload["orbit_var_first"] = orbit_variables[grouping_variables[0]]
+        bundle_payload["orbit_var_second"] = orbit_variables[grouping_variables[1]]
+    np.savez(output_dir / "bundles.npz", **bundle_payload)
     save_attempt(output_dir, "full", full_case, full_arrays)
     save_attempt(output_dir, "bundled", bundled_case, bundled_arrays)
     save_attempt(output_dir, "random", random_case, random_arrays)

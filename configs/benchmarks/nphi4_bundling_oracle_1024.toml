@@ -1,0 +1,18 @@
+# nphi4 response-kmeans oracle experiment (docs/nphi1_bundling_repair_plan.md §12):
+# re-solve the §11 audit's response-similarity bundles on the production
+# 25x25x4 grid at k=1024 -- the count where every invariant-variable basis
+# fails the density gate. kmeans_seed=0 matches the audit, so the assignments
+# reproduce the audit oracle bit-for-bit. Plain toml read by
+# scripts/benchmark_nphi1_bundling.py via tomllib; not a run schema.
+
+run_config = "configs/runs/density_solved_benchmark.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+output_dir = ".agent-local/benchmarks/nphi4_oracle_1024"
+
+grouping_mode = "response_kmeans"
+kmeans_bundles = 1024
+kmeans_seed = 0
+random_seed = 0
+repeat_runs = 1
+reduced_kkt_tolerance = 1e-8

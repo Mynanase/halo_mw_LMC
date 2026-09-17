@@ -412,5 +412,66 @@ class JzOverJtotVariableTests(np.testing.TestCase):
         self.assertEqual(list(values), ["jz_over_jtot_phi"])
 
 
+class ResponseKmeansGroupingTests(unittest.TestCase):
+    def test_resolve_grouping_mode_defaults_and_contracts(self):
+        self.assertEqual(
+            bundling.resolve_grouping_mode({"n_lambda": 8, "n_energy": 4}),
+            ("variables", 8, 4, 0, 0),
+        )
+        self.assertEqual(
+            bundling.resolve_grouping_mode(
+                {"grouping_mode": "variables", "n_lambda": 64, "n_energy": 64}
+            ),
+            ("variables", 64, 64, 0, 0),
+        )
+        self.assertEqual(
+            bundling.resolve_grouping_mode(
+                {"grouping_mode": "response_kmeans", "kmeans_bundles": 1024}
+            ),
+            ("response_kmeans", None, None, 1024, 0),
+        )
+        self.assertEqual(
+            bundling.resolve_grouping_mode(
+                {"grouping_mode": "response_kmeans", "kmeans_bundles": 2304, "kmeans_seed": 7}
+            ),
+            ("response_kmeans", None, None, 2304, 7),
+        )
+        with self.assertRaises(ValueError):
+            bundling.resolve_grouping_mode({"grouping_mode": "response_kmeans", "kmeans_bundles": 0})
+        with self.assertRaises(ValueError):
+            bundling.resolve_grouping_mode({"grouping_mode": "spectral"})
+
+    def test_response_kmeans_groups_identical_column_pairs_deterministically(self):
+        """Two clusters of exactly identical columns separate under any seed."""
+
+        design = scipy.sparse.csr_matrix(
+            np.array(
+                [
+                    [1.0, 1.0, 1.0, 0.0, 0.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0, 1.0, 1.0],
+                    [0.1, 0.1, 0.1, 0.1, 0.1, 0.1],
+                    [0.0, 0.0, 0.0, 0.2, 0.2, 0.2],
+                ]
+            )
+        )
+        assignments, distortion = bundling.response_kmeans_assignments(design, 2, seed=0)
+        self.assertEqual(assignments.shape, (6,))
+        self.assertTrue(np.all(assignments[:3] == assignments[0]))
+        self.assertTrue(np.all(assignments[3:] == assignments[3]))
+        self.assertNotEqual(assignments[0], assignments[3])
+        again, _ = bundling.response_kmeans_assignments(design, 2, seed=0)
+        self.assertTrue(np.array_equal(assignments, again))
+        self.assertEqual(distortion["populated_bundles"], 2)
+        # Identical columns within every bundle: the equal-weight column mean
+        # reproduces each column exactly, so the audit-definition D is zero.
+        self.assertAlmostEqual(distortion["equal_weight_distortion"], 0.0, places=12)
+
+    def test_equal_weight_distortion_of_zero_for_one_bundle_of_identical_columns(self):
+        design = scipy.sparse.csr_matrix(np.tile(np.array([[1.0], [2.0], [0.5]]), (1, 3)))
+        record = bundling.equal_weight_distortion_of(design, np.zeros(3, dtype=np.int64))
+        self.assertEqual(record["populated_bundles"], 1)
+        self.assertAlmostEqual(record["equal_weight_distortion"], 0.0, places=12)
+
+
 if __name__ == "__main__":
     unittest.main()
