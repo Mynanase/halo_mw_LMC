@@ -229,6 +229,7 @@ def main() -> None:
             "bundle_grid": audit[name]["bundle_grid"] + " (random)",
             "bundle_count": k_total,
             **equal_weight_distortion(design_dense, random_assignments, k_total),
+            **projection_of_full_weights(design_dense, observed, w_full_active, random_assignments),
             "sampled_same_bundle_cosine_median": sampled_pair_cosines(design_dense, random_assignments, k_total, rng),
         }
 
