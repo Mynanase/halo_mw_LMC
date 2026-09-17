@@ -262,7 +262,7 @@ def main() -> None:
                                     ("fz_e_64x64", "#4C72B0", "o")):
             if name in audit:
                 axis.scatter(audit[name]["bundle_count"], audit[name][metric], color=color, marker=marker, zorder=3)
-        for name, color, marker in (("fz_e_32x32_random", "0.6"), ("fz_e_64x64_random", "0.6")):
+        for name, color, marker in (("fz_e_32x32_random", "0.6", "x"), ("fz_e_64x64_random", "0.6", "x")):
             if name in audit:
                 axis.scatter(audit[name]["bundle_count"], audit[name][metric], color=color, marker="x", zorder=3)
         for name, color in (("fz_e_lamz_16x16x4", "#DD8452"), ("fz_e_angle_16x16x4", "#55A868"),
