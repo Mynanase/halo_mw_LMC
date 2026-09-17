@@ -320,10 +320,6 @@ def evaluate_orbit_library(
             for key in ("min_abs_z", "min_spherical_radius", "max_spherical_radius", "require_positive_data")
         }
         weight_solution = solve_density_weights(response, prepared.target_density, prepared.target_error, mask_fit, **weight_options)
-        model_density = weight_solution.model_density
-        density_target = weight_solution.target_density
-        density_error = weight_solution.target_error
-        orbit_weights = response.sample_weights(weight_solution.seed_weights, library)
     else:
         if response is not None:
             raise ValueError(
@@ -352,6 +348,35 @@ def evaluate_orbit_library(
             solver_backend="catalogue_fixed",
             kkt_residual=0.0,
         )
+    return score_orbit_weights(library, prepared, weight_solution, response=response)
+
+
+def score_orbit_weights(
+    library: OrbitLibrary,
+    prepared: PreparedModelData,
+    weight_solution: WeightSolution,
+    *,
+    response: OrbitDensityResponse | None = None,
+) -> ModelEvaluation:
+    """Shared post-solve scoring boundary for both weight-model branches.
+
+    ``density_solved`` passes the response validated and used by the weight
+    solve; ``catalogue_fixed`` maps seed weights directly onto orbit samples.
+    The ``response`` argument is paired with the ``density_solved`` mode
+    only: it is required there (it produced the weight solution) and
+    rejected for other modes.
+    """
+
+    config = prepared.config
+    if response is not None and config["weight_model"]["mode"] != "density_solved":
+        raise ValueError("catalogue_fixed scoring does not use an orbit density response")
+    if response is not None:
+        orbit_weights = response.sample_weights(weight_solution.seed_weights, library)
+    else:
+        orbit_weights = weight_solution.seed_weights[library.seed_index]
+    density_target = weight_solution.target_density
+    density_error = weight_solution.target_error
+    model_density = weight_solution.model_density
     density = compare_density(density_target, density_error, model_density, config["density_grid"], **config["density_fit"])
     shell_diagnostics = None
     if config["objective"]["density_shell_edges"] is not None:
@@ -365,6 +390,8 @@ def evaluate_orbit_library(
 
     support_audit = None
     if config["weight_model"]["mode"] == "density_solved":
+        if response is None:
+            raise ValueError("density-solved scoring requires the response used by the weight solve")
         if model_phase is None:
             raise ValueError("density-solved support audit requires velocity phase space")
         support_audit = _orbit_support_audit(response, library, density, weight_solution.seed_weights, prepared, model_phase)
