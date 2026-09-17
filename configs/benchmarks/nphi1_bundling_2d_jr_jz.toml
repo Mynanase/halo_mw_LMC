@@ -1,0 +1,27 @@
+# nphi1 bundling 2D-variable experiment (docs/nphi1_bundling_repair_plan.md §6):
+# same frozen library, solver, scoring and controls as nphi1_bundling.toml,
+# with the grouping basis switched to (Jr, Jz) orbit means of Staeckel actions
+# evaluated per sample in the azimuthal m=0 average of the true triaxial
+# potential (CylSpline mmax=0). Actions are orbit labels in an averaged
+# potential, not integrals of the true potential.
+# Plain toml read by scripts/benchmark_nphi1_bundling.py via tomllib; not a run schema.
+# Paths are resolved relative to the repository root.
+
+run_config = "configs/runs/density_solved_nphi1_paper_best.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+# Historical audited numbers are copied into comparison.json as reference-only
+# fields; they never enter the new computation.
+historical_reference = ".agent-local/benchmarks/solver_settings_sweep/nphi1_full_iteration.json"
+output_dir = ".agent-local/benchmarks/nphi1_repair_2d_jr_jz"
+
+grouping_variables = ["jr_phi", "jz_phi"]
+n_lambda = 32
+n_energy = 32
+random_seed = 0
+# Plan §2.4: first repaired comparison is a single measurement; repeated
+# alternating runs are a separate later decision.
+repeat_runs = 1
+# Reduced-space KKT acceptance for the bundled NNLS, fixed before the run
+# (plan §2.3); never relaxed after seeing results.
+reduced_kkt_tolerance = 1e-8

@@ -1,0 +1,16 @@
+# nphi4 2D-variable experiment (docs/nphi1_bundling_repair_plan.md §8 redoing §6):
+# (Jr, Jz) phi-average action grouping basis on the production 25x25x4 grid.
+# Plain toml read by scripts/benchmark_nphi1_bundling.py via tomllib; not a run schema.
+# Paths are resolved relative to the repository root.
+
+run_config = "configs/runs/density_solved_benchmark.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+output_dir = ".agent-local/benchmarks/nphi4_repair_2d_jr_jz"
+
+grouping_variables = ["jr_phi", "jz_phi"]
+n_lambda = 32
+n_energy = 32
+random_seed = 0
+repeat_runs = 1
+reduced_kkt_tolerance = 1e-8

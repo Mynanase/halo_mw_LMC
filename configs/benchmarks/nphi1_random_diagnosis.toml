@@ -1,0 +1,23 @@
+# Random-vs-physical J advantage diagnosis (docs/nphi1_bundling_repair_plan.md §7).
+# Same frozen library, solver, scoring as nphi1_bundling.toml; the audited
+# (lam_z, energy) 32x32 partition provides the member-count multiset.
+# Plain toml read by scripts/diagnose_random_j_advantage.py via tomllib; not a run schema.
+# Paths are resolved relative to the repository root.
+
+run_config = "configs/runs/density_solved_nphi1_paper_best.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+output_dir = ".agent-local/benchmarks/nphi1_random_diagnosis"
+
+grouping_variables = ["lam_z", "energy"]
+n_lambda = 32
+n_energy = 32
+
+# probe 1: seed robustness of the random control
+random_seeds = [0, 1, 2, 3, 4, 5, 6, 7]
+# probe 2+3: projection subspace and full->projection interpolation
+projection_random_seed = 0
+projection_alphas = [0.0, 0.25, 0.5, 0.75, 1.0]
+# probe 4: constraint-strength sweep (physical vs one random permutation each)
+sweep_bins = [[8, 8], [16, 16], [32, 32], [64, 64]]
+sweep_random_seed = 0

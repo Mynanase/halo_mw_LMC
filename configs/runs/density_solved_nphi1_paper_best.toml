@@ -1,0 +1,26 @@
+# 完整流水线的 n_phi=1 轴对称化单点基准（分支实验）：
+# 与 density_solved_benchmark.toml 同构，recipe/target 换成 nphi1 变体，
+# 首个 optimizer iteration 即 paper-best 端到端评估。
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved_nphi1.toml"
+
+[run]
+id = "density-solved-nphi1-paper-best"
+output_dir = "../../runs/density-solved-nphi1-paper-best"
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x25x1.npz"
+
+[optimizer]
+iterations = 1
+random_seed = 0
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../../data_coverage-density-solved-nphi1-paper-best"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0
