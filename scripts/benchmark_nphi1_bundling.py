@@ -360,15 +360,25 @@ def _nearest_labels(points, centers):
 
 
 def _kmeanspp_centers(points, bundle_count, rng):
-    """k-means++ seeding, mirroring the §11 audit implementation exactly."""
+    """k-means++ seeding with BLAS-form D^2 updates (expansion identity).
+
+    Same sampling sequence as the §11 audit's broadcasting form, but each new
+    center's distances are computed as ||p||^2 - 2 p.c + ||c||^2 (a matvec
+    plus vector ops) instead of materializing a (points, features) temporary;
+    on the nphi4 library this moves the seeding cost from memory-bound to
+    compute-bound. Tiny floating-point differences relative to the audit form
+    are acceptable: this path feeds the §13 minibatch mode only.
+    """
 
     count = points.shape[0]
     if count < bundle_count:
         raise ValueError("k-means++ sample is smaller than the requested bundle count")
     centers = points[rng.integers(count)].reshape(1, -1).copy()
     min_distance = np.full(count, np.inf)
+    point_sq = np.sum(points ** 2, axis=1)
     while centers.shape[0] < bundle_count:
-        distance = np.sum((points - centers[-1]) ** 2, axis=1)
+        center = centers[-1]
+        distance = np.maximum(point_sq - 2.0 * (points @ center) + float(np.dot(center, center)), 0.0)
         min_distance = np.minimum(min_distance, distance)
         min_distance[~np.isfinite(min_distance)] = 0.0
         total = min_distance.sum()
