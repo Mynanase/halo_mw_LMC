@@ -508,6 +508,10 @@ def weight_concentration(weights, assignments=None, k_total=None):
     total = float(np.sum(w))
     if not np.isfinite(total) or total <= 0:
         raise ValueError("weight_concentration needs a finite positive total weight")
+    if assignments is not None and np.asarray(assignments).shape[0] != w.shape[0]:
+        raise ValueError(
+            "weight_concentration: assignments must index the same orbit vector as the weights"
+        )
     shares = np.sort(w / total)[::-1]
     cumulative = np.cumsum(shares)
     record = {
@@ -921,7 +925,9 @@ def main(config_path: str) -> None:
             "weight_sum": evaluation.weight_sum,
             "effective_orbit_count": solution.effective_orbit_count,
             "maximum_weight_fraction": solution.maximum_weight_fraction,
-            "weight_concentration": weight_concentration(solution.seed_weights, case_assignments),
+            "weight_concentration": weight_concentration(
+                solution.seed_weights[successful[active_columns]], case_assignments,
+            ),
             "active_orbit_count": solution.active_orbit_count,
             "bundle_count": int(np.max(case_assignments)) + 1,
             "active_bundles": int(np.count_nonzero(u > 0)),

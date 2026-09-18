@@ -630,6 +630,10 @@ class BundleAlternativesGroupingTests(unittest.TestCase):
         self.assertEqual(bundle["n90"], 2)
         with self.assertRaises(ValueError):
             bundling.weight_concentration(np.zeros(4))
+        with self.assertRaises(ValueError):
+            bundling.weight_concentration(
+                np.ones(6), np.array([0, 0, 1, 1]),
+            )
 
 
 if __name__ == "__main__":
