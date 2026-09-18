@@ -1,0 +1,21 @@
+# nphi4 warm-start k-means experiment (docs/nphi1_bundling_repair_plan.md §13):
+# Lloyd refinement on the error-normalized design columns, warm-started from
+# the (f_z,E) 48x48 quantile-grid cell centroids and capped at 5 iterations;
+# the 0-iteration limit of the same config is the pure grid reference
+# (nphi4_bundling_2d_fz_energy_48x48.toml).
+# Plain toml read by scripts/benchmark_nphi1_bundling.py via tomllib; not a run schema.
+# Paths are resolved relative to the repository root.
+
+run_config = "configs/runs/density_solved_benchmark.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+output_dir = ".agent-local/benchmarks/nphi4_warmstart_2304"
+
+grouping_mode = "response_kmeans_warmstart"
+warmstart_variables = ["jz_over_jtot_phi", "energy"]
+n_lambda = 48
+n_energy = 48
+warmstart_iterations = 5
+random_seed = 0
+repeat_runs = 1
+reduced_kkt_tolerance = 1e-8

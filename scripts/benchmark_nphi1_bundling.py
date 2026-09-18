@@ -12,6 +12,10 @@ production scoring boundary.
 Section 12 adds the response-kmeans grouping mode: bundles from k-means on
 the error-normalized density design columns (the plan §11 audit oracle),
 re-solved through the same shared solve/score path.
+Section 13 adds three cheaper grouping families on the same orbit points:
+minibatch k-means, a deterministic PCA quantile grid, and capped Lloyd
+refinement warm-started from physical-grid centroids; every case also records
+orbit-level and bundle-mass-level weight-concentration diagnostics.
 
 The bundled solve solves for one weight u_k per bundle; the per-orbit weight
 is ``w = u[assignment]``, so the L2 penalty on w maps to ``sum_k n_k u_k^2``
@@ -224,7 +228,7 @@ def resolve_grouping_variables(experiment: dict) -> list[str]:
     return names
 
 
-def resolve_grouping_mode(experiment: dict) -> tuple[str, int | None, int | None, int, int]:
+def resolve_grouping_mode(experiment: dict) -> dict:
     """Read `grouping_mode` (default "variables") and its mode-specific keys.
 
     "variables" is the §2/§6/§10 quantile partition in two orbit variables
@@ -232,17 +236,84 @@ def resolve_grouping_mode(experiment: dict) -> tuple[str, int | None, int | None
     k-means on the error-normalized response columns with `kmeans_bundles`
     centers and `kmeans_seed` (default 0, the §11 audit seed, so the same
     design reproduces the audit oracle assignments bit-for-bit).
+    Section 13 adds three cheaper families on the same points:
+    "response_kmeans_minibatch" (k-means++ on a subsample plus Sculley-style
+    minibatch updates; keys `kmeans_bundles`, `kmeans_seed`,
+    `minibatch_size` default 1024, `minibatch_rounds` default 100),
+    "response_pca_grid" (deterministic SVD reduction; keys
+    `pca_components` default 2, `pca_first_bins`, `pca_second_bins`),
+    and "response_kmeans_warmstart" (Lloyd from `warmstart_variables`
+    quantile-grid centroids, default (jz_over_jtot_phi, energy) at
+    `n_lambda` x `n_energy` cells, capped at `warmstart_iterations`
+    default 5; 0 iterations is the pure grid reference). Returns a spec
+    dict; the driver never mutates it.
     """
 
     mode = str(experiment.get("grouping_mode", "variables"))
+    spec = {
+        "mode": mode, "n_first": None, "n_second": None, "variables": None,
+        "k": None, "seed": 0, "minibatch_size": None, "minibatch_rounds": None,
+        "pca_components": None, "warmstart_iterations": None,
+    }
     if mode == "variables":
-        return mode, int(experiment["n_lambda"]), int(experiment["n_energy"]), 0, 0
+        spec.update(
+            variables=resolve_grouping_variables(experiment),
+            n_first=int(experiment["n_lambda"]), n_second=int(experiment["n_energy"]),
+        )
+        return spec
     if mode == "response_kmeans":
         bundles = int(experiment["kmeans_bundles"])
         if bundles <= 0:
             raise ValueError("kmeans_bundles must be a positive integer")
-        return mode, None, None, bundles, int(experiment.get("kmeans_seed", 0))
-    raise ValueError(f"unsupported grouping_mode: {mode}; supported: variables, response_kmeans")
+        spec.update(k=bundles, seed=int(experiment.get("kmeans_seed", 0)))
+        return spec
+    if mode == "response_kmeans_minibatch":
+        bundles = int(experiment["kmeans_bundles"])
+        if bundles <= 0:
+            raise ValueError("kmeans_bundles must be a positive integer")
+        size = int(experiment.get("minibatch_size", 1024))
+        rounds = int(experiment.get("minibatch_rounds", 100))
+        if size <= 0 or rounds <= 0:
+            raise ValueError("minibatch_size and minibatch_rounds must be positive integers")
+        spec.update(
+            k=bundles, seed=int(experiment.get("kmeans_seed", 0)),
+            minibatch_size=size, minibatch_rounds=rounds,
+        )
+        return spec
+    if mode == "response_pca_grid":
+        components = int(experiment.get("pca_components", 2))
+        if components < 2:
+            raise ValueError("pca_components must be at least 2 (the grid is two-dimensional)")
+        n_first = int(experiment["pca_first_bins"])
+        n_second = int(experiment["pca_second_bins"])
+        if n_first <= 0 or n_second <= 0:
+            raise ValueError("pca_first_bins and pca_second_bins must be positive integers")
+        spec.update(pca_components=components, n_first=n_first, n_second=n_second)
+        return spec
+    if mode == "response_kmeans_warmstart":
+        names = [str(name) for name in experiment.get(
+            "warmstart_variables", ["jz_over_jtot_phi", "energy"],
+        )]
+        if len(names) != 2:
+            raise ValueError("warmstart_variables must name exactly two orbit variables")
+        unknown = [name for name in names if name not in SUPPORTED_GROUPING_VARIABLES]
+        if unknown:
+            raise ValueError(
+                f"unsupported warmstart variables: {', '.join(unknown)}; "
+                f"supported: {', '.join(SUPPORTED_GROUPING_VARIABLES)}"
+            )
+        iterations = int(experiment.get("warmstart_iterations", 5))
+        if iterations < 0:
+            raise ValueError("warmstart_iterations must be >= 0 (0 = the pure grid reference)")
+        spec.update(
+            variables=names, n_first=int(experiment["n_lambda"]),
+            n_second=int(experiment["n_energy"]), warmstart_iterations=iterations,
+        )
+        return spec
+    raise ValueError(
+        f"unsupported grouping_mode: {mode}; supported: variables, response_kmeans, "
+        "response_kmeans_minibatch, response_pca_grid, response_kmeans_warmstart"
+    )
 
 
 def response_kmeans_assignments(design, bundle_count, seed=0):
@@ -269,6 +340,195 @@ def response_kmeans_assignments(design, bundle_count, seed=0):
         "equal_weight_distortion": distortion["distortion"],
         "populated_bundles": distortion["populated_bundles"],
     }
+
+
+def _design_points(design):
+    """Active design columns as orbit points (n_orbits, n_rows) for clustering."""
+
+    return np.asarray(design.todense(), dtype=float).T.copy()
+
+
+def _nearest_labels(points, centers):
+    """Index of the nearest center per point (squared-distance expansion)."""
+
+    return np.argmin(
+        np.sum(points ** 2, axis=1)[:, None]
+        - 2.0 * (points @ centers.T)
+        + np.sum(centers ** 2, axis=1)[None, :],
+        axis=1,
+    )
+
+
+def _kmeanspp_centers(points, bundle_count, rng):
+    """k-means++ seeding, mirroring the §11 audit implementation exactly."""
+
+    count = points.shape[0]
+    if count < bundle_count:
+        raise ValueError("k-means++ sample is smaller than the requested bundle count")
+    centers = points[rng.integers(count)].reshape(1, -1).copy()
+    min_distance = np.full(count, np.inf)
+    while centers.shape[0] < bundle_count:
+        distance = np.sum((points - centers[-1]) ** 2, axis=1)
+        min_distance = np.minimum(min_distance, distance)
+        min_distance[~np.isfinite(min_distance)] = 0.0
+        total = min_distance.sum()
+        if total <= 0:
+            raise ValueError("kmeans++ ran out of distinct points")
+        centers = np.vstack([centers, points[rng.choice(count, p=min_distance / total)]])
+    return centers
+
+
+def minibatch_kmeans_assignments(design, bundle_count, seed=0, batch_size=1024, rounds=100):
+    """Equal-weight bundles from minibatch k-means (§13 cheap-oracle variant).
+
+    Same orbit points and objective family as the §12 oracle -- k-means++
+    seeding plus Sculley-style per-center count updates on small batches --
+    intended to test whether oracle-grade grouping survives at a fraction of
+    the full Lloyd cost. Deterministic for a fixed seed. The grouping input is
+    the density design only; the velocity objective never enters the grouping.
+    """
+
+    points = _design_points(design)
+    rng = np.random.default_rng(seed)
+    sample_size = min(points.shape[0], max(3 * int(bundle_count), 4096))
+    init_sample = points[rng.choice(points.shape[0], size=sample_size, replace=False)]
+    centers = _kmeanspp_centers(init_sample, int(bundle_count), rng)
+    counts = np.zeros(int(bundle_count), dtype=float)
+    batch_size = min(int(batch_size), points.shape[0])
+    for _ in range(int(rounds)):
+        batch = points[rng.choice(points.shape[0], size=batch_size, replace=False)]
+        labels = _nearest_labels(batch, centers)
+        sums = np.zeros_like(centers)
+        np.add.at(sums, labels, batch)
+        batch_counts = np.bincount(labels, minlength=centers.shape[0]).astype(float)
+        active = batch_counts > 0
+        means = sums[active] / batch_counts[active][:, None]
+        previous = counts[active]
+        factor = np.where(
+            previous > 0, previous / np.maximum(previous + batch_counts[active], 1e-300), 0.0,
+        )[:, None]
+        centers[active] = np.where(
+            previous[:, None] > 0,
+            centers[active] + factor * (means - centers[active]),
+            means,
+        )
+        counts[active] += batch_counts[active]
+    assignments = np.asarray(_nearest_labels(points, centers), dtype=np.int64)
+    populated = np.bincount(assignments, minlength=int(bundle_count))
+    record = {
+        "minibatch_init_sample": int(sample_size),
+        "minibatch_batch_size": int(batch_size),
+        "minibatch_rounds": int(rounds),
+        "populated_bundles": int(np.count_nonzero(populated)),
+    }
+    return assignments, record
+
+
+def response_pca_assignments(design, n_first, n_second, components):
+    """Equal-weight bundles from a quantile grid on leading response-PCA scores (§13).
+
+    Deterministic linear reduction of the error-normalized design columns:
+    center the orbit points, keep the leading principal directions, and
+    partition the leading two scores with the §2.2 variable-agnostic quantile
+    grid. No iterative clustering and no random draws; the grid is invariant
+    to per-axis sign flips (a rank-preserving relabeling).
+    """
+
+    points = _design_points(design)
+    centered = points - points.mean(axis=0, keepdims=True)
+    _, singular, right_vectors = np.linalg.svd(centered, full_matrices=False)
+    scores = centered @ right_vectors[: int(components)].T
+    total_energy = float(np.sum(singular ** 2))
+    explained = [float(value ** 2 / total_energy) for value in singular[: int(components)]]
+    assignments, k_total = quantile_bundle_grid(scores[:, 0], scores[:, 1], int(n_first), int(n_second))
+    populated = np.bincount(assignments, minlength=int(k_total))
+    record = {
+        "pca_components": int(components),
+        "pca_explained_variance_share": explained,
+        "populated_bundles": int(np.count_nonzero(populated)),
+    }
+    return assignments, record
+
+
+def warmstart_kmeans_assignments(design, init_centers, iterations):
+    """Lloyd refinement from provided centroids, iteration-capped (§13).
+
+    Starts from physical-grid cell centroids instead of k-means++ seeding, so
+    the cost is one distance pass per iteration; tests how far a few Lloyd
+    steps move the (f_z,E) grid toward the oracle partition. Deterministic:
+    no random draws, and centers that lose all members keep their position.
+    """
+
+    points = _design_points(design)
+    centers = np.asarray(init_centers, dtype=float).copy()
+    used = 0
+    for iteration in range(int(iterations)):
+        labels = _nearest_labels(points, centers)
+        sums = np.zeros_like(centers)
+        np.add.at(sums, labels, points)
+        counts = np.bincount(labels, minlength=centers.shape[0]).astype(float)
+        populated = counts > 0
+        new_centers = centers.copy()
+        new_centers[populated] = sums[populated] / counts[populated][:, None]
+        shift = float(np.max(np.sum((new_centers - centers) ** 2, axis=1)))
+        centers = new_centers
+        used = iteration + 1
+        if shift < 1e-12:
+            break
+    assignments = np.asarray(_nearest_labels(points, centers), dtype=np.int64)
+    populated = np.bincount(assignments, minlength=centers.shape[0])
+    record = {
+        "warmstart_iterations_used": used,
+        "warmstart_init_centers": int(centers.shape[0]),
+        "populated_bundles": int(np.count_nonzero(populated)),
+    }
+    return assignments, record
+
+
+def weight_concentration(weights, assignments=None, k_total=None):
+    """Orbit-level and (for bundled cases) bundle-mass-level concentration (§13).
+
+    Orbit level: shares of the per-orbit (backfilled) weights over the total.
+    Bundle level (when `assignments` is given): shares of the bundle masses
+    n_k u_k, the quantity §12 reported as the maximum bundle weight fraction.
+    n90/n99 are the counts of orbits/bundles carrying 90/99% of the mass.
+    """
+
+    w = np.asarray(weights, dtype=float).ravel()
+    total = float(np.sum(w))
+    if not np.isfinite(total) or total <= 0:
+        raise ValueError("weight_concentration needs a finite positive total weight")
+    shares = np.sort(w / total)[::-1]
+    cumulative = np.cumsum(shares)
+    record = {
+        "n_eff": float(total ** 2 / float(np.dot(w, w))),
+        "max_fraction": float(shares[0]),
+        "top10_share": float(np.sum(shares[:10])),
+        "top100_share": float(np.sum(shares[:100])),
+        "hhi": float(np.dot(shares, shares)),
+        "n90": int(np.searchsorted(cumulative, 0.90) + 1),
+        "n99": int(np.searchsorted(cumulative, 0.99) + 1),
+        "nonzero_orbits": int(np.count_nonzero(w > 0)),
+    }
+    if assignments is not None:
+        if k_total is None:
+            k_total = int(np.max(assignments)) + 1
+        member = np.bincount(assignments, minlength=int(k_total)).astype(float)
+        mass = np.zeros(int(k_total))
+        np.add.at(mass, assignments, w)
+        bundle_shares = np.sort(mass[mass > 0] / total)[::-1]
+        bundle_cumulative = np.cumsum(bundle_shares)
+        record["bundle"] = {
+            "populated_bundles": int(bundle_shares.size),
+            "n_eff": float(total ** 2 / float(np.dot(mass, mass))),
+            "max_fraction": float(bundle_shares[0]),
+            "top10_share": float(np.sum(bundle_shares[:10])),
+            "top100_share": float(np.sum(bundle_shares[:100])),
+            "hhi": float(np.dot(bundle_shares, bundle_shares)),
+            "n90": int(np.searchsorted(bundle_cumulative, 0.90) + 1),
+            "n99": int(np.searchsorted(bundle_cumulative, 0.99) + 1),
+        }
+    return record
 
 
 def equal_weight_distortion_of(design, assignments):
@@ -486,8 +746,8 @@ def main(config_path: str) -> None:
     frozen_path = REPO / experiment["frozen_cache"]
     frozen_provenance_path = REPO / experiment["frozen_provenance"]
     output_dir = REPO / experiment["output_dir"]
-    grouping_mode, n_lambda, n_energy, kmeans_bundles, kmeans_seed = resolve_grouping_mode(experiment)
-    grouping_variables = resolve_grouping_variables(experiment) if grouping_mode == "variables" else None
+    grouping_spec = resolve_grouping_mode(experiment)
+    grouping_mode = grouping_spec["mode"]
     random_seed = int(experiment["random_seed"])
     if int(experiment["repeat_runs"]) != 1:
         raise ValueError("this driver implements the single-measurement round only (repeat_runs = 1)")
@@ -555,7 +815,7 @@ def main(config_path: str) -> None:
     # ---- grouping: per-seed mean lambda_z and energy in the frozen potential ----
     frozen_provenance = json.loads(frozen_provenance_path.read_text())
     successful = response.successful_seed_index
-    if grouping_mode == "variables":
+    if grouping_mode in ("variables", "response_kmeans_warmstart"):
         recorded_parameters = frozen_provenance.get("potential_parameters")
         if recorded_parameters:
             grouping_note = "potential parameters taken from the frozen-run provenance record"
@@ -578,16 +838,36 @@ def main(config_path: str) -> None:
             )
         potential = build_potential_from_parameters(parameters)
         orbit_variables, grouping_seconds = compute_orbit_variables(
-            grouping_variables, library, successful, potential,
+            grouping_spec["variables"], library, successful, potential,
         )
-        print(f"grouping variables {grouping_variables} in {grouping_seconds:.2f}s "
-              f"(n bins {n_lambda}x{n_energy})")
+        if grouping_mode == "response_kmeans_warmstart":
+            grouping_note = (
+                "capped Lloyd refinement on the error-normalized density design "
+                "columns, warm-started from physical quantile-grid cell centroids "
+                "(potential parameters from the frozen-run provenance record); "
+                "the velocity objective never enters the grouping"
+            )
+        print(f"grouping variables {grouping_spec['variables']} in {grouping_seconds:.2f}s "
+              f"(n bins {grouping_spec['n_first']}x{grouping_spec['n_second']})")
     else:
-        grouping_note = (
-            "response k-means grouping on the error-normalized density design "
-            "columns (§12 oracle); no orbit variables and no potential are used, "
-            "and the velocity objective never enters the grouping"
-        )
+        if grouping_mode == "response_kmeans":
+            grouping_note = (
+                "response k-means grouping on the error-normalized density design "
+                "columns (§12 oracle); no orbit variables and no potential are used, "
+                "and the velocity objective never enters the grouping"
+            )
+        elif grouping_mode == "response_kmeans_minibatch":
+            grouping_note = (
+                "minibatch k-means grouping on the error-normalized density design "
+                "columns (§13 cheap oracle); no orbit variables and no potential "
+                "are used, and the velocity objective never enters the grouping"
+            )
+        else:
+            grouping_note = (
+                "deterministic PCA quantile grid on the error-normalized density "
+                "design columns (§13); no orbit variables, no potential, no "
+                "randomness, and the velocity objective never enters the grouping"
+            )
         orbit_variables = None
 
     # ---- shared inner problem: identical normalization path as production ----
@@ -631,6 +911,7 @@ def main(config_path: str) -> None:
             "weight_sum": evaluation.weight_sum,
             "effective_orbit_count": solution.effective_orbit_count,
             "maximum_weight_fraction": solution.maximum_weight_fraction,
+            "weight_concentration": weight_concentration(solution.seed_weights, case_assignments),
             "active_orbit_count": solution.active_orbit_count,
             "bundle_count": int(np.max(case_assignments)) + 1,
             "active_bundles": int(np.count_nonzero(u > 0)),
@@ -672,20 +953,68 @@ def main(config_path: str) -> None:
 
     if grouping_mode == "variables":
         assignments, k_total = quantile_bundle_grid(
-            orbit_variables[grouping_variables[0]][active_columns],
-            orbit_variables[grouping_variables[1]][active_columns],
-            n_lambda, n_energy,
+            orbit_variables[grouping_spec["variables"][0]][active_columns],
+            orbit_variables[grouping_spec["variables"][1]][active_columns],
+            grouping_spec["n_first"], grouping_spec["n_second"],
         )
         distortion_bundled = equal_weight_distortion_of(design, assignments)
-    else:
+    elif grouping_mode == "response_kmeans":
         started = time.perf_counter()
         assignments, distortion_bundled = response_kmeans_assignments(
-            design, kmeans_bundles, seed=kmeans_seed,
+            design, grouping_spec["k"], seed=grouping_spec["seed"],
         )
         grouping_seconds = time.perf_counter() - started
         k_total = int(np.max(assignments)) + 1
-        print(f"response k-means grouping k={kmeans_bundles} in {grouping_seconds:.2f}s "
+        print(f"response k-means grouping k={grouping_spec['k']} in {grouping_seconds:.2f}s "
               f"(D={distortion_bundled['equal_weight_distortion']:.4f}, "
+              f"populated={distortion_bundled['populated_bundles']})")
+    elif grouping_mode == "response_kmeans_minibatch":
+        started = time.perf_counter()
+        assignments, grouping_record = minibatch_kmeans_assignments(
+            design, grouping_spec["k"], seed=grouping_spec["seed"],
+            batch_size=grouping_spec["minibatch_size"], rounds=grouping_spec["minibatch_rounds"],
+        )
+        grouping_seconds = time.perf_counter() - started
+        distortion_bundled = equal_weight_distortion_of(design, assignments)
+        k_total = int(np.max(assignments)) + 1
+        print(f"minibatch k-means grouping k={grouping_spec['k']} in {grouping_seconds:.2f}s "
+              f"(D={distortion_bundled['equal_weight_distortion']:.4f}, "
+              f"populated={distortion_bundled['populated_bundles']}, "
+              f"batch={grouping_record['minibatch_batch_size']}x{grouping_record['minibatch_rounds']})")
+    elif grouping_mode == "response_pca_grid":
+        started = time.perf_counter()
+        assignments, grouping_record = response_pca_assignments(
+            design, grouping_spec["n_first"], grouping_spec["n_second"], grouping_spec["pca_components"],
+        )
+        grouping_seconds = time.perf_counter() - started
+        distortion_bundled = equal_weight_distortion_of(design, assignments)
+        k_total = int(np.max(assignments)) + 1
+        explained = "/".join(f"{share:.4f}" for share in grouping_record["pca_explained_variance_share"])
+        print(f"response PCA grid {grouping_spec['n_first']}x{grouping_spec['n_second']} "
+              f"in {grouping_seconds:.2f}s (D={distortion_bundled['equal_weight_distortion']:.4f}, "
+              f"populated={distortion_bundled['populated_bundles']}, explained={explained})")
+    else:  # response_kmeans_warmstart
+        started = time.perf_counter()
+        grid_assignments, _grid_total = quantile_bundle_grid(
+            orbit_variables[grouping_spec["variables"][0]][active_columns],
+            orbit_variables[grouping_spec["variables"][1]][active_columns],
+            grouping_spec["n_first"], grouping_spec["n_second"],
+        )
+        design_dense = np.asarray(design.todense(), dtype=float)
+        grid_member = np.bincount(grid_assignments)
+        grid_sums = np.zeros((grid_member.size, design_dense.shape[0]))
+        np.add.at(grid_sums, grid_assignments, design_dense.T)
+        grid_populated = grid_member > 0
+        init_centers = grid_sums[grid_populated] / grid_member[grid_populated][:, None]
+        assignments, grouping_record = warmstart_kmeans_assignments(
+            design, init_centers, grouping_spec["warmstart_iterations"],
+        )
+        grouping_seconds += time.perf_counter() - started
+        distortion_bundled = equal_weight_distortion_of(design, assignments)
+        k_total = int(np.max(assignments)) + 1
+        print(f"warm-start k-means from {init_centers.shape[0]} grid centroids, "
+              f"{grouping_record['warmstart_iterations_used']} Lloyd iterations in "
+              f"{grouping_seconds:.2f}s including variables (D={distortion_bundled['equal_weight_distortion']:.4f}, "
               f"populated={distortion_bundled['populated_bundles']})")
     bundled_case, bundled_arrays, evaluation_bundled, u_bundled = run_bundled_case("bundled", assignments)
 
@@ -719,6 +1048,7 @@ def main(config_path: str) -> None:
         "weight_sum": evaluation_full.weight_sum,
         "effective_orbit_count": full_solution.effective_orbit_count,
         "maximum_weight_fraction": full_solution.maximum_weight_fraction,
+        "weight_concentration": weight_concentration(full_solution.seed_weights),
         "active_orbit_count": full_solution.active_orbit_count,
         "inner_objective": full_solution.inner_objective,
         "data_term_F": full_solution.inner_objective - full_solution.regularization_penalty,
@@ -814,9 +1144,9 @@ def main(config_path: str) -> None:
         "error_normalized": error_normalized,
         "fit_mask": mask,
     }
-    if grouping_mode == "variables":
-        bundle_payload["orbit_var_first"] = orbit_variables[grouping_variables[0]]
-        bundle_payload["orbit_var_second"] = orbit_variables[grouping_variables[1]]
+    if grouping_mode in ("variables", "response_kmeans_warmstart"):
+        bundle_payload["orbit_var_first"] = orbit_variables[grouping_spec["variables"][0]]
+        bundle_payload["orbit_var_second"] = orbit_variables[grouping_spec["variables"][1]]
     np.savez(output_dir / "bundles.npz", **bundle_payload)
     save_attempt(output_dir, "full", full_case, full_arrays)
     save_attempt(output_dir, "bundled", bundled_case, bundled_arrays)
@@ -845,15 +1175,18 @@ def main(config_path: str) -> None:
         "methods": {
             "full": {key: full_case[key] for key in (
                 "objective_velocity", "density_chi2_per_bin", "density_gate_passed",
-                "weight_sum", "active_orbit_count", "timings_seconds",
+                "weight_sum", "effective_orbit_count", "maximum_weight_fraction",
+                "weight_concentration", "active_orbit_count", "timings_seconds",
             )},
             "bundled": {key: bundled_case[key] for key in (
                 "objective_velocity", "density_chi2_per_bin", "density_gate_passed",
-                "weight_sum", "active_orbit_count", "timings_seconds",
+                "weight_sum", "effective_orbit_count", "maximum_weight_fraction",
+                "weight_concentration", "active_orbit_count", "timings_seconds",
             )},
             "random": {key: random_case[key] for key in (
                 "objective_velocity", "density_chi2_per_bin", "density_gate_passed",
-                "weight_sum", "active_orbit_count", "timings_seconds",
+                "weight_sum", "effective_orbit_count", "maximum_weight_fraction",
+                "weight_concentration", "active_orbit_count", "timings_seconds",
             )},
         },
         "notes": {

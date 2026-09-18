@@ -1,0 +1,18 @@
+# nphi4 2D-variable reference at the mid bundle count (plan §13):
+# (Jz/Jtot, E) phi-average basis at 48x48 = 2304 bundles, the missing point
+# between the §10 32x32 (1024, gate fail) and 64x64 (4096, gate pass) rounds;
+# also the 0-iteration reference for the §13 warm-start experiment.
+# Plain toml read by scripts/benchmark_nphi1_bundling.py via tomllib; not a run schema.
+# Paths are resolved relative to the repository root.
+
+run_config = "configs/runs/density_solved_benchmark.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+output_dir = ".agent-local/benchmarks/nphi4_repair_2d_fz_energy_48x48"
+
+grouping_variables = ["jz_over_jtot_phi", "energy"]
+n_lambda = 48
+n_energy = 48
+random_seed = 0
+repeat_runs = 1
+reduced_kkt_tolerance = 1e-8

@@ -1,0 +1,20 @@
+# nphi4 minibatch response-k-means experiment (docs/nphi1_bundling_repair_plan.md §13):
+# cheap-oracle variant of the §12 oracle at the same k=2304; k-means++ on a
+# 6912-point subsample plus Sculley minibatch updates (1024 x 100), testing
+# whether oracle-grade grouping survives at a fraction of the full Lloyd cost.
+# Plain toml read by scripts/benchmark_nphi1_bundling.py via tomllib; not a run schema.
+# Paths are resolved relative to the repository root.
+
+run_config = "configs/runs/density_solved_benchmark.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+output_dir = ".agent-local/benchmarks/nphi4_minibatch_2304"
+
+grouping_mode = "response_kmeans_minibatch"
+kmeans_bundles = 2304
+kmeans_seed = 0
+minibatch_size = 1024
+minibatch_rounds = 100
+random_seed = 0
+repeat_runs = 1
+reduced_kkt_tolerance = 1e-8

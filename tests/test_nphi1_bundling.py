@@ -416,30 +416,99 @@ class ResponseKmeansGroupingTests(unittest.TestCase):
     def test_resolve_grouping_mode_defaults_and_contracts(self):
         self.assertEqual(
             bundling.resolve_grouping_mode({"n_lambda": 8, "n_energy": 4}),
-            ("variables", 8, 4, 0, 0),
+            {
+                "mode": "variables", "n_first": 8, "n_second": 4,
+                "variables": ["lam_z", "energy"], "k": None, "seed": 0,
+                "minibatch_size": None, "minibatch_rounds": None,
+                "pca_components": None, "warmstart_iterations": None,
+            },
         )
         self.assertEqual(
             bundling.resolve_grouping_mode(
                 {"grouping_mode": "variables", "n_lambda": 64, "n_energy": 64}
             ),
-            ("variables", 64, 64, 0, 0),
+            {
+                "mode": "variables", "n_first": 64, "n_second": 64,
+                "variables": ["lam_z", "energy"], "k": None, "seed": 0,
+                "minibatch_size": None, "minibatch_rounds": None,
+                "pca_components": None, "warmstart_iterations": None,
+            },
         )
         self.assertEqual(
             bundling.resolve_grouping_mode(
                 {"grouping_mode": "response_kmeans", "kmeans_bundles": 1024}
             ),
-            ("response_kmeans", None, None, 1024, 0),
+            {
+                "mode": "response_kmeans", "n_first": None, "n_second": None,
+                "variables": None, "k": 1024, "seed": 0,
+                "minibatch_size": None, "minibatch_rounds": None,
+                "pca_components": None, "warmstart_iterations": None,
+            },
         )
         self.assertEqual(
             bundling.resolve_grouping_mode(
                 {"grouping_mode": "response_kmeans", "kmeans_bundles": 2304, "kmeans_seed": 7}
             ),
-            ("response_kmeans", None, None, 2304, 7),
+            {
+                "mode": "response_kmeans", "n_first": None, "n_second": None,
+                "variables": None, "k": 2304, "seed": 7,
+                "minibatch_size": None, "minibatch_rounds": None,
+                "pca_components": None, "warmstart_iterations": None,
+            },
         )
         with self.assertRaises(ValueError):
             bundling.resolve_grouping_mode({"grouping_mode": "response_kmeans", "kmeans_bundles": 0})
         with self.assertRaises(ValueError):
             bundling.resolve_grouping_mode({"grouping_mode": "spectral"})
+
+    def test_resolve_grouping_mode_section13_families(self):
+        self.assertEqual(
+            bundling.resolve_grouping_mode(
+                {"grouping_mode": "response_kmeans_minibatch", "kmeans_bundles": 2304}
+            )["minibatch_size"],
+            1024,
+        )
+        self.assertEqual(
+            bundling.resolve_grouping_mode(
+                {"grouping_mode": "response_kmeans_minibatch", "kmeans_bundles": 2304}
+            )["minibatch_rounds"],
+            100,
+        )
+        self.assertEqual(
+            bundling.resolve_grouping_mode(
+                {"grouping_mode": "response_pca_grid", "pca_first_bins": 48, "pca_second_bins": 48}
+            ),
+            {
+                "mode": "response_pca_grid", "n_first": 48, "n_second": 48,
+                "variables": None, "k": None, "seed": 0,
+                "minibatch_size": None, "minibatch_rounds": None,
+                "pca_components": 2, "warmstart_iterations": None,
+            },
+        )
+        self.assertEqual(
+            bundling.resolve_grouping_mode(
+                {"grouping_mode": "response_kmeans_warmstart", "n_lambda": 48, "n_energy": 48}
+            ),
+            {
+                "mode": "response_kmeans_warmstart", "n_first": 48, "n_second": 48,
+                "variables": ["jz_over_jtot_phi", "energy"], "k": None, "seed": 0,
+                "minibatch_size": None, "minibatch_rounds": None,
+                "pca_components": None, "warmstart_iterations": 5,
+            },
+        )
+        with self.assertRaises(ValueError):
+            bundling.resolve_grouping_mode(
+                {"grouping_mode": "response_pca_grid", "pca_components": 1,
+                 "pca_first_bins": 8, "pca_second_bins": 8}
+            )
+        with self.assertRaises(ValueError):
+            bundling.resolve_grouping_mode(
+                {"grouping_mode": "response_kmeans_warmstart", "n_lambda": 8,
+                 "n_energy": 8, "warmstart_iterations": -1}
+            )
+        with self.assertRaises(ValueError) as caught:
+            bundling.resolve_grouping_mode({"grouping_mode": "ward"})
+        self.assertIn("response_kmeans_minibatch", str(caught.exception))
 
     def test_response_kmeans_groups_identical_column_pairs_deterministically(self):
         """Two clusters of exactly identical columns separate under any seed."""
@@ -471,6 +540,96 @@ class ResponseKmeansGroupingTests(unittest.TestCase):
         record = bundling.equal_weight_distortion_of(design, np.zeros(3, dtype=np.int64))
         self.assertEqual(record["populated_bundles"], 1)
         self.assertAlmostEqual(record["equal_weight_distortion"], 0.0, places=12)
+
+
+class BundleAlternativesGroupingTests(unittest.TestCase):
+    """Small-array acceptance for the §13 grouping families and concentration."""
+
+    @staticmethod
+    def _three_cluster_design():
+        # Three well-separated response directions (rows 0-2), each carrying
+        # four orbits with tiny per-orbit jitter so k-means++ never runs out
+        # of distinct points.
+        rng = np.random.default_rng(3)
+        centers = np.array(
+            [
+                [10.0, 0.0, 0.0],
+                [0.0, 10.0, 0.0],
+                [0.0, 0.0, 10.0],
+            ]
+        )
+        columns = np.vstack([center + 1e-3 * rng.normal(size=(4, 3)) for center in centers])
+        return scipy.sparse.csr_matrix(columns.T)
+
+    def test_minibatch_kmeans_recovers_separated_clusters_deterministically(self):
+        design = self._three_cluster_design()
+        assignments, record = bundling.minibatch_kmeans_assignments(
+            design, 3, seed=0, batch_size=6, rounds=10,
+        )
+        self.assertEqual(assignments.shape, (12,))
+        for start in (0, 4, 8):
+            block = assignments[start:start + 4]
+            self.assertTrue(np.all(block == block[0]), f"cluster at {start} split")
+        self.assertEqual(len(np.unique(assignments)), 3)
+        self.assertEqual(record["populated_bundles"], 3)
+        again, _ = bundling.minibatch_kmeans_assignments(design, 3, seed=0, batch_size=6, rounds=10)
+        self.assertTrue(np.array_equal(assignments, again))
+
+    def test_response_pca_grid_is_deterministic_and_sign_invariant(self):
+        rng = np.random.default_rng(5)
+        base = rng.normal(size=(5, 40))
+        base[:2] *= 8.0  # leading two directions dominate the spectrum
+        design = scipy.sparse.csr_matrix(base)
+        assignments, record = bundling.response_pca_assignments(design, 4, 5, 2)
+        again, _ = bundling.response_pca_assignments(design, 4, 5, 2)
+        self.assertTrue(np.array_equal(assignments, again))
+        self.assertEqual(record["pca_components"], 2)
+        # Negating the design flips principal-direction signs; the quantile
+        # grid only relabels axes, so the partition structure is unchanged.
+        flipped, flipped_record = bundling.response_pca_assignments(
+            scipy.sparse.csr_matrix(-base), 4, 5, 2,
+        )
+        self.assertTrue(
+            np.array_equal(np.sort(np.bincount(assignments)), np.sort(np.bincount(flipped))),
+        )
+        self.assertAlmostEqual(
+            record["pca_explained_variance_share"][0],
+            flipped_record["pca_explained_variance_share"][0],
+        )
+
+    def test_warmstart_zero_iterations_is_the_init_partition(self):
+        design = self._three_cluster_design()
+        points = np.asarray(design.todense(), dtype=float).T
+        init_centers = points[[0, 4, 8]]
+        assignments, record = bundling.warmstart_kmeans_assignments(design, init_centers, 0)
+        self.assertEqual(record["warmstart_iterations_used"], 0)
+        self.assertEqual(record["warmstart_init_centers"], 3)
+        for start in (0, 4, 8):
+            block = assignments[start:start + 4]
+            self.assertTrue(np.all(block == block[0]))
+        refined, refined_record = bundling.warmstart_kmeans_assignments(design, init_centers, 5)
+        self.assertLessEqual(refined_record["warmstart_iterations_used"], 5)
+        # Centroid-initialized Lloyd is converged after one step on tight
+        # clusters, so further refinement must not move any orbit.
+        self.assertTrue(np.array_equal(assignments, refined))
+
+    def test_weight_concentration_known_vector(self):
+        weights = np.array([0.5, 0.25, 0.125, 0.125])
+        record = bundling.weight_concentration(weights, np.array([0, 0, 1, 1]))
+        self.assertAlmostEqual(record["n_eff"], 1.0 / 0.34375, places=12)
+        self.assertAlmostEqual(record["max_fraction"], 0.5, places=12)
+        self.assertAlmostEqual(record["hhi"], 0.34375, places=12)
+        self.assertEqual(record["n90"], 4)
+        self.assertEqual(record["n99"], 4)
+        self.assertEqual(record["nonzero_orbits"], 4)
+        bundle = record["bundle"]
+        self.assertEqual(bundle["populated_bundles"], 2)
+        self.assertAlmostEqual(bundle["n_eff"], 1.0 / 0.625, places=12)
+        self.assertAlmostEqual(bundle["max_fraction"], 0.75, places=12)
+        self.assertAlmostEqual(bundle["hhi"], 0.625, places=12)
+        self.assertEqual(bundle["n90"], 2)
+        with self.assertRaises(ValueError):
+            bundling.weight_concentration(np.zeros(4))
 
 
 if __name__ == "__main__":
