@@ -1,0 +1,17 @@
+# nphi4 minibatch response k-means bundle-count scan (S15): locate the
+# gate feasibility floor of the response-clustering family between the failed
+# oracle point at 1024 (chi2/bin 2.644) and the passing workpoint at 2304
+# (1.214); same driver settings as nphi4_minibatch_2304.toml at k=1792.
+run_config = "configs/runs/density_solved_benchmark.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+output_dir = ".agent-local/benchmarks/nphi4_minibatch_1792"
+
+grouping_mode = "response_kmeans_minibatch"
+kmeans_bundles = 1792
+kmeans_seed = 0
+minibatch_size = 1024
+minibatch_rounds = 100
+random_seed = 0
+repeat_runs = 1
+reduced_kkt_tolerance = 1e-8
