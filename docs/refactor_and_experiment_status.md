@@ -205,7 +205,7 @@ family `runs/20260913-flatten-parity/paper-best`。
 2026-09-13 求解器提速战役（`solver_settings_sweep`，本机 `.agent-local/`）
 的分束发现在 09-14 至 09-16 展开为一轮完整的方法修复与诊断战役，
 记录、脚本与配置本轮入库；完整实验记录见
-[nphi1 分束修复方案](nphi1_bundling_repair_plan.md) §1–§11。脉络：
+[nphi1 分束修复方案](nphi1_bundling_repair_plan.md) §1–§11（2026-09-19 增补 §12–§13：oracle 重解与 §13 廉价分组变体/权重集中度验证）。脉络：
 
 1. **修复（§1–§5）**：审计发现首轮 nphi1 分束实验五处结论性错误
    （random 对照求解/回填映射不一致、chi2 误带体积归一化、提速比计时
