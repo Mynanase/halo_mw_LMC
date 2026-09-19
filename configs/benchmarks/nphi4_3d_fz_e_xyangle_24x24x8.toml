@@ -1,0 +1,19 @@
+# nphi4 three-variable bundle experiment (docs/nphi1_bundling_repair_plan.md S14):
+# (Jz/Jtot, E, xy principal-axis angle) product-quantile grid at 24x24x8 =
+# 4608 bundles -- the audit-best projection (chi2/bin 5.31, below the 2D
+# 64x64 workpoint's 5.41 despite a coarser main plane).
+# Plain toml read by scripts/benchmark_nphi1_bundling.py via tomllib; not a run schema.
+# Paths are resolved relative to the repository root.
+
+run_config = "configs/runs/density_solved_benchmark.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+output_dir = ".agent-local/benchmarks/nphi4_3d_fz_e_xyangle_24x24x8"
+
+grouping_variables = ["jz_over_jtot_phi", "energy", "xy_angle"]
+n_lambda = 24
+n_energy = 24
+n_third = 8
+random_seed = 0
+repeat_runs = 1
+reduced_kkt_tolerance = 1e-8

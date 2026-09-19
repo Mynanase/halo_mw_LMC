@@ -1,0 +1,16 @@
+# nphi4 2D-variable reference (S14): (f_z, E) at 60x60 = 3600 bundles --
+# completing the 2D gate boundary between 2304 (fail, 2.147) and 4096
+# (pass, 1.606); audit projection 6.26.
+# Plain toml read by scripts/benchmark_nphi1_bundling.py via tomllib; not a run schema.
+
+run_config = "configs/runs/density_solved_benchmark.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+output_dir = ".agent-local/benchmarks/nphi4_repair_2d_fz_energy_60x60"
+
+grouping_variables = ["jz_over_jtot_phi", "energy"]
+n_lambda = 60
+n_energy = 60
+random_seed = 0
+repeat_runs = 1
+reduced_kkt_tolerance = 1e-8

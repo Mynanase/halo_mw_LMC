@@ -70,6 +70,32 @@ def quantile_bundle_grid(first, second, n_first, n_second):
     return assignments, n_first * n_second
 
 
+def quantile_bundle_partition(variables, bins):
+    """Product quantile partition over N orbit variables (S14 three-axis form).
+
+    Same edge rule per axis as quantile_bundle_grid: linspace(0, 1, n+1)
+    quantiles with open outer edges, searchsorted(side="right") - 1 clipped
+    to the interior; the composite index is row-major over the axes in the
+    order given, so a two-axis call reproduces quantile_bundle_grid
+    bit-for-bit (first_bin * n_second + second_bin).
+    """
+
+    if len(variables) != len(bins):
+        raise ValueError("quantile_bundle_partition needs one bin count per variable")
+    assignments = np.zeros(variables[0].size, dtype=np.int64)
+    total = 1
+    for values, n in zip(variables, bins):
+        n = int(n)
+        if n <= 0:
+            raise ValueError("bin counts must be positive integers")
+        edges = np.quantile(values, np.linspace(0.0, 1.0, n + 1))
+        edges[0], edges[-1] = -np.inf, np.inf
+        index = np.clip(np.searchsorted(edges, values, side="right") - 1, 0, n - 1)
+        assignments = assignments * n + index
+        total *= n
+    return assignments, total
+
+
 def solve_bundled_weights(design, observed, assignments, regularization):
     """Solve min(u>=0) ||A S u - b||^2 + lambda * sum_k n_k u_k^2; return u.
 
@@ -210,15 +236,20 @@ def _circularity_scale(potential):
 
 SUPPORTED_GROUPING_VARIABLES = (
     "lam_z", "energy", "omega_z", "jr_phi", "jz_phi", "jphi_phi", "jz_over_jtot_phi",
+    "xy_angle", "omega_phi",
 )
 
 
 def resolve_grouping_variables(experiment: dict) -> list[str]:
-    """Read ``grouping_variables`` from the experiment dict; default (lam_z, energy)."""
+    """Read ``grouping_variables`` from the experiment dict; default (lam_z, energy).
+
+    Two names give the SS2/SS10 two-axis grid; three names (S14) read the
+    third-axis bin count from ``n_third`` (default 1 = two-axis behaviour).
+    """
 
     names = [str(name) for name in experiment.get("grouping_variables", ["lam_z", "energy"])]
-    if len(names) != 2:
-        raise ValueError("grouping_variables must name exactly two orbit variables")
+    if len(names) not in (2, 3):
+        raise ValueError("grouping_variables must name two or three orbit variables")
     unknown = [name for name in names if name not in SUPPORTED_GROUPING_VARIABLES]
     if unknown:
         raise ValueError(
@@ -252,13 +283,21 @@ def resolve_grouping_mode(experiment: dict) -> dict:
     mode = str(experiment.get("grouping_mode", "variables"))
     spec = {
         "mode": mode, "n_first": None, "n_second": None, "variables": None,
-        "k": None, "seed": 0, "minibatch_size": None, "minibatch_rounds": None,
+        "n_third": None, "k": None, "seed": 0, "minibatch_size": None, "minibatch_rounds": None,
         "pca_components": None, "warmstart_iterations": None,
     }
     if mode == "variables":
+        names = resolve_grouping_variables(experiment)
+        n_third = int(experiment.get("n_third", 1))
+        if n_third < 1:
+            raise ValueError("n_third must be a positive integer")
+        if len(names) == 2 and n_third != 1:
+            raise ValueError("n_third > 1 requires exactly three grouping variables")
+        if len(names) == 3 and n_third == 1:
+            raise ValueError("three grouping variables require n_third > 1")
         spec.update(
-            variables=resolve_grouping_variables(experiment),
-            n_first=int(experiment["n_lambda"]), n_second=int(experiment["n_energy"]),
+            variables=names,
+            n_first=int(experiment["n_lambda"]), n_second=int(experiment["n_energy"]), n_third=n_third,
         )
         return spec
     if mode == "response_kmeans":
@@ -639,6 +678,38 @@ def compute_orbit_variables(names, library, successful, potential):
         dt_rows = np.median(np.diff(times_grid, axis=1), axis=1)
         values["omega_z"] = dominant_frequency(z_series, dt_rows)
 
+    if "xy_angle" in names:
+        if not np.all(counts == counts[0]):
+            raise ValueError("xy_angle needs an equal number of samples per orbit")
+        if not np.all(np.diff(column) >= 0):
+            raise ValueError("xy_angle needs library samples grouped by seed in seed order")
+        samples_per_orbit = int(counts[0])
+        shaped = seed_samples.reshape(successful.size, samples_per_orbit, 6)
+        x_values, y_values = shaped[..., 0], shaped[..., 1]
+        cx = np.mean((x_values - x_values.mean(axis=1, keepdims=True)) ** 2, axis=1)
+        cy = np.mean((y_values - y_values.mean(axis=1, keepdims=True)) ** 2, axis=1)
+        cxy = np.mean(
+            (x_values - x_values.mean(axis=1, keepdims=True))
+            * (y_values - y_values.mean(axis=1, keepdims=True)), axis=1,
+        )
+        values["xy_angle"] = 0.5 * np.arctan2(2.0 * cxy, cx - cy)
+
+    if "omega_phi" in names:
+        if not np.all(counts == counts[0]):
+            raise ValueError("omega_phi needs an equal number of samples per orbit")
+        if not np.all(np.diff(column) >= 0):
+            raise ValueError("omega_phi needs library samples grouped by seed in seed order")
+        samples_per_orbit = int(counts[0])
+        shaped = seed_samples.reshape(successful.size, samples_per_orbit, 6)
+        times_grid = library.time[is_seed].reshape(successful.size, samples_per_orbit)
+        phi = np.arctan2(shaped[..., 1], shaped[..., 0])
+        phi_unwrapped = np.unwrap(phi, axis=1)
+        time_centered = times_grid - times_grid.mean(axis=1, keepdims=True)
+        numerator = np.sum(
+            time_centered * (phi_unwrapped - phi_unwrapped.mean(axis=1, keepdims=True)), axis=1,
+        )
+        values["omega_phi"] = numerator / (2.0 * np.pi) / np.sum(time_centered ** 2, axis=1)
+
     if any(name in names for name in ("jr_phi", "jz_phi", "jphi_phi", "jz_over_jtot_phi")):
         import agama
 
@@ -861,8 +932,11 @@ def main(config_path: str) -> None:
                 "(potential parameters from the frozen-run provenance record); "
                 "the velocity objective never enters the grouping"
             )
+        bins_label = f"{grouping_spec['n_first']}x{grouping_spec['n_second']}"
+        if len(grouping_spec["variables"]) == 3:
+            bins_label += f"x{grouping_spec['n_third']}"
         print(f"grouping variables {grouping_spec['variables']} in {grouping_seconds:.2f}s "
-              f"(n bins {grouping_spec['n_first']}x{grouping_spec['n_second']})")
+              f"(n bins {bins_label})")
     else:
         if grouping_mode == "response_kmeans":
             grouping_note = (
@@ -968,11 +1042,11 @@ def main(config_path: str) -> None:
         return case, arrays, evaluation, u
 
     if grouping_mode == "variables":
-        assignments, k_total = quantile_bundle_grid(
-            orbit_variables[grouping_spec["variables"][0]][active_columns],
-            orbit_variables[grouping_spec["variables"][1]][active_columns],
-            grouping_spec["n_first"], grouping_spec["n_second"],
-        )
+        variable_columns = [orbit_variables[name][active_columns] for name in grouping_spec["variables"]]
+        variable_bins = [grouping_spec["n_first"], grouping_spec["n_second"]]
+        if len(variable_columns) == 3:
+            variable_bins.append(grouping_spec["n_third"])
+        assignments, k_total = quantile_bundle_partition(variable_columns, variable_bins)
         distortion_bundled = equal_weight_distortion_of(design, assignments)
     elif grouping_mode == "response_kmeans":
         started = time.perf_counter()
@@ -1163,6 +1237,8 @@ def main(config_path: str) -> None:
     if grouping_mode in ("variables", "response_kmeans_warmstart"):
         bundle_payload["orbit_var_first"] = orbit_variables[grouping_spec["variables"][0]]
         bundle_payload["orbit_var_second"] = orbit_variables[grouping_spec["variables"][1]]
+        if len(grouping_spec["variables"]) == 3:
+            bundle_payload["orbit_var_third"] = orbit_variables[grouping_spec["variables"][2]]
     np.savez(output_dir / "bundles.npz", **bundle_payload)
     save_attempt(output_dir, "full", full_case, full_arrays)
     save_attempt(output_dir, "bundled", bundled_case, bundled_arrays)

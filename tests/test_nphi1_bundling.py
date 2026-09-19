@@ -418,7 +418,7 @@ class ResponseKmeansGroupingTests(unittest.TestCase):
             bundling.resolve_grouping_mode({"n_lambda": 8, "n_energy": 4}),
             {
                 "mode": "variables", "n_first": 8, "n_second": 4,
-                "variables": ["lam_z", "energy"], "k": None, "seed": 0,
+                "variables": ["lam_z", "energy"], "n_third": 1, "k": None, "seed": 0,
                 "minibatch_size": None, "minibatch_rounds": None,
                 "pca_components": None, "warmstart_iterations": None,
             },
@@ -429,7 +429,7 @@ class ResponseKmeansGroupingTests(unittest.TestCase):
             ),
             {
                 "mode": "variables", "n_first": 64, "n_second": 64,
-                "variables": ["lam_z", "energy"], "k": None, "seed": 0,
+                "variables": ["lam_z", "energy"], "n_third": 1, "k": None, "seed": 0,
                 "minibatch_size": None, "minibatch_rounds": None,
                 "pca_components": None, "warmstart_iterations": None,
             },
@@ -440,7 +440,7 @@ class ResponseKmeansGroupingTests(unittest.TestCase):
             ),
             {
                 "mode": "response_kmeans", "n_first": None, "n_second": None,
-                "variables": None, "k": 1024, "seed": 0,
+                "variables": None, "n_third": None, "k": 1024, "seed": 0,
                 "minibatch_size": None, "minibatch_rounds": None,
                 "pca_components": None, "warmstart_iterations": None,
             },
@@ -451,7 +451,7 @@ class ResponseKmeansGroupingTests(unittest.TestCase):
             ),
             {
                 "mode": "response_kmeans", "n_first": None, "n_second": None,
-                "variables": None, "k": 2304, "seed": 7,
+                "variables": None, "n_third": None, "k": 2304, "seed": 7,
                 "minibatch_size": None, "minibatch_rounds": None,
                 "pca_components": None, "warmstart_iterations": None,
             },
@@ -480,7 +480,7 @@ class ResponseKmeansGroupingTests(unittest.TestCase):
             ),
             {
                 "mode": "response_pca_grid", "n_first": 48, "n_second": 48,
-                "variables": None, "k": None, "seed": 0,
+                "variables": None, "n_third": None, "k": None, "seed": 0,
                 "minibatch_size": None, "minibatch_rounds": None,
                 "pca_components": 2, "warmstart_iterations": None,
             },
@@ -491,7 +491,7 @@ class ResponseKmeansGroupingTests(unittest.TestCase):
             ),
             {
                 "mode": "response_kmeans_warmstart", "n_first": 48, "n_second": 48,
-                "variables": ["jz_over_jtot_phi", "energy"], "k": None, "seed": 0,
+                "variables": ["jz_over_jtot_phi", "energy"], "n_third": None, "k": None, "seed": 0,
                 "minibatch_size": None, "minibatch_rounds": None,
                 "pca_components": None, "warmstart_iterations": 5,
             },
@@ -509,6 +509,27 @@ class ResponseKmeansGroupingTests(unittest.TestCase):
         with self.assertRaises(ValueError) as caught:
             bundling.resolve_grouping_mode({"grouping_mode": "ward"})
         self.assertIn("response_kmeans_minibatch", str(caught.exception))
+
+    def test_resolve_grouping_mode_three_variable_contracts(self):
+        config = {
+            "grouping_variables": ["jz_over_jtot_phi", "energy", "lam_z"],
+            "n_lambda": 16, "n_energy": 16, "n_third": 9,
+        }
+        spec = bundling.resolve_grouping_mode(config)
+        self.assertEqual(spec["variables"], ["jz_over_jtot_phi", "energy", "lam_z"])
+        self.assertEqual((spec["n_first"], spec["n_second"], spec["n_third"]), (16, 16, 9))
+        with self.assertRaises(ValueError):
+            bundling.resolve_grouping_mode({**config, "n_third": 1})
+        with self.assertRaises(ValueError):
+            bundling.resolve_grouping_mode(
+                {"grouping_variables": ["jz_over_jtot_phi", "energy"],
+                 "n_lambda": 8, "n_energy": 8, "n_third": 4}
+            )
+        with self.assertRaises(ValueError):
+            bundling.resolve_grouping_mode(
+                {"grouping_variables": ["lam_z", "energy", "omega_z", "jr_phi"],
+                 "n_lambda": 8, "n_energy": 8, "n_third": 4}
+            )
 
     def test_response_kmeans_groups_identical_column_pairs_deterministically(self):
         """Two clusters of exactly identical columns separate under any seed."""
@@ -634,6 +655,47 @@ class BundleAlternativesGroupingTests(unittest.TestCase):
             bundling.weight_concentration(
                 np.ones(6), np.array([0, 0, 1, 1]),
             )
+
+    def test_quantile_bundle_partition_matches_grid_and_composes_third_axis(self):
+        rng = np.random.default_rng(9)
+        first = rng.normal(size=600)
+        second = rng.normal(size=600)
+        third = rng.normal(size=600)
+        grid_assignments, grid_total = bundling.quantile_bundle_grid(first, second, 8, 6)
+        partition_assignments, partition_total = bundling.quantile_bundle_partition(
+            [first, second], [8, 6],
+        )
+        self.assertTrue(np.array_equal(grid_assignments, partition_assignments))
+        self.assertEqual(grid_total, partition_total)
+        # Third axis composes row-major: the composite index of a 3-axis
+        # partition equals the 2-axis index of the first two axes times the
+        # third bin count plus the third-axis bin.
+        three_assignments, three_total = bundling.quantile_bundle_partition(
+            [first, second, third], [8, 6, 4],
+        )
+        self.assertEqual(three_total, 8 * 6 * 4)
+        self.assertTrue(np.array_equal(three_assignments // 4, partition_assignments))
+        self.assertEqual(np.max(three_assignments), three_total - 1)
+
+    def test_xy_angle_recovers_ellipse_orientation_with_pi_periodicity(self):
+        angles = np.array([0.0, np.pi / 3, np.pi / 3 + np.pi, -np.pi / 6])
+        t = np.linspace(0.0, 4.0 * np.pi, 128)
+        phase = np.zeros((angles.size, t.size, 6))
+        for row, theta in enumerate(angles):
+            phase[row, :, 0] = 3.0 * np.cos(t) * np.cos(theta) - 0.5 * np.sin(t) * np.sin(theta)
+            phase[row, :, 1] = 3.0 * np.cos(t) * np.sin(theta) + 0.5 * np.sin(t) * np.cos(theta)
+        library = SimpleNamespace(
+            seed_index=np.repeat(np.arange(angles.size), t.size),
+            phase_space=phase.reshape(-1, 6),
+        )
+        successful = np.arange(angles.size)
+        values, _ = bundling.compute_orbit_variables(
+            ["xy_angle"], library, successful, None,
+        )
+        recovered = values["xy_angle"]
+        # The principal-axis angle has period pi: theta + pi is the same axis.
+        wrapped = np.angle(np.exp(2j * (recovered - angles))) / 2.0
+        self.assertTrue(np.all(np.abs(wrapped) < 1e-9))
 
 
 if __name__ == "__main__":

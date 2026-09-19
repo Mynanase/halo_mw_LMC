@@ -1,0 +1,17 @@
+# nphi4 three-variable bundle experiment (S14): (f_z, E, xy angle) at
+# 16x16x16 = 4096 bundles -- allocation contrast against the 24x24x8 shape:
+# same axis, deeper third axis vs finer main plane at the S10 workpoint count.
+# Plain toml read by scripts/benchmark_nphi1_bundling.py via tomllib; not a run schema.
+
+run_config = "configs/runs/density_solved_benchmark.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+output_dir = ".agent-local/benchmarks/nphi4_3d_fz_e_xyangle_16x16x16"
+
+grouping_variables = ["jz_over_jtot_phi", "energy", "xy_angle"]
+n_lambda = 16
+n_energy = 16
+n_third = 16
+random_seed = 0
+repeat_runs = 1
+reduced_kkt_tolerance = 1e-8
