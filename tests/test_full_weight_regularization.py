@@ -45,6 +45,31 @@ class EntropyTests(unittest.TestCase):
         self.assertAlmostEqual(penalty_uniform, -np.log(2.0), places=12)
         self.assertGreater(penalty_concentrated, penalty_uniform)
 
+    def test_scaled_ill_conditioned_system_does_not_stop_at_start(self):
+        """Reproduce the production-scale L-BFGS-B failure mode locally."""
+
+        rng = np.random.default_rng(7)
+        rows, count = 80, 40
+        columns = rng.gamma(shape=2.0, size=(rows, count))
+        truth = rng.gamma(shape=2.0, size=count)
+        observed_physical = columns @ truth
+        error = 0.02 * observed_physical
+        design_dense = columns / error[:, None]
+        observed = observed_physical / error
+        design = scipy.sparse.csr_matrix(design_dense)
+        start = scan.initial_weights(design, observed, 0.0)
+        before = scan.gradient_diagnostics(design, observed, 0.0, 0.0, start)
+        # The ridge-NNLS start is feasible for the non-negative bound. It is
+        # not a stationary point after adding a nonzero entropy term.
+        self.assertLess(before["projected_gradient_l_inf"], 1e-3)
+        weights, result = scan.solve_entropy(design, observed, 0.0, 0.1, start, 500)
+        after = scan.gradient_diagnostics(design, observed, 0.0, 0.1, weights)
+        moved = float(np.linalg.norm(weights - start) / max(np.linalg.norm(start), 1e-30))
+        if result.success and result.nit <= 1 and moved < 1e-10:
+            self.assertGreater(after["projected_gradient_l_inf"], 1e-3)
+        else:
+            self.assertGreater(moved, 1e-10)
+
 
 class ResponseGraphTests(unittest.TestCase):
     def test_knn_graph_is_symmetric_and_laplacian_psd(self):

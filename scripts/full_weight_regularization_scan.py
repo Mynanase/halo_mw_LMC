@@ -95,6 +95,21 @@ def solve_entropy(design, observed, l2, strength, start, max_iter):
     return np.maximum(np.asarray(result.x, dtype=float), 0.0), result
 
 
+def projected_gradient(weights, gradient):
+    """First-order residual for non-negative variables."""
+
+    return np.where(weights > 1e-12, gradient, np.minimum(gradient, 0.0))
+
+
+def gradient_diagnostics(design, observed, l2, strength, weights):
+    _, gradient = objective_entropy(design, observed, l2, weights, strength, design.shape[1], {})
+    projected = projected_gradient(weights, gradient)
+    return {
+        "gradient_l_inf": float(np.max(np.abs(gradient))),
+        "projected_gradient_l_inf": float(np.max(np.abs(projected))),
+    }
+
+
 def response_graph(design, neighbours):
     """Symmetric kNN graph of nonnegative response columns, cosine similarity."""
 
@@ -243,6 +258,9 @@ def main() -> None:
                 "density_chi2_per_bin_raw": chi2 / fit_bins,
                 "solver_seconds": seconds, "iterations": iterations,
                 "solver_message": solver_message,
+                "solver_success": bool(result.success) if result is not None else True,
+                "solver_status": int(result.status) if result is not None else 0,
+                **gradient_diagnostics(design, problem.observed, l2, strength, weights),
                 **{f"weight_{key}": value for key, value in concentration(weights).items()},
             }
             rows.append(record)
@@ -264,7 +282,9 @@ def main() -> None:
                 f"{family:7s} mu={strength:g} chi2/row={chi2/design.shape[0]:.4f} "
                 f"Neff={record['weight_n_eff']:.1f} max={record['weight_max_share']:.4f} "
                 f"top10={record['weight_top10_share']:.3f} J={record['objective_velocity']:.1f} "
-                f"gate={record['density_gate_passed']} t={seconds:.1f}s nit={iterations}",
+                f"gate={record['density_gate_passed']} t={seconds:.1f}s nit={iterations} "
+                f"status={record['solver_status']} success={record['solver_success']} "
+                f"pgrad={record['projected_gradient_l_inf']:.3e} msg={solver_message}",
                 flush=True,
             )
 
