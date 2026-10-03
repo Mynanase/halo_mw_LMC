@@ -40,8 +40,8 @@ else
     SCAN_MODE=()
 fi
 if [[ -x "$UV" ]]; then
-    TEST=("$UV" run --locked python -m unittest tests.test_full_weight_regularization)
-    SCAN=("$UV" run --locked python scripts/full_weight_regularization_scan.py)
+    TEST=("$UV" run --locked --extra inference --extra astronomy python -m unittest tests.test_full_weight_regularization)
+    SCAN=("$UV" run --locked --extra inference --extra astronomy python scripts/full_weight_regularization_scan.py)
     SCAN+=("${SCAN_MODE[@]}")
 else
     TEST=("$PYTHON" -m unittest tests.test_full_weight_regularization)
