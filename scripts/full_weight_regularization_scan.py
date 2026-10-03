@@ -220,7 +220,7 @@ def main() -> None:
     seed_weights_path = OUTPUT / "seed_weights.npz"
     archive = {}
 
-    for family, strengths in (("entropy", ENTROPY_STRENGTHS), ("graph", GRAPH_STRENGTHS)):
+    for family, strengths in (("entropy", ENTROPY_STRENGTHS),):
         for strength in strengths:
             started = time.perf_counter()
             if family == "entropy":
