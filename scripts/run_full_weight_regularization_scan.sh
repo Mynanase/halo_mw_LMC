@@ -16,10 +16,11 @@ if [[ -d "$DATA_ROOT/.agent-local" && ! -d .agent-local ]]; then
     ln -s "$DATA_ROOT/.agent-local" .agent-local
 fi
 
-PYTHON="${HALO_MW_PYTHON:-/home/tqiu/miniforge3/envs/halo_lmc/bin/python}"
-if command -v uv >/dev/null 2>&1; then
-    TEST=(uv run --locked --extra inference --extra astronomy python -m unittest tests.test_full_weight_regularization)
-    SCAN=(uv run --locked --extra inference --extra astronomy python scripts/full_weight_regularization_scan.py)
+PYTHON="${HALO_MW_PYTHON:-/home/tqiu/.local/bin/python3}"
+UV="${HALO_MW_UV:-/home/tqiu/.local/bin/uv}"
+if [[ -x "$UV" ]]; then
+    TEST=("$UV" run --locked --extra inference --extra astronomy python -m unittest tests.test_full_weight_regularization)
+    SCAN=("$UV" run --locked --extra inference --extra astronomy python scripts/full_weight_regularization_scan.py)
 else
     TEST=("$PYTHON" -m unittest tests.test_full_weight_regularization)
     SCAN=("$PYTHON" scripts/full_weight_regularization_scan.py)
