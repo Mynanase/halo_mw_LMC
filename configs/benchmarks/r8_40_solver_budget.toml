@@ -1,0 +1,79 @@
+# Solver-budget experiment configuration (docs/solver_budget_experiment.md).
+#
+# One frozen orbit library per point, shared by two solver methods, plus a
+# three-level budget curve.  Scientific settings come from the stage-1 joint
+# screen recipe; only solver knobs differ between methods.  Thresholds are the
+# pre-fixed engineering gates and must not be relaxed after seeing results.
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved_r8_40_joint_screen.toml"
+phases = [
+  "preflight",
+  "prepare",
+  "parity",
+  "pilot",
+  "budget",
+  "repeat",
+  "holdout-prepare",
+  "holdout",
+  "confirm",
+]
+
+[benchmark]
+id = "r8_40_solver_budget_v1"
+output_root = "../../.agent-local/benchmarks/r8_40_solver_budget_v1"
+timeout_seconds = 3600.0
+repeats = 3
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz"
+
+[threads]
+openblas = 1
+mkl = 1
+blis = 1
+omp = 16
+
+# Coordinate order: qhalo, phalo, rho0, rho0_plus_2logrs, gamma.
+[points.paper_best]
+coordinates = [0.920, 0.800, 6.200, 9.890, 1.000]
+source = "paper anchor / s01:0"
+
+[points.accepted_best]
+coordinates = [0.985, 0.714, 6.099, 9.829, 0.751]
+source = "stage-1 screen s09:2"
+
+[points.capped_candidate]
+coordinates = [1.071, 0.738, 5.687, 9.541, 1.214]
+source = "stage-1 screen s07:2"
+
+[methods.trf_default]
+solver = "lsq_linear"
+lsmr_tol = 1e-6
+max_iter = 20000
+
+[methods.dense_reference]
+solver = "dense_nnls"
+solver_tolerance = 1e-8
+max_iter = 60000
+
+[budget]
+solver = "lsq_linear"
+lsmr_tol = 1e-6
+max_iter = [300, 1000, 5000]
+
+[thresholds]
+reference_kkt_maximum = 1e-8
+inner_objective_relative = 1e-8
+joint_objective_absolute = 1.0
+component_absolute = 1.0
+pairwise_delta_absolute = 1.0
+ranking_flip_reference_difference = 2.0
+density_prediction_rms = 0.01
+velocity_tv_weighted_mean = 1e-3
+velocity_tv_cell_maximum = 0.01
+velocity_tv_minimum_observations = 20
+repeat_rtol = 1e-12
+repeat_atol = 1e-12
+environment_instability_ratio = 1.25
+target_full_evaluation_seconds = 600.0

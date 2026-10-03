@@ -1,0 +1,229 @@
+"""Preflight for the named 8--40 kpc benchmark cases."""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass
+from pathlib import Path
+import subprocess
+import sys
+
+import numpy as np
+
+from .config import load_run_configuration, resolve_model
+
+
+R8_40_CASE_PARAMETERS = {
+    "density_solved_r8_40_benchmark.toml": (1e-6, 1e-6),
+    "density_solved_r8_40_tol1e7_benchmark.toml": (1e-7, 1e-6),
+    "density_solved_r8_40_tol1e8_benchmark.toml": (1e-8, 1e-6),
+    "density_solved_r8_40_reg1e5_benchmark.toml": (1e-6, 1e-5),
+    "density_solved_r8_40_reg1e4_benchmark.toml": (1e-6, 1e-4),
+}
+R8_40_POTENTIAL_RANKING_CASE_PARAMETERS = {
+    "density_solved_r8_40_potential_ranking_tol1e7.toml": (1e-7, 1e-6),
+    "density_solved_r8_40_potential_ranking_tol1e8.toml": (1e-8, 1e-6),
+}
+R8_40_SOLVER_CASE_PARAMETERS = {
+    "density_solved_r8_40_solver_lsq_linear_benchmark.toml": (
+        "lsq_linear",
+        1e-6,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_lsq_linear_repeat2.toml": (
+        "lsq_linear",
+        1e-6,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_lsq_linear_repeat3.toml": (
+        "lsq_linear",
+        1e-6,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_dense_nnls_benchmark.toml": (
+        "dense_nnls",
+        None,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_dense_nnls_repeat2.toml": (
+        "dense_nnls",
+        None,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_dense_nnls_repeat3.toml": (
+        "dense_nnls",
+        None,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_dual_ridge_benchmark.toml": (
+        "dual_ridge",
+        None,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_dual_ridge_repeat2.toml": (
+        "dual_ridge",
+        None,
+        1e-8,
+    ),
+    "density_solved_r8_40_solver_dual_ridge_repeat3.toml": (
+        "dual_ridge",
+        None,
+        1e-8,
+    ),
+}
+R8_40_POTENTIAL_RANKING_FIXED_POINTS = (
+    (0.920, 0.800, 6.200, 9.890, 1.000),
+    (0.820, 0.700, 6.200, 9.890, 1.000),
+    (1.020, 0.950, 6.200, 9.890, 1.000),
+    (0.920, 0.800, 6.500, 9.800, 1.200),
+    (0.920, 0.800, 5.900, 10.050, 0.800),
+)
+R8_40_RUN_CONFIG_NAMES = frozenset(
+    R8_40_CASE_PARAMETERS
+    | R8_40_POTENTIAL_RANKING_CASE_PARAMETERS
+    | R8_40_SOLVER_CASE_PARAMETERS
+)
+
+
+@dataclass(frozen=True)
+class BenchmarkPreflight:
+    configuration: dict
+
+
+def validate_benchmark_preflight(
+    repository: str | Path,
+    config_path: str | Path,
+    *,
+    time_program: str | Path = "/usr/bin/time",
+) -> BenchmarkPreflight:
+    """Reject an invalid, non-GNU-time, or non-cold-start run."""
+
+    root = Path(repository).resolve()
+    config = Path(config_path)
+    if not config.is_absolute():
+        config = root / config
+    config = config.resolve()
+    allowed_directory = (root / "configs" / "runs").resolve()
+    if config.parent != allowed_directory or config.name not in R8_40_RUN_CONFIG_NAMES:
+        raise RuntimeError("the launcher only accepts the named 8--40 benchmark configs")
+
+    time_path = Path(time_program)
+    if not time_path.is_file() or not os.access(time_path, os.X_OK):
+        raise RuntimeError(f"GNU time executable not found: {time_path}")
+    try:
+        version = subprocess.run(
+            [str(time_path), "--version"],
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise RuntimeError(f"could not execute GNU time: {time_path}") from exc
+    version_text = version.stdout + version.stderr
+    if "gnu time" not in version_text.lower():
+        raise RuntimeError(f"benchmark requires GNU time, not {time_path}")
+
+    configuration = load_run_configuration(config)
+    comparison = resolve_model(configuration["recipe"])
+    expected_shells = np.array([8, 10, 12, 15, 20, 30, 40], dtype=float)
+    expected_velocity_edges = np.array(
+        [4, 6, 8, 10, 12, 15, 20, 30, 40],
+        dtype=float,
+    )
+    actual_shells = np.asarray(comparison["objective"]["density_shell_edges"], dtype=float)
+    if config.name in R8_40_CASE_PARAMETERS:
+        expected_tol, expected_regularization = R8_40_CASE_PARAMETERS[config.name]
+        expected_solver = "lsq_linear"
+        expected_solver_tolerance = 1e-8
+        expected_iterations = 1
+        expected_fixed_points = None
+    elif config.name in R8_40_POTENTIAL_RANKING_CASE_PARAMETERS:
+        expected_tol, expected_regularization = (
+            R8_40_POTENTIAL_RANKING_CASE_PARAMETERS[config.name]
+        )
+        expected_solver = "lsq_linear"
+        expected_solver_tolerance = 1e-8
+        expected_iterations = len(R8_40_POTENTIAL_RANKING_FIXED_POINTS)
+        expected_fixed_points = R8_40_POTENTIAL_RANKING_FIXED_POINTS
+    else:
+        (
+            expected_solver,
+            expected_tol,
+            expected_solver_tolerance,
+        ) = R8_40_SOLVER_CASE_PARAMETERS[config.name]
+        expected_regularization = 1e-6
+        expected_iterations = 1
+        expected_fixed_points = None
+    if (
+        configuration["optimizer"]["iterations"] != expected_iterations
+        or configuration["optimizer"]["random_seed"] != 0
+        or configuration["optimizer"]["fixed_points"] != expected_fixed_points
+        or configuration["recipe"]["search"]["initial_point"] != "paper_best"
+        or comparison["density_fit"]["min_spherical_radius"] != 8.0
+        or comparison["density_fit"]["max_spherical_radius"] != 40.0
+        or comparison["density_fit"]["min_abs_z"] != 2.0
+        or comparison["velocity_fit_min_radius"] != 8.0
+        or comparison["velocity_grid"].radius_edges.shape
+        != expected_velocity_edges.shape
+        or not np.allclose(
+            comparison["velocity_grid"].radius_edges,
+            expected_velocity_edges,
+        )
+        or actual_shells.shape != expected_shells.shape
+        or not np.allclose(actual_shells, expected_shells)
+        or comparison["objective"]["density_max_chi2_per_bin"] != 2.0
+        or comparison["objective"]["density_shell_phi_max_chi2_per_bin"] != 2.0
+        or comparison["weight_model"]["mode"] != "density_solved"
+        or comparison["weight_model"]["solver"] != expected_solver
+        or comparison["weight_model"]["lsmr_tol"] != expected_tol
+        or comparison["weight_model"]["solver_tolerance"]
+        != expected_solver_tolerance
+        or comparison["weight_model"]["regularization_strength"]
+        != expected_regularization
+        or comparison["orbit_periods"] != 10.0
+        or comparison["orbit_samples_per_orbit"] != 1000
+    ):
+        raise RuntimeError("run config does not match its named 8--40 benchmark")
+    if configuration["run"]["output_dir"].exists():
+        raise RuntimeError(
+            f"cold-start output directory already exists: {configuration['run']['output_dir']}"
+        )
+    for label, path in (
+        ("catalogue", configuration["data"]["catalog"]),
+        ("target density", configuration["data"]["target_density"]),
+    ):
+        if not path.is_file():
+            raise RuntimeError(f"{label} not found: {path}")
+    return BenchmarkPreflight(configuration=configuration)
+
+
+def main(argv: list[str] | None = None) -> int:
+    arguments = sys.argv[1:] if argv is None else argv
+    if len(arguments) != 1:
+        print(
+            "usage: python -m halo_mw_lmc.benchmark RUN_CONFIG",
+            file=sys.stderr,
+        )
+        return 2
+    repository = Path(__file__).resolve().parents[1]
+    try:
+        result = validate_benchmark_preflight(
+            repository,
+            arguments[0],
+        )
+    except (RuntimeError, ValueError) as exc:
+        print(f"benchmark preflight failed: {exc}", file=sys.stderr)
+        return 1
+    configuration = result.configuration
+    for value in (
+        configuration["run"]["id"],
+        configuration["run"]["output_dir"],
+        configuration["data"]["catalog"],
+        configuration["data"]["target_density"],
+    ):
+        print(value)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

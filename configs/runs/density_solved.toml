@@ -1,0 +1,24 @@
+# No-Fixed 实验 run；命令与固定权重模式完全相同，只更换 recipe。
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved.toml"
+
+[run]
+id = "density-solved"
+output_dir = "../../runs/density-solved"
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz"
+
+[optimizer]
+iterations = 1000
+random_seed = 0
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../../data_coverage-density-solved"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0

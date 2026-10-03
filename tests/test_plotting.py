@@ -1,0 +1,299 @@
+import unittest
+from dataclasses import replace
+
+import numpy as np
+
+from halo_mw_lmc.density import compare_density
+from halo_mw_lmc.grids import CylindricalGrid
+from halo_mw_lmc.plot_model import (
+    _coarsen_velocity_panel,
+    _density_fit_display_mask,
+    _fit_origin_centered_ellipse,
+    _masked_density_panel,
+    _velocity_panel_values,
+    isodensity_shape_profile,
+)
+from halo_mw_lmc.plot_weights import (
+    orbit_weight_histograms,
+    shared_log_weight_edges,
+    summarize_orbit_weights,
+)
+from halo_mw_lmc.velocity import (
+    SphericalVelocityGrid,
+    VelocityDistributionComparison,
+)
+
+
+class PlottingDiagnosticsTests(unittest.TestCase):
+    def test_density_display_hides_unfitted_cells_and_requires_all_phi(self):
+        grid = CylindricalGrid.uniform(
+            n_r=2,
+            r_range=(0.0, 4.0),
+            n_z=2,
+            z_range=(0.0, 4.0),
+            n_phi=2,
+        )
+        density = np.ones(grid.shape)
+        comparison = compare_density(
+            density,
+            density,
+            density,
+            grid,
+            min_abs_z=2.0,
+            min_spherical_radius=0.0,
+            max_spherical_radius=10.0,
+            normalization_min_radius=0.0,
+        )
+
+        phi_mask = _density_fit_display_mask(comparison, 0)
+        displayed = _masked_density_panel(
+            comparison.data_density[:, :, 0],
+            phi_mask,
+        )
+        self.assertTrue(np.all(np.isnan(displayed[:, 0])))
+        self.assertTrue(np.all(np.isfinite(displayed[:, 1])))
+
+        changed = comparison.fit_mask.copy()
+        changed[0, 1, 1] = False
+        average_mask = _density_fit_display_mask(
+            replace(comparison, fit_mask=changed),
+            None,
+        )
+        self.assertFalse(average_mask[0, 1])
+        self.assertTrue(average_mask[1, 1])
+
+    def test_density_display_includes_lowest_row_when_it_is_fitted(self):
+        grid = CylindricalGrid.uniform(
+            n_r=2,
+            r_range=(0.0, 4.0),
+            n_z=2,
+            z_range=(0.0, 4.0),
+            n_phi=1,
+        )
+        density = np.ones(grid.shape)
+        comparison = compare_density(
+            density,
+            density,
+            density,
+            grid,
+            min_abs_z=0.0,
+            min_spherical_radius=0.0,
+            max_spherical_radius=10.0,
+            normalization_min_radius=0.0,
+        )
+
+        self.assertTrue(np.all(_density_fit_display_mask(comparison, 0)))
+
+    def test_orbit_weight_histogram_preserves_count_and_weight_share(self):
+        summary = summarize_orbit_weights([0.0, 1.0, 1.0, 2.0])
+        edges = shared_log_weight_edges({"case": summary}, bins=4)
+
+        count, weight_share = orbit_weight_histograms(summary, edges)
+
+        self.assertEqual(summary.active_orbit_count, 3)
+        self.assertEqual(summary.inactive_orbit_count, 1)
+        self.assertAlmostEqual(summary.effective_orbit_count, 8.0 / 3.0)
+        self.assertAlmostEqual(summary.maximum_weight_fraction, 0.5)
+        self.assertEqual(int(count.sum()), 3)
+        self.assertAlmostEqual(float(weight_share.sum()), 100.0)
+
+    def test_orbit_weight_summary_rejects_zero_total(self):
+        with self.assertRaisesRegex(ValueError, "positive total"):
+            summarize_orbit_weights([0.0, 0.0])
+
+    def test_masked_contour_ellipse_fit_recovers_known_shape(self):
+        angle = np.linspace(0.15, 1.35, 50)
+        vertices = np.column_stack((20.0 * np.cos(angle), 13.0 * np.sin(angle)))
+
+        fit = _fit_origin_centered_ellipse(
+            vertices,
+            minimum_r_span=1.0,
+            minimum_z_span=1.0,
+        )
+
+        self.assertIsNotNone(fit)
+        radius, axis_ratio, rms, count = fit
+        self.assertAlmostEqual(radius, 20.0, places=10)
+        self.assertAlmostEqual(axis_ratio, 0.65, places=10)
+        self.assertLess(rms, 1e-12)
+        self.assertEqual(count, 50)
+
+    def test_isodensity_shape_recovers_oblate_axis_ratio(self):
+        grid = CylindricalGrid.uniform(
+            n_r=80,
+            r_range=(0.0, 40.0),
+            n_z=80,
+            z_range=(0.0, 40.0),
+            n_phi=2,
+        )
+        radius, z, _ = grid.center_mesh
+        expected_q = 0.65
+        density = np.exp(-np.sqrt(radius**2 + (z / expected_q) ** 2) / 8.0)
+        comparison = compare_density(
+            density,
+            np.full_like(density, 0.05),
+            density,
+            grid,
+            min_abs_z=0.0,
+            min_spherical_radius=0.0,
+            max_spherical_radius=100.0,
+            normalization_min_radius=0.0,
+        )
+
+        profile = isodensity_shape_profile(density, comparison, 0)
+
+        self.assertGreaterEqual(profile.axis_ratio.size, 4)
+        np.testing.assert_allclose(
+            np.median(profile.axis_ratio),
+            expected_q,
+            atol=0.08,
+        )
+        self.assertTrue(np.all(np.diff(profile.radius) >= 0))
+
+    def test_isodensity_shape_handles_empty_slice(self):
+        grid = CylindricalGrid.uniform(n_r=2, n_z=2, n_phi=1)
+        density = np.ones(grid.shape)
+        comparison = compare_density(
+            density,
+            density,
+            density,
+            grid,
+            min_abs_z=0.0,
+            min_spherical_radius=0.0,
+            max_spherical_radius=100.0,
+            normalization_min_radius=0.0,
+        )
+        empty = isodensity_shape_profile(
+            np.zeros(grid.shape),
+            comparison,
+            0,
+        )
+        self.assertEqual(empty.radius.size, 0)
+
+    def test_isodensity_shape_ignores_values_outside_fit_mask(self):
+        grid = CylindricalGrid.uniform(
+            n_r=80,
+            r_range=(0.0, 40.0),
+            n_z=80,
+            z_range=(0.0, 40.0),
+            n_phi=1,
+        )
+        radius, z, _ = grid.center_mesh
+        density = np.exp(-np.sqrt(radius**2 + (z / 0.7) ** 2) / 8.0)
+        comparison = compare_density(
+            density,
+            np.full_like(density, 0.05),
+            density,
+            grid,
+            min_abs_z=2.0,
+            min_spherical_radius=8.0,
+            max_spherical_radius=30.0,
+            normalization_min_radius=8.0,
+        )
+        perturbed = density.copy()
+        perturbed[~comparison.fit_mask] = 1e12
+
+        original = isodensity_shape_profile(density, comparison, 0)
+        changed = isodensity_shape_profile(perturbed, comparison, 0)
+
+        np.testing.assert_allclose(changed.radius, original.radius)
+        np.testing.assert_allclose(changed.axis_ratio, original.axis_ratio)
+
+    def test_isodensity_shape_rejects_insufficient_masked_arc(self):
+        grid = CylindricalGrid.uniform(
+            n_r=10,
+            r_range=(0.0, 10.0),
+            n_z=10,
+            z_range=(0.0, 10.0),
+            n_phi=1,
+        )
+        radius, z, _ = grid.center_mesh
+        density = np.exp(-np.sqrt(radius**2 + z**2))
+        comparison = compare_density(
+            density,
+            np.ones_like(density),
+            density,
+            grid,
+            min_abs_z=0.0,
+            min_spherical_radius=0.0,
+            max_spherical_radius=100.0,
+            normalization_min_radius=0.0,
+        )
+        tiny_mask = np.zeros(grid.shape, dtype=bool)
+        tiny_mask[:2, :2, :] = True
+        comparison = replace(comparison, fit_mask=tiny_mask)
+
+        profile = isodensity_shape_profile(density, comparison, 0)
+
+        self.assertEqual(profile.radius.size, 0)
+        self.assertEqual(profile.rejected_level_count, 7)
+
+    def test_velocity_phi_average_is_occupancy_weighted(self):
+        grid = SphericalVelocityGrid(
+            radius_edges=np.array([0.0, 1.0]),
+            theta_edges=np.array([0.0, 1.0]),
+            phi_edges=np.array([-np.pi, 0.0, np.pi]),
+            velocity_edges=np.array([-1.0, 0.0, 1.0]),
+        )
+        data_probability = np.array([[[[1.0, 0.0], [0.0, 1.0]]]])
+        model_probability = np.array([[[[0.5, 0.5], [0.0, 1.0]]]])
+        comparison = VelocityDistributionComparison(
+            component="vr",
+            grid=grid,
+            data_probability=data_probability,
+            data_uncertainty=np.zeros_like(data_probability),
+            data_occupancy=np.array([[[1.0, 3.0]]]),
+            model_probability=model_probability,
+            model_occupancy=np.array([[[2.0, 2.0]]]),
+        )
+
+        data, uncertainty, model, occupancy = _velocity_panel_values(
+            comparison,
+            0,
+            0,
+            None,
+        )
+
+        np.testing.assert_allclose(data, [0.25, 0.75])
+        np.testing.assert_allclose(model, [0.25, 0.75])
+        np.testing.assert_allclose(
+            uncertainty,
+            np.sqrt(np.array([0.25, 0.75]) * np.array([0.75, 0.25]) / 4.0),
+        )
+        self.assertEqual(occupancy, 4.0)
+
+    def test_velocity_plot_bins_are_coarsened_without_changing_mass(self):
+        centers, data, uncertainty, model = _coarsen_velocity_panel(
+            np.arange(-4.0, 5.0),
+            np.array([0.05, 0.05, 0.10, 0.20, 0.10, 0.10, 0.20, 0.20]),
+            np.array([0.10, 0.10, 0.10, 0.10, 0.15, 0.15, 0.15, 0.15]),
+            data_occupancy=20.0,
+            bin_factor=2,
+        )
+
+        np.testing.assert_allclose(centers, [-3.0, -1.0, 1.0, 3.0])
+        np.testing.assert_allclose(data, [0.10, 0.30, 0.20, 0.40])
+        np.testing.assert_allclose(model, [0.20, 0.20, 0.30, 0.30])
+        np.testing.assert_allclose(
+            uncertainty,
+            np.sqrt(data * (1.0 - data) / 20.0),
+        )
+        self.assertAlmostEqual(float(data.sum()), 1.0)
+        self.assertAlmostEqual(float(model.sum()), 1.0)
+
+    def test_velocity_plot_coarsening_preserves_a_remainder_bin(self):
+        centers, data, _, model = _coarsen_velocity_panel(
+            np.arange(0.0, 6.0),
+            np.full(5, 0.2),
+            np.full(5, 0.2),
+            data_occupancy=5.0,
+            bin_factor=2,
+        )
+
+        np.testing.assert_allclose(centers, [1.0, 3.0, 4.5])
+        np.testing.assert_allclose(data, [0.4, 0.4, 0.2])
+        np.testing.assert_allclose(model, [0.4, 0.4, 0.2])
+
+
+if __name__ == "__main__":
+    unittest.main()

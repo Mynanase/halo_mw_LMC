@@ -1,0 +1,23 @@
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved_r8_40_tol1e7.toml"
+
+[run]
+id = "density-solved-r8-40-tol1e7-paper-best-benchmark"
+output_dir = "../../runs/density-solved-r8-40-tol1e7-paper-best-benchmark"
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz"
+
+[optimizer]
+iterations = 1
+random_seed = 0
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../../data_coverage-density-solved-r8-40-tol1e7-paper-best-benchmark"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0

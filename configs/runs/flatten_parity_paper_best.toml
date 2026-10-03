@@ -1,0 +1,28 @@
+# 扁平化分支生产 parity 验收基线：paper-best 单点 8--40 kpc 基准。
+# 与 density_solved_r8_40_benchmark.toml 完全同构（同 recipe、同数据、同 seed、
+# 同迭代数），仅 run.id 与输出位置换成本仓库 2026-09-13 起的两层新结构。
+# 验收标准：best objective 与 runs/legacy/density-solved-r8-40-paper-best-benchmark
+# 的 133666.96061010682 在 rtol=1e-12, atol=1e-12 内一致（浮点数组同理）。
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved_r8_40.toml"
+
+[run]
+id = "flatten-parity-paper-best"
+output_dir = "../../runs/20260913-flatten-parity/paper-best"
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz"
+
+[optimizer]
+iterations = 1
+random_seed = 0
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../../runs/20260913-flatten-parity/coverage/paper-best"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0

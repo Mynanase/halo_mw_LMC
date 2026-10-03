@@ -1,0 +1,33 @@
+# Full-run wall budget evidence (r8-40 paper-best single trial, lsq_linear)
+
+== UNPINNED (solver benchmark case, 2026-09-04, BLAS threads unpinned)
+# source: .agent-local/benchmarks/r8_40/density-solved-r8-40-solver-lsq-linear-benchmark/time-v.txt
+	Command being timed: "conda run -n halo_lmc python -m halo_mw_lmc run configs/runs/density_solved_r8_40_solver_lsq_linear_benchmark.toml"
+	User time (seconds): 32878.40
+	System time (seconds): 5.54
+	Percent of CPU this job got: 6079%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 9:00.87
+	Maximum resident set size (kbytes): 2873308
+
+== PINNED (OPENBLAS_NUM_THREADS=1, cProfile wrapper, 2026-09-05, disposable output dir)
+# source: .agent-local/tmp/run_profile.log
+	Command being timed: "/home/tqiu/miniforge3/envs/halo_lmc/bin/python -m cProfile -o .agent-local/tmp/run_profile.prof -m halo_mw_lmc run .agent-local/tmp/solver_profile_run.toml"
+	User time (seconds): 1288.07
+	System time (seconds): 4.49
+	Percent of CPU this job got: 617%
+	Elapsed (wall clock) time (h:mm:ss or m:ss): 3:29.39
+	Maximum resident set size (kbytes): 2927944
+
+== Report-stage re-render (pinned, real timing, no profiler, 2026-09-05)
+# command: time python -m halo_mw_lmc report <run_dir> --overwrite
+real	0m14.045s
+user	0m13.768s
+sys	0m0.205s
+
+== Solve trajectory observations (identical problem fingerprint 49e43d88...)
+# source: best/metadata.json of each run
+run                                   BLAS        wall_s  cpu_s     iters  kkt        obj_velocity  inner_obj
+solver-lsq-linear-benchmark (09-04)   unpinned    498.07  (spin)    5788   5.883e-05  133666.96     (same fp)
+solve probe (08-31, solve_timing)     pinned=1    220.11  219.39    3939   (see log)  (see log)     473.4920
+solve probe (08-31, solve_timing)     unpinned    224.18  14278.33  2309   (see log)  (see log)     473.4901
+profile run (09-05, disposable dir)   pinned=1    151.58  (242 cpu) 193    1.746e-03  133680.47     (same fp)

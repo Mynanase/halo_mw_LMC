@@ -1,0 +1,17 @@
+# nphi4 production grid, n_z thinned 25 -> 7 (docs/nphi1_bundling_repair_plan.md
+# §8 follow-up): same frozen library, solver and scoring boundary as
+# nphi4_bundling.toml; only the density grid z resolution and the matching
+# target change. Second trend point next to nphi4_nz13.toml.
+# Plain toml read by scripts/benchmark_nphi1_bundling.py; paths relative to repo root.
+
+run_config = "configs/runs/density_solved_nz7_benchmark.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+output_dir = ".agent-local/benchmarks/nphi4_nz7"
+
+grouping_variables = ["lam_z", "energy"]
+n_lambda = 32
+n_energy = 32
+random_seed = 0
+repeat_runs = 1
+reduced_kkt_tolerance = 1e-8

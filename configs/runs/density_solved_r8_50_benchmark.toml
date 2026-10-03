@@ -1,0 +1,28 @@
+# Full-catalogue, one-trial paper-best benchmark for the experimental
+# 8 <= r < 50 kpc density-solved support. This run is deliberately separate
+# from configs/runs/density_solved_benchmark.toml and its output directories.
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved_r8_50.toml"
+
+[run]
+id = "density-solved-r8-50-paper-best-benchmark"
+output_dir = "../../runs/density-solved-r8-50-paper-best-benchmark"
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+# 可复用现有 target：新旧 recipe 的 25x25x4 网格完全相同，fit mask 在
+# 运行时应用，不需要为径向边界变化重新生成密度网格。
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz"
+
+[optimizer]
+iterations = 1
+random_seed = 0
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../../data_coverage-density-solved-r8-50-paper-best-benchmark"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0

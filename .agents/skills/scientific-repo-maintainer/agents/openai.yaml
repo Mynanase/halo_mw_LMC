@@ -1,0 +1,6 @@
+interface:
+  display_name: "Scientific Repository Maintainer"
+  short_description: "Keep research code aligned with its blueprint"
+  default_prompt: "Use $scientific-repo-maintainer to make this repository change within its scientific and architectural contracts."
+policy:
+  allow_implicit_invocation: true

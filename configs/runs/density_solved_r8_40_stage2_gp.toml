@@ -1,0 +1,26 @@
+# Stage-2 adaptive GP refinement: 60 iterations in the narrowed stage-1 box.
+# Uses the joint stage-2 recipe with initial_point="optimizer" for free GP
+# exploration from random seeds (cold start; no stage-1 point injection).
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved_r8_40_joint_stage2.toml"
+
+[run]
+id = "density-solved-r8-40-stage2-gp"
+output_dir = "../../runs/density-solved-r8-40-stage2-gp"
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz"
+
+[optimizer]
+iterations = 60
+random_seed = 0
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../../data_coverage-density-solved-r8-40-stage2-gp"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0

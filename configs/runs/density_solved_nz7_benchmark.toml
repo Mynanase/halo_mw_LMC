@@ -1,0 +1,24 @@
+# n_z 极端减稀单点基准 run config（不实际驱动 optimizer；供 benchmark 脚本解析输入）。
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved_nz7.toml"
+
+[run]
+id = "density-solved-nz7-benchmark"
+output_dir = "../../runs/density-solved-nz7-benchmark"
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x7x4.npz"
+
+[optimizer]
+iterations = 1
+random_seed = 0
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../../data_coverage-density-solved-nz7-benchmark"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0

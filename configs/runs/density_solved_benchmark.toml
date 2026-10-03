@@ -1,0 +1,26 @@
+# Full-catalogue, single-potential benchmark for the experimental No-Fixed mode.
+# The recipe evaluates the paper-best potential first, so one optimizer
+# iteration is exactly one end-to-end paper-best evaluation.
+schema_version = 1
+recipe = "../recipes/zhu_2026_density_solved.toml"
+
+[run]
+id = "density-solved-paper-best-benchmark"
+output_dir = "../../runs/density-solved-paper-best-benchmark"
+
+[data]
+catalog = "../../data_for_model/lamost_dr8_SFlast_cut4_4phi/halo_clean_N.txt"
+target_density = "../../data_for_model/synthetic/desi_year1_kgiants_25x25x4.npz"
+
+[optimizer]
+iterations = 1
+random_seed = 0
+
+[report]
+velocity_bin_factor = 3
+
+[coverage]
+output_dir = "../../data_coverage-density-solved-paper-best-benchmark"
+maximum_points = 20000
+velocity_limit_km_s = 600.0
+random_seed = 0

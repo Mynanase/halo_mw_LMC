@@ -1,0 +1,58 @@
+# 可复用科学 recipe。只有改变模型、网格或似然时才编辑本文件。
+schema_version = 1
+name = "zhu_2026_fixed_weight_4phi"
+
+[potential]
+recipe = "zhu_2026_fiducial_constant_shape"
+
+[density_grid]
+# 改动以下边界时，run.target_density 必须换成携带相同 edges 的 NPZ。
+n_r = 25
+r_range_kpc = [0.0, 50.0]
+n_z = 25
+z_range_kpc = [0.0, 50.0]
+n_phi = 4
+phi_origin_deg = -180.0
+
+[density_fit]
+min_abs_z_kpc = 2.0
+min_radius_kpc = 15.0
+max_radius_kpc = 40.0
+normalization_min_radius_kpc = 10.0
+require_positive_target = true
+normalization = "volume"
+
+[velocity_fit]
+# true 时加入三个速度分量；内区 r<8 kpc 仍不进入似然。
+enabled = false
+min_radius_kpc = 8.0
+probability_floor = 1e-300
+radius_edges_kpc = [4.0, 6.0, 8.0, 10.0, 12.0, 15.0, 20.0, 30.0, 50.0]
+theta_edges_deg = [0.0, 15.0, 30.0, 45.0, 60.0, 90.0]
+velocity_range_km_s = [-800.0, 800.0]
+velocity_bins = 201
+
+[weight_model]
+mode = "catalogue_fixed"
+
+[objective]
+# 固定权重模式保持原有 0.5 chi2_rho - log L_v 目标。
+mode = "density_velocity"
+
+[orbits]
+# 等时间采样完整轨道；固定星表权重由父 seed 映射到每个样本。
+periods = 10.0
+samples_per_orbit = 1000
+sample_weight_divisor = "half_samples"
+
+[search]
+# 评估、optimizer.tell 和 sample.dat 始终使用同一组三位小数坐标。
+initial_point = "paper_best"
+round_decimals = 3
+
+[search.bounds]
+qhalo = [0.70, 1.15]
+phalo = [0.40, 1.20]
+rho0 = [5.50, 7.00]
+rho0_plus_2logrs = [9.50, 10.30]
+gamma = [0.50, 1.80]

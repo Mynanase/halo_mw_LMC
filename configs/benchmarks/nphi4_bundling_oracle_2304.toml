@@ -1,0 +1,15 @@
+# nphi4 response-kmeans oracle experiment (docs/nphi1_bundling_repair_plan.md §12):
+# same as nphi4_bundling_oracle_1024.toml at k=2304, the second §11 audit
+# oracle count (48x48-variable grids also land at 2304 total bundles).
+
+run_config = "configs/runs/density_solved_benchmark.toml"
+frozen_cache = ".agent-local/benchmarks/solver_settings_sweep/frozen_paper_best.npz"
+frozen_provenance = ".agent-local/benchmarks/solver_settings_sweep/freeze.json"
+output_dir = ".agent-local/benchmarks/nphi4_oracle_2304"
+
+grouping_mode = "response_kmeans"
+kmeans_bundles = 2304
+kmeans_seed = 0
+random_seed = 0
+repeat_runs = 1
+reduced_kkt_tolerance = 1e-8

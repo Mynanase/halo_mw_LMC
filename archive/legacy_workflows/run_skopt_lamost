@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+exec python3 run_skopt_lamost_4phi.py "$@"
