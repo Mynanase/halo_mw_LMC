@@ -31,7 +31,8 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import minimize
 from scipy.sparse import coo_matrix, csr_matrix, vstack
-from scipy.sparse.linalg import eigsh
+from scipy.sparse import identity
+from scipy.sparse.linalg import LinearOperator, eigsh
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
@@ -113,6 +114,60 @@ def gradient_diagnostics(design, observed, l2, strength, weights):
         "gradient_l_inf": float(np.max(np.abs(gradient))),
         "projected_gradient_l_inf": float(np.max(np.abs(projected))),
     }
+
+
+def entropy_hessian(design, l2, strength, weights):
+    """Hessian action for the entropy-regularized convex objective."""
+
+    count = design.shape[1]
+    if strength > 0.0:
+        diagonal = 2.0 * l2 + (strength / count) / np.maximum(weights, 1e-15)
+    else:
+        diagonal = 2.0 * l2
+
+    def matvec(direction):
+        product = design @ direction
+        return np.asarray(design.T @ product + diagonal * direction, dtype=float)
+
+    return LinearOperator((count, count), matvec=matvec)
+
+
+def solve_entropy_interior(design, observed, l2, strength, start, max_iter):
+    """Bound-constrained Newton-CG on a strictly positive interior domain."""
+
+    count = design.shape[1]
+    floor = 1e-12
+    weights = np.maximum(np.asarray(start, dtype=float), floor)
+    initial_value, _ = objective_entropy(design, observed, l2, weights, strength, count, {})
+    objective_scale = max(1.0, abs(initial_value))
+    cache: dict[str, float] = {}
+
+    class ScaledObjective:
+        def value(self, vector):
+            return objective_entropy(design, observed, l2, vector, strength, count, cache)[0] / objective_scale
+
+        def gradient(self, vector):
+            return objective_entropy(design, observed, l2, vector, strength, count, cache)[1] / objective_scale
+
+        def hessian(self, vector):
+            return entropy_hessian(design, l2, strength, vector)
+
+    from scipy.optimize import NonlinearConstraint
+
+    constraint = NonlinearConstraint(
+        lambda vector: vector, floor, np.inf,
+        jac=lambda vector: identity(count, format="csr"),
+        hess=lambda vector, argument: LinearOperator((count, count), matvec=lambda direction: np.zeros(count)),
+        keep_feasible=True,
+    )
+    result = minimize(
+        ScaledObjective().value, weights, jac=ScaledObjective().gradient,
+        hess=ScaledObjective().hessian, method="trust-constr", constraints=[constraint],
+        options={"maxiter": max_iter, "gtol": 1e-8, "xtol": 1e-10, "barrier_tol": 1e-8,
+                 "sparse_jacobian": True, "verbose": 0},
+    )
+    result.x = np.maximum(np.asarray(result.x, dtype=float), 0.0)
+    return result.x, result
 
 
 def response_graph(design, neighbours):
@@ -244,7 +299,10 @@ def main() -> None:
         for strength in strengths:
             started = time.perf_counter()
             if family == "entropy":
-                weights, result = solve_entropy(design, problem.observed, l2, strength, reference, 3000)
+                if strength == 0.0:
+                    weights, result = solve_entropy(design, problem.observed, l2, strength, reference, 3000)
+                else:
+                    weights, result = solve_entropy_interior(design, problem.observed, l2, strength, reference, 3000)
                 solver_message = str(result.message)
                 iterations = int(result.nit)
                 residual = design @ weights - problem.observed

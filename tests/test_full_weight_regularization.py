@@ -77,6 +77,23 @@ class EntropyTests(unittest.TestCase):
         # large enough to make entropy a non-degenerate part of the frontier.
         self.assertGreaterEqual(max(scan.ENTROPY_STRENGTHS), 100.0)
 
+    def test_interior_entropy_solver_reaches_kkt_on_scaled_system(self):
+        rng = np.random.default_rng(7)
+        rows, count = 80, 40
+        columns = rng.gamma(shape=2.0, size=(rows, count))
+        truth = rng.gamma(shape=2.0, size=count)
+        observed_physical = columns @ truth
+        error = 0.02 * observed_physical
+        design = scipy.sparse.csr_matrix(columns / error[:, None])
+        observed = observed_physical / error
+        start = scan.initial_weights(design, observed, 1e-6)
+        weights, result = scan.solve_entropy_interior(design, observed, 1e-6, 10.0, start, 500)
+        diagnostics = scan.gradient_diagnostics(design, observed, 1e-6, 10.0, weights)
+        self.assertTrue(bool(result.success))
+        self.assertGreater(float(np.min(weights)), 0.0)
+        self.assertLess(diagnostics["projected_gradient_l_inf"], 2e-5)
+        self.assertGreater(float(np.linalg.norm(weights - start) / np.linalg.norm(start)), 1e-3)
+
 
 class ResponseGraphTests(unittest.TestCase):
     def test_knn_graph_is_symmetric_and_laplacian_psd(self):
