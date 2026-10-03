@@ -41,10 +41,8 @@ class EntropyTests(unittest.TestCase):
         residual_u = observed - design @ uniform
         penalty_concentrated = value_c - float(residual_c @ residual_c)
         penalty_uniform = value_u - float(residual_u @ residual_u)
-                # For count=2, uniform w=[1,1] has sum w log(w/count) = -2 log 2;
-        # concentrated w=[2,0] hits the zero-floor approximation and is worse.
+        # For count=2, uniform w=[1,1] gives -2 log 2 and is the minimum.
         self.assertAlmostEqual(penalty_uniform, -np.log(2.0), places=12)
-        self.assertGreater(penalty_concentrated, penalty_uniform)
         self.assertGreater(penalty_concentrated, penalty_uniform)
 
 
