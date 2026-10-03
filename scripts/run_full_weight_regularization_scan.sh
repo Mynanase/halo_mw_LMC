@@ -6,5 +6,14 @@ export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-1}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export PYTHONHASHSEED=0
 
-uv run --locked python -m unittest tests.test_full_weight_regularization
-uv run --locked python scripts/full_weight_regularization_scan.py
+# The immutable source snapshot does not carry ignored, data-only inputs.
+DATA_ROOT="${HALO_MW_DATA_ROOT:-/home/tqiu/halo_mw_LMC}"
+if [[ -d "$DATA_ROOT/data_for_model" && ! -d data_for_model ]]; then
+    ln -s "$DATA_ROOT/data_for_model" data_for_model
+fi
+if [[ -d "$DATA_ROOT/.agent-local" && ! -d .agent-local ]]; then
+    ln -s "$DATA_ROOT/.agent-local" .agent-local
+fi
+
+uv run --locked --extra inference --extra astronomy python -m unittest tests.test_full_weight_regularization
+uv run --locked --extra inference --extra astronomy python scripts/full_weight_regularization_scan.py

@@ -16,6 +16,39 @@ scan = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(scan)
 
 
+class L2FrontierTests(unittest.TestCase):
+    def test_l2_grid_is_positive_ordered_and_anchored_at_production(self):
+        self.assertEqual(scan.L2_STRENGTHS[0], 1e-6)
+        self.assertTrue(all(value > 0 for value in scan.L2_STRENGTHS))
+        self.assertLessEqual(list(scan.L2_STRENGTHS), sorted(scan.L2_STRENGTHS))
+
+    def test_problem_at_l2_changes_strength_and_fingerprint(self):
+        design = scipy.sparse.csr_matrix(np.eye(3))
+        observed = np.array([1.0, 2.0, 3.0])
+        problem = type("Problem", (), {
+            "design": design, "observed": observed,
+            "active_columns": np.ones(3, dtype=bool),
+            "successful_orbit_count": 3, "regularization": 1.0,
+            "fingerprint": "old",
+        })()
+        updated = scan.problem_at_l2(problem, 2.0)
+        self.assertEqual(updated.regularization, 2.0)
+        self.assertNotEqual(updated.fingerprint, "old")
+
+    def test_l2_frontier_preserves_grid_and_solves_each_point(self):
+        design = scipy.sparse.csr_matrix(np.diag([1.0, 2.0, 3.0]))
+        observed = np.array([1.0, 1.0, 1.0])
+        records = scan.l2_frontier_records(
+            design, observed, (0.5, 2.0),
+            lambda strength, weights, seconds: {
+                "strength": strength, "nonzero": int(np.count_nonzero(weights)),
+                "seconds": seconds,
+            },
+        )
+        self.assertEqual([row["strength"] for row in records], [0.5, 2.0])
+        self.assertTrue(all(row["nonzero"] > 0 for row in records))
+
+
 class EntropyTests(unittest.TestCase):
     def test_zero_strength_reduces_to_ridge_gradient(self):
         design = scipy.sparse.csr_matrix(np.array([[1.0, 0.0], [0.0, 2.0]]))
