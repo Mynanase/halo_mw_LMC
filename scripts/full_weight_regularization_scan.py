@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
-"""Full-space weight-concentration experiments: entropy and graph smoothing.
+"""Full-space weight-concentration experiments: L2, entropy, and graph smoothing.
 
 S16 diagnostic on the frozen nphi4 library.  The production inner problem is
-the underdetermined NNLS ``min(w>=0) ||A w-b||^2 + lambda ||w||^2``; its
-solution has N_eff~130 and a 4.9% maximum orbit share.  This script keeps all
-5967 active per-orbit weights free and replaces the selection rule instead of
-imposing hard equal-weight bundles:
+the underdetermined NNLS ``min(w>=0) ||A w-b||^2 + lambda ||w||^2``.  This
+node re-solves that problem over a lambda grid; entropy and graph-smoothing
+routines remain below only as inherited helper code and are not executed.
 
 1. Entropy (KL to a uniform orbit prior): add ``mu/n * sum_j w_j log(w_j/n)``
    after the density+L2 objective.  Zero additional density information; the
@@ -15,14 +14,17 @@ imposing hard equal-weight bundles:
    density-response columns.  Similar response columns get similar weights,
    dissimilar columns stay free -- a convex relaxation of hard bundling.
 
-Both scans use the same frozen design matrix, mask, error scaling, and shared
-velocity scoring as the bundling campaign.  Positive delta_J is a genuine
-velocity cost; negative J remains the S7 density-for-smoothness trade and is
-never a better-fit claim.  Single library, single seed, diagnostic only.
+Every scan uses the same frozen design matrix, mask, error scaling, and shared
+velocity scoring as the bundling campaign.  In the L2 frontier the production
+inner problem itself is re-solved at each lambda.  Positive delta_J is a
+velocity cost relative to the production lambda=1e-6 reference; it is never a
+better-density-fit claim.  Single library, single seed, diagnostic only.
 """
 
 from __future__ import annotations
 
+import argparse
+import dataclasses
 import json
 import sys
 import time
@@ -41,7 +43,9 @@ from halo_mw_lmc.evaluate import score_orbit_weights  # noqa: E402
 from review_fz_energy_basis import build_design_problem  # noqa: E402
 
 OUTPUT = REPO / ".agent-local/benchmarks/full_weight_regularization"
-ENTROPY_STRENGTHS = (0.0, 0.1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0, 300.0)
+L2_STRENGTHS = (1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2)
+L2_LOCAL_SMOKE_STRENGTHS = (1e-6, 1e-4)
+ENTROPY_STRENGTHS = (0.0, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1)
 GRAPH_STRENGTHS = (0.0, 1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2)
 
 
@@ -67,52 +71,78 @@ def concentration(weights):
     }
 
 
+def problem_at_l2(problem, strength):
+    """Return the same error-scaled design with an updated ridge and hash."""
+
+    from halo_mw_lmc.weights import _problem_fingerprint
+
+    strength = float(strength)
+    fingerprint = _problem_fingerprint(problem.design, problem.observed, strength)
+    values = {
+        field.name: getattr(problem, field.name)
+        for field in dataclasses.fields(problem)
+    }
+    values.update(regularization=strength, fingerprint=fingerprint)
+    return type(problem)(**values)
+
+
+def kkt_diagnostics(problem, weights):
+    from halo_mw_lmc.weights import _primal_kkt_residual
+
+    raw, normalized = _primal_kkt_residual(problem, weights)
+    return {"kkt_raw": raw, "kkt_reduced": normalized}
+
+
 def objective_entropy(design, observed, l2, weights, strength, count, cache):
     residual = design @ weights - observed
     data = float(residual @ residual) + l2 * float(weights @ weights)
     if strength == 0.0:
         cache.clear()
-        return data, np.asarray(2.0 * design.T @ residual + 2.0 * l2 * weights, dtype=float)
+        return data, np.asarray(design.T @ residual + l2 * weights, dtype=float)
     safe = np.maximum(weights, 1e-15)
     entropy = float(np.sum(weights * np.log(safe / count)))
     gradient = np.log(safe / count) + 1.0
     scale = strength / count
-    return data + scale * entropy, np.asarray(
-        2.0 * design.T @ residual + 2.0 * l2 * weights + scale * gradient, dtype=float
-    )
+    return data + scale * entropy, np.asarray(design.T @ residual + l2 * weights + scale * gradient, dtype=float)
 
 
 def solve_entropy(design, observed, l2, strength, start, max_iter):
     count = design.shape[1]
     cache: dict[str, float] = {}
 
-    initial_value, _ = objective_entropy(design, observed, l2, start, strength, count, {})
-    objective_scale = max(1.0, abs(initial_value))
-
     def fun(weights):
         value, gradient = objective_entropy(design, observed, l2, weights, strength, count, cache)
-        return value / objective_scale, np.asarray(gradient, dtype=float) / objective_scale
+        return value, gradient
 
     result = minimize(
         fun, start, jac=True, method="L-BFGS-B", bounds=[(0.0, None)] * count,
-        options={"maxiter": max_iter, "maxfun": max_iter + 100, "ftol": 0.0, "gtol": 1e-8, "maxls": 50},
+        options={"maxiter": max_iter, "maxfun": max_iter + 100, "ftol": 1e-14, "gtol": 1e-8, "maxls": 50},
     )
     return np.maximum(np.asarray(result.x, dtype=float), 0.0), result
 
 
-def projected_gradient(weights, gradient):
-    """First-order residual for non-negative variables."""
+def l2_frontier_records(design, observed, strengths, score_one):
+    """Solve and score each ridge problem, preserving the requested grid."""
 
-    return np.where(weights > 1e-12, gradient, np.minimum(gradient, 0.0))
+    records = []
+    for strength in strengths:
+        started = time.perf_counter()
+        weights = initial_weights(design, observed, float(strength))
+        seconds = time.perf_counter() - started
+        records.append(score_one(float(strength), weights, seconds))
+    return records
 
 
-def gradient_diagnostics(design, observed, l2, strength, weights):
-    _, gradient = objective_entropy(design, observed, l2, weights, strength, design.shape[1], {})
-    projected = projected_gradient(weights, gradient)
-    return {
-        "gradient_l_inf": float(np.max(np.abs(gradient))),
-        "projected_gradient_l_inf": float(np.max(np.abs(projected))),
-    }
+def output_directory():
+    """Return the mode-specific output directory before data loading."""
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--local-smoke", action="store_true",
+        help="run two L2 points; used only to validate the real data pipeline locally",
+    )
+    arguments = parser.parse_args()
+    return arguments.local_smoke, OUTPUT / ("local_smoke" if arguments.local_smoke else "")
 
 
 def response_graph(design, neighbours):
@@ -215,7 +245,9 @@ def load_prepared_and_library():
 
 def main() -> None:
     started_all = time.perf_counter()
-    OUTPUT.mkdir(parents=True, exist_ok=True)
+    local_smoke, output = output_directory()
+    strengths = L2_LOCAL_SMOKE_STRENGTHS if local_smoke else L2_STRENGTHS
+    output.mkdir(parents=True, exist_ok=True)
     problem, response = build_design_problem()
     prepared, library = load_prepared_and_library()
     design = problem.design
@@ -224,35 +256,97 @@ def main() -> None:
     fit_bins = design.shape[0]
 
     print(f"design {design.shape} fit_bins={fit_bins}; l2={l2}", flush=True)
-    started = time.perf_counter()
-    reference = initial_weights(design, problem.observed, l2)
-    reference_seconds = time.perf_counter() - started
-    print(f"reference NNLS {reference_seconds:.2f}s", flush=True)
-
-    # Shared response graph; density-only geometry, velocity never enters.
-    graph_started = time.perf_counter()
-    laplacian, degree = response_graph(design, neighbours=10)
-    spectrum = laplacian_spectrum(laplacian)
-    graph_seconds = time.perf_counter() - graph_started
-    print(f"kNN graph+Laplacian {graph_seconds:.2f}s; spectrum[0:2]={spectrum}", flush=True)
-
     rows = []
-    seed_weights_path = OUTPUT / "seed_weights.npz"
+    seed_weights_path = output / "seed_weights.npz"
     archive = {}
 
-    for family, strengths in (("entropy", ENTROPY_STRENGTHS),):
+    def score_l2(strength, weights, seconds):
+        ridge_problem = problem_at_l2(problem, strength)
+        residual = design @ weights - problem.observed
+        chi2 = float(residual @ residual)
+        penalty = strength * float(weights @ weights)
+        objective_value = chi2 + penalty
+        record = {
+            "family": "l2", "strength": strength,
+            "objective_inner": objective_value, "l2_penalty": penalty,
+            "density_chi2": chi2,
+            "density_chi2_per_bin_raw": chi2 / fit_bins,
+            "solver_seconds": seconds, "iterations": 0,
+            "solver_message": "dense SciPy NNLS completed",
+            **kkt_diagnostics(ridge_problem, weights),
+            **{f"weight_{key}": value for key, value in concentration(weights).items()},
+        }
+        seed_weights = np.zeros(response.seed_count, dtype=float)
+        seed_weights[response.successful_seed_index[active_columns]] = weights
+        solution = build_weight_solution(
+            response, ridge_problem, weights, objective_value, seconds,
+            record["solver_message"], prepared.target_density, prepared.target_error,
+        )
+        evaluation = score_orbit_weights(library, prepared, solution, response=response)
+        record.update({
+            "objective_velocity": float(evaluation.objective_velocity),
+            "density_chi2_per_bin_scored": float(evaluation.density_chi2_per_bin),
+            "density_gate_passed": bool(evaluation.density_gate_passed),
+            "weight_sum": float(evaluation.weight_sum),
+        })
+        archive[f"l2_{strength:g}"] = seed_weights
+        print(
+            f"l2 lambda={strength:g} chi2/bin={record['density_chi2_per_bin_scored']:.6f} "
+            f"Neff={record['weight_n_eff']:.1f} max={record['weight_max_share']:.4f} "
+            f"J={record['objective_velocity']:.1f} gate={record['density_gate_passed']} "
+            f"kkt={record['kkt_reduced']:.2e} t={seconds:.1f}s",
+            flush=True,
+        )
+        return record
+
+    rows.extend(l2_frontier_records(design, problem.observed, strengths, score_l2))
+    reference_row = rows[0]
+    for row in rows:
+        row["delta_J"] = row["objective_velocity"] - reference_row["objective_velocity"]
+
+    # Include N_eff as a frontier objective: a cheaper model must not reduce it.
+    for row in rows:
+        row["pareto_efficient"] = not any(
+            (
+                other["density_chi2_per_bin_scored"] <= row["density_chi2_per_bin_scored"]
+                and other["objective_velocity"] <= row["objective_velocity"]
+                and other["weight_n_eff"] >= row["weight_n_eff"]
+                and (
+                    other["density_chi2_per_bin_scored"] < row["density_chi2_per_bin_scored"]
+                    or other["objective_velocity"] < row["objective_velocity"]
+                    or other["weight_n_eff"] > row["weight_n_eff"]
+                )
+            )
+            for other in rows if other is not row
+        )
+
+    print("L2_FRONTIER_BEGIN", flush=True)
+    print("lambda,N_eff,chi2_per_bin,delta_J,gate,kkt_reduced,pareto", flush=True)
+    for row in rows:
+        print(
+            f"{row['strength']:g},{row['weight_n_eff']:.8f},"
+            f"{row['density_chi2_per_bin_scored']:.10f},{row['delta_J']:.8f},"
+            f"{int(row['density_gate_passed'])},{row['kkt_reduced']:.8e},"
+            f"{int(row['pareto_efficient'])}",
+            flush=True,
+        )
+    print("L2_FRONTIER_END", flush=True)
+
+    # Keep legacy branches syntactically intact without running them here.
+    graph_seconds = 0.0
+    spectrum = []
+    degree = np.asarray([0.0])
+
+    for family, strengths in ():
         for strength in strengths:
+            if False:
+                raise RuntimeError("unreachable")
             started = time.perf_counter()
             if family == "entropy":
                 weights, result = solve_entropy(design, problem.observed, l2, strength, reference, 3000)
                 solver_message = str(result.message)
                 iterations = int(result.nit)
-                residual = design @ weights - problem.observed
-                objective_value = float(residual @ residual + l2 * weights @ weights)
-                if strength > 0.0:
-                    count = design.shape[1]
-                    safe = np.maximum(weights, 1e-15)
-                    objective_value += strength / count * float(np.sum(weights * np.log(safe / count)))
+                objective_value = float(result.fun)
             else:
                 weights, result = solve_graph(design, problem.observed, l2, strength, laplacian, reference, 3000)
                 solver_message = str(result.message)
@@ -268,9 +362,6 @@ def main() -> None:
                 "density_chi2_per_bin_raw": chi2 / fit_bins,
                 "solver_seconds": seconds, "iterations": iterations,
                 "solver_message": solver_message,
-                "solver_success": bool(result.success) if result is not None else True,
-                "solver_status": int(result.status) if result is not None else 0,
-                **gradient_diagnostics(design, problem.observed, l2, strength, weights),
                 **{f"weight_{key}": value for key, value in concentration(weights).items()},
             }
             rows.append(record)
@@ -292,26 +383,23 @@ def main() -> None:
                 f"{family:7s} mu={strength:g} chi2/row={chi2/design.shape[0]:.4f} "
                 f"Neff={record['weight_n_eff']:.1f} max={record['weight_max_share']:.4f} "
                 f"top10={record['weight_top10_share']:.3f} J={record['objective_velocity']:.1f} "
-                f"gate={record['density_gate_passed']} t={seconds:.1f}s nit={iterations} "
-                f"status={record['solver_status']} success={record['solver_success']} "
-                f"pgrad={record['projected_gradient_l_inf']:.3e} msg={solver_message}",
+                f"gate={record['density_gate_passed']} t={seconds:.1f}s nit={iterations}",
                 flush=True,
             )
 
-    reference_row = next(row for row in rows if row["strength"] == 0.0 and row["family"] == "entropy")
-    for row in rows:
-        row["delta_J"] = row["objective_velocity"] - reference_row["objective_velocity"]
     np.savez_compressed(seed_weights_path, **archive)
-    (OUTPUT / "scan.json").write_text(json.dumps({
+    (output / "scan.json").write_text(json.dumps({
         "design_shape": list(design.shape), "l2": l2,
+        "l2_strengths": list(strengths),
+        "local_smoke": local_smoke,
         "entropy_strengths": list(ENTROPY_STRENGTHS), "graph_strengths": list(GRAPH_STRENGTHS),
         "graph_neighbours": 10, "graph_seconds": graph_seconds,
         "graph_laplacian_spectrum_smallest": spectrum,
         "graph_degree": {"min": float(np.min(degree)), "median": float(np.median(degree)), "max": float(np.max(degree))},
-        "reference_seconds": reference_seconds, "rows": rows,
+        "reference_seconds": rows[0]["solver_seconds"], "rows": rows,
         "wall_seconds": time.perf_counter() - started_all,
     }, indent=2) + "\n")
-    print(f"artifacts: {OUTPUT} (wall {time.perf_counter()-started_all:.1f}s)", flush=True)
+    print(f"artifacts: {output} (wall {time.perf_counter()-started_all:.1f}s)", flush=True)
 
 
 if __name__ == "__main__":
