@@ -41,7 +41,7 @@ from halo_mw_lmc.evaluate import score_orbit_weights  # noqa: E402
 from review_fz_energy_basis import build_design_problem  # noqa: E402
 
 OUTPUT = REPO / ".agent-local/benchmarks/full_weight_regularization"
-ENTROPY_STRENGTHS = (0.0, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1)
+ENTROPY_STRENGTHS = (0.0, 0.1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0, 300.0)
 GRAPH_STRENGTHS = (0.0, 1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2)
 
 
@@ -72,25 +72,30 @@ def objective_entropy(design, observed, l2, weights, strength, count, cache):
     data = float(residual @ residual) + l2 * float(weights @ weights)
     if strength == 0.0:
         cache.clear()
-        return data, np.asarray(design.T @ residual + l2 * weights, dtype=float)
+        return data, np.asarray(2.0 * design.T @ residual + 2.0 * l2 * weights, dtype=float)
     safe = np.maximum(weights, 1e-15)
     entropy = float(np.sum(weights * np.log(safe / count)))
     gradient = np.log(safe / count) + 1.0
     scale = strength / count
-    return data + scale * entropy, np.asarray(design.T @ residual + l2 * weights + scale * gradient, dtype=float)
+    return data + scale * entropy, np.asarray(
+        2.0 * design.T @ residual + 2.0 * l2 * weights + scale * gradient, dtype=float
+    )
 
 
 def solve_entropy(design, observed, l2, strength, start, max_iter):
     count = design.shape[1]
     cache: dict[str, float] = {}
 
+    initial_value, _ = objective_entropy(design, observed, l2, start, strength, count, {})
+    objective_scale = max(1.0, abs(initial_value))
+
     def fun(weights):
         value, gradient = objective_entropy(design, observed, l2, weights, strength, count, cache)
-        return value, gradient
+        return value / objective_scale, np.asarray(gradient, dtype=float) / objective_scale
 
     result = minimize(
         fun, start, jac=True, method="L-BFGS-B", bounds=[(0.0, None)] * count,
-        options={"maxiter": max_iter, "maxfun": max_iter + 100, "ftol": 1e-14, "gtol": 1e-8, "maxls": 50},
+        options={"maxiter": max_iter, "maxfun": max_iter + 100, "ftol": 0.0, "gtol": 1e-8, "maxls": 50},
     )
     return np.maximum(np.asarray(result.x, dtype=float), 0.0), result
 
@@ -242,7 +247,12 @@ def main() -> None:
                 weights, result = solve_entropy(design, problem.observed, l2, strength, reference, 3000)
                 solver_message = str(result.message)
                 iterations = int(result.nit)
-                objective_value = float(result.fun)
+                residual = design @ weights - problem.observed
+                objective_value = float(residual @ residual + l2 * weights @ weights)
+                if strength > 0.0:
+                    count = design.shape[1]
+                    safe = np.maximum(weights, 1e-15)
+                    objective_value += strength / count * float(np.sum(weights * np.log(safe / count)))
             else:
                 weights, result = solve_graph(design, problem.observed, l2, strength, laplacian, reference, 3000)
                 solver_message = str(result.message)

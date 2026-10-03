@@ -25,7 +25,7 @@ class EntropyTests(unittest.TestCase):
         value, gradient = scan.objective_entropy(design, observed, 0.5, weights, 0.0, 2, cache)
         residual = design @ weights - observed
         self.assertAlmostEqual(value, float(residual @ residual) + 0.5 * float(weights @ weights), places=14)
-        self.assertTrue(np.allclose(gradient, design.T @ residual + 0.5 * weights))
+        self.assertTrue(np.allclose(gradient, 2.0 * design.T @ residual + 2.0 * 0.5 * weights))
 
     def test_entropy_penalty_is_nonnegative_and_uniform_is_zero(self):
         design = scipy.sparse.csr_matrix(np.eye(2))
@@ -46,7 +46,7 @@ class EntropyTests(unittest.TestCase):
         self.assertGreater(penalty_concentrated, penalty_uniform)
 
     def test_scaled_ill_conditioned_system_does_not_stop_at_start(self):
-        """Reproduce the production-scale L-BFGS-B failure mode locally."""
+        """Verify the repaired scaled objective explores nonzero temperatures."""
 
         rng = np.random.default_rng(7)
         rows, count = 80, 40
@@ -62,13 +62,20 @@ class EntropyTests(unittest.TestCase):
         # The ridge-NNLS start is feasible for the non-negative bound. It is
         # not a stationary point after adding a nonzero entropy term.
         self.assertLess(before["projected_gradient_l_inf"], 1e-3)
-        weights, result = scan.solve_entropy(design, observed, 0.0, 0.1, start, 500)
-        after = scan.gradient_diagnostics(design, observed, 0.0, 0.1, weights)
+        weights, result = scan.solve_entropy(design, observed, 0.0, 10.0, start, 500)
+        after = scan.gradient_diagnostics(design, observed, 0.0, 10.0, weights)
         moved = float(np.linalg.norm(weights - start) / max(np.linalg.norm(start), 1e-30))
-        if result.success and result.nit <= 1 and moved < 1e-10:
-            self.assertGreater(after["projected_gradient_l_inf"], 1e-3)
-        else:
-            self.assertGreater(moved, 1e-10)
+        self.assertTrue(bool(result.success))
+        self.assertGreater(result.nit, 1)
+        self.assertLess(after["projected_gradient_l_inf"], 1e-3)
+        # A temperature comparable to the small data term must produce a
+        # genuinely different KKT point, not a one-step return to the start.
+        self.assertGreater(moved, 1e-10)
+
+    def test_entropy_scan_strengths_reach_large_fraction_of_data_term(self):
+        # The production objective is ~473, so the upper temperatures must be
+        # large enough to make entropy a non-degenerate part of the frontier.
+        self.assertGreaterEqual(max(scan.ENTROPY_STRENGTHS), 100.0)
 
 
 class ResponseGraphTests(unittest.TestCase):
