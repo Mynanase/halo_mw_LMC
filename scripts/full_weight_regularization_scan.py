@@ -31,8 +31,7 @@ from pathlib import Path
 import numpy as np
 from scipy.optimize import minimize
 from scipy.sparse import coo_matrix, csr_matrix, vstack
-from scipy.sparse import identity
-from scipy.sparse.linalg import LinearOperator, eigsh
+from scipy.sparse.linalg import LinearOperator, cg, eigsh
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "scripts"))
@@ -133,40 +132,79 @@ def entropy_hessian(design, l2, strength, weights):
 
 
 def solve_entropy_interior(design, observed, l2, strength, start, max_iter):
-    """Bound-constrained Newton-CG on a strictly positive interior domain."""
+    """Positivity via w=exp(z); Levenberg-Marquardt on the transformed Newton system."""
 
     count = design.shape[1]
-    floor = 1e-12
-    weights = np.maximum(np.asarray(start, dtype=float), floor)
+    # Entropy makes zero exact weights stationary only in a measure-zero
+    # numerical sense. Start every column at a common small mass so the solve is
+    # strictly interior and the Hessian diagonal remains finite.
+    weights = np.asarray(start, dtype=float).copy()
+    total = float(np.sum(weights))
+    floor = max(total / count * 1e-3, 1e-12)
+    weights = np.maximum(weights, floor)
     initial_value, _ = objective_entropy(design, observed, l2, weights, strength, count, {})
     objective_scale = max(1.0, abs(initial_value))
-    cache: dict[str, float] = {}
+    damping = 1e-6
 
-    class ScaledObjective:
-        def value(self, vector):
-            return objective_entropy(design, observed, l2, vector, strength, count, cache)[0] / objective_scale
+    class Result:
+        pass
 
-        def gradient(self, vector):
-            return objective_entropy(design, observed, l2, vector, strength, count, cache)[1] / objective_scale
+    result = Result()
+    result.nit = 0
+    result.nfev = 0
+    value, gradient = objective_entropy(design, observed, l2, weights, strength, count, {})
+    projected = projected_gradient(weights, gradient)
+    converged = np.linalg.norm(projected, ord=np.inf) * objective_scale <= 1e-7
+    message = "interior Newton converged by projected gradient"
+    status = 0
+    success = converged
 
-        def hessian(self, vector):
-            return entropy_hessian(design, l2, strength, vector)
+    while not converged and result.nit < max_iter:
+        result.nit += 1
+        hessian = entropy_hessian(design, l2, strength, weights)
+        # Solve (D H D + damping I) dz = -D grad, then w_new = w exp(dz).
+        system = LinearOperator(
+            (count, count),
+            matvec=lambda direction: weights * hessian.matvec(weights * direction) + damping * direction,
+        )
+        direction, info = cg(system, -weights * gradient, rtol=1e-4, atol=0.0, maxiter=200)
+        result.nfev += 1
+        if info != 0 or not np.all(np.isfinite(direction)):
+            damping *= 10.0
+            continue
+        accepted = False
+        step = 1.0
+        for _ in range(40):
+            candidate = weights * np.exp(np.clip(step * direction, -30.0, 30.0))
+            candidate_value, candidate_gradient = objective_entropy(
+                design, observed, l2, candidate, strength, count, {}
+            )
+            result.nfev += 1
+            if candidate_value <= value + 1e-4 * float(gradient @ (candidate - weights)):
+                weights, value, gradient = candidate, candidate_value, candidate_gradient
+                damping = max(damping / 3.0, 1e-12)
+                accepted = True
+                break
+            step *= 0.5
+        if not accepted:
+            damping *= 10.0
+            if damping > 1e8:
+                status = 2
+                success = False
+                message = "interior Newton line search failed"
+                break
+        projected = projected_gradient(weights, gradient)
+        converged = np.linalg.norm(projected, ord=np.inf) * objective_scale <= 1e-7
 
-    from scipy.optimize import NonlinearConstraint
-
-    constraint = NonlinearConstraint(
-        lambda vector: vector, floor, np.inf,
-        jac=lambda vector: identity(count, format="csr"),
-        hess=lambda vector, argument: LinearOperator((count, count), matvec=lambda direction: np.zeros(count)),
-        keep_feasible=True,
-    )
-    result = minimize(
-        ScaledObjective().value, weights, jac=ScaledObjective().gradient,
-        hess=ScaledObjective().hessian, method="trust-constr", constraints=[constraint],
-        options={"maxiter": max_iter, "gtol": 1e-8, "xtol": 1e-10, "barrier_tol": 1e-8,
-                 "sparse_jacobian": True, "verbose": 0},
-    )
-    result.x = np.maximum(np.asarray(result.x, dtype=float), 0.0)
+    result.x = weights
+    result.fun = value
+    result.success = converged
+    result.status = status if not success else 0
+    result.message = message
+    if not converged and result.success:
+        result.success = False
+        result.status = 1
+        result.message = "interior Newton reached iteration limit"
     return result.x, result
 
 
