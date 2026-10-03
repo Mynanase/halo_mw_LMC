@@ -25,9 +25,9 @@ better-density-fit claim.  Single library, single seed, diagnostic only.
 from __future__ import annotations
 
 import json
+import copy
 import sys
 import time
-from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -76,11 +76,10 @@ def problem_at_l2(problem, strength):
     from halo_mw_lmc.weights import _problem_fingerprint
 
     strength = float(strength)
-    return replace(
-        problem,
-        regularization=strength,
-        fingerprint=_problem_fingerprint(problem.design, problem.observed, strength),
-    )
+    updated = copy.copy(problem)
+    updated.regularization = strength
+    updated.fingerprint = _problem_fingerprint(problem.design, problem.observed, strength)
+    return updated
 
 
 def kkt_diagnostics(problem, weights):
