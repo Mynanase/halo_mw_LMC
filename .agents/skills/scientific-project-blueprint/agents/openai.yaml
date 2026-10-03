@@ -1,6 +1,0 @@
-interface:
-  display_name: "Scientific Project Blueprint"
-  short_description: "Design research experiments before implementation"
-  default_prompt: "Use $scientific-project-blueprint to design or revise this scientific project before implementation."
-policy:
-  allow_implicit_invocation: false
