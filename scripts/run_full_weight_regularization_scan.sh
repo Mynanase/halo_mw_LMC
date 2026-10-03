@@ -6,5 +6,5 @@ export OPENBLAS_NUM_THREADS="${OPENBLAS_NUM_THREADS:-1}"
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export PYTHONHASHSEED=0
 
-uv run --locked --extra inference python -m unittest tests.test_full_weight_regularization
-uv run --locked --extra inference python scripts/full_weight_regularization_scan.py
+uv run --locked --extra inference --extra astronomy python -m unittest tests.test_full_weight_regularization
+uv run --locked --extra inference --extra astronomy python scripts/full_weight_regularization_scan.py
