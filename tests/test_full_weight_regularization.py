@@ -1,6 +1,7 @@
 """Small-array checks for the S16 full-space regularizers."""
 
 import importlib.util
+import dataclasses
 import sys
 import unittest
 from pathlib import Path
@@ -25,12 +26,21 @@ class L2FrontierTests(unittest.TestCase):
     def test_problem_at_l2_changes_strength_and_fingerprint(self):
         design = scipy.sparse.csr_matrix(np.eye(3))
         observed = np.array([1.0, 2.0, 3.0])
-        problem = type("Problem", (), {
-            "design": design, "observed": observed,
-            "active_columns": np.ones(3, dtype=bool),
-            "successful_orbit_count": 3, "regularization": 1.0,
-            "fingerprint": "old",
-        })()
+        @dataclasses.dataclass(frozen=True)
+        class Problem:
+            design: object
+            observed: np.ndarray
+            active_columns: np.ndarray
+            successful_orbit_count: int
+            regularization: float
+            fingerprint: str
+
+        problem = Problem(
+            design=design, observed=observed,
+            active_columns=np.ones(3, dtype=bool),
+            successful_orbit_count=3, regularization=1.0,
+            fingerprint="old",
+        )
         updated = scan.problem_at_l2(problem, 2.0)
         self.assertEqual(updated.regularization, 2.0)
         self.assertNotEqual(updated.fingerprint, "old")

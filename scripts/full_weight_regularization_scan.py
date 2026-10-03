@@ -25,6 +25,7 @@ better-density-fit claim.  Single library, single seed, diagnostic only.
 from __future__ import annotations
 
 import json
+import dataclasses
 import sys
 import time
 from pathlib import Path
@@ -72,19 +73,16 @@ def concentration(weights):
 def problem_at_l2(problem, strength):
     """Return the same error-scaled design with an updated ridge and hash."""
 
-    from dataclasses import fields, is_dataclass
     from halo_mw_lmc.weights import _problem_fingerprint
 
     strength = float(strength)
     fingerprint = _problem_fingerprint(problem.design, problem.observed, strength)
-    if is_dataclass(problem):
-        values = {field.name: getattr(problem, field.name) for field in fields(problem)}
-        values.update(regularization=strength, fingerprint=fingerprint)
-        return type(problem)(**values)
-    updated = copy.copy(problem)
-    updated.regularization = strength
-    updated.fingerprint = fingerprint
-    return updated
+    values = {
+        field.name: getattr(problem, field.name)
+        for field in dataclasses.fields(problem)
+    }
+    values.update(regularization=strength, fingerprint=fingerprint)
+    return type(problem)(**values)
 
 
 def kkt_diagnostics(problem, weights):
