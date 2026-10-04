@@ -165,7 +165,7 @@ def solve_graph(design, observed, l2, strength, laplacian, start, max_iter):
         square_root = _laplacian_square_root(laplacian)
         dense[rows_input + count:, :] = np.sqrt(strength) * square_root
     target = np.concatenate([observed, np.zeros(2 * count)])
-    weights, _ = nnls(dense, target, maxiter=max(1000, max_iter))
+    weights, _ = nnls(dense, target, maxiter=100 * count)
 
     class _NNLSResult:
         """Minimal shim exposing the fields the scan loop reports."""
