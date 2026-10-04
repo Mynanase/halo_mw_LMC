@@ -158,6 +158,32 @@ def entropy_hessian_z(design, l2, strength, weights, gradient, free, damping=0.0
     return LinearOperator((count, count), matvec=matvec), jacobi
 
 
+def _woodbury_direction(design, column_scale, diagonal, rhs):
+    """Exact solve of (B^T B + diag(diagonal)) d = rhs via Sherman-Morrison-Woodbury.
+
+    B is the design scaled columnwise by column_scale.  The production
+    problem has m = 1040 rows and n = 5967 free columns (m << n), so the
+    Newton system reduces to one m x m Cholesky plus sparse products --
+    seconds instead of the ~40 s of 1500-iteration CG that stalled the
+    first server run.  Returns None when the Cholesky fails.
+    """
+
+    import scipy.sparse as _sp
+
+    safe = np.maximum(diagonal, 1e-14 * float(np.max(diagonal)))
+    scaled = design @ _sp.diags(column_scale / np.sqrt(safe))
+    gram = np.asarray((scaled @ scaled.T).todense()) + np.eye(design.shape[0])
+    try:
+        factor = np.linalg.cholesky(gram)
+    except np.linalg.LinAlgError:
+        return None
+    u = rhs / safe
+    q = design @ (column_scale * u)
+    y = np.linalg.solve(factor.T, np.linalg.solve(factor, np.asarray(q).ravel()))
+    back = column_scale * np.asarray(design.T @ y).ravel()
+    return u - back / safe
+
+
 def solve_entropy_interior(design, observed, l2, strength, start, max_iter):
     """Projected Newton on the entropy-regularized objective in z = log w.
 
@@ -238,15 +264,23 @@ def solve_entropy_interior(design, observed, l2, strength, start, max_iter):
         rhs = -(free.astype(float)) * gradient_z
         accepted = False
         slope = 0.0
+        column_scale = np.sqrt(2.0) * weights * free.astype(float)
+        newton_diagonal = (
+            2.0 * l2 * weights * weights
+            + (scale if strength > 0.0 else 0.0) * weights
+            + np.maximum(weights * gradient_w, 0.0)
+            + damping * jacobi
+        )
         for _ in range(10):
-            warm_start = (
-                None if previous_direction is None or not np.all(np.isfinite(previous_direction))
-                else free.astype(float) * previous_direction
-            )
-            direction, info = cg(operator, rhs, M=preconditioner, x0=warm_start, rtol=1e-8, atol=0.0, maxiter=1500)
-            result.nfev += 1
-            slope = float(gradient_z @ direction)
-            if info != 0 or not np.isfinite(slope) or slope >= 0.0:
+            direction = _woodbury_direction(design, column_scale, newton_diagonal, rhs)
+            slope = float("-inf") if direction is None else float(gradient_z @ direction)
+            if direction is None or not np.isfinite(slope) or slope >= 0.0:
+                operator, jacobi = entropy_hessian_z(design, l2, strength, weights, gradient_w, free, damping)
+                preconditioner = LinearOperator((count, count), matvec=lambda v: (free * v) / jacobi)
+                direction, info = cg(operator, rhs, M=preconditioner, rtol=1e-8, atol=0.0, maxiter=1500)
+                result.nfev += 1
+                slope = float(gradient_z @ direction)
+            if not np.isfinite(slope) or slope >= 0.0:
                 direction = -(free * gradient_z) / jacobi
                 slope = float(gradient_z @ direction)
             previous_direction = direction
