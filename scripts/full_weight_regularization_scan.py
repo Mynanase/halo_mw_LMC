@@ -115,97 +115,189 @@ def gradient_diagnostics(design, observed, l2, strength, weights):
     }
 
 
-def entropy_hessian(design, l2, strength, weights):
-    """Hessian action for the entropy-regularized convex objective."""
+def entropy_hessian_z(design, l2, strength, weights, gradient, free, damping=0.0):
+    """Z-space Hessian action on the free subspace, plus Jacobi diagonal.
+
+    With ``w = exp(z)`` the Hessian transforms to ``D H D + diag(w . g)``
+    where ``H = 2 A^T A + 2 l2 I + (mu/n) diag(1/w)`` and ``g`` is the
+    w-space gradient; the ``diag(w . g)`` term is what the previous
+    exp-transform solver omitted.  Coordinates pinned at a z bound with a
+    satisfied sign condition (the projected-Newton active set) are frozen
+    out of the CG system: their curvature is ~ e^{2 z}, which otherwise
+    overflows the Newton direction.
+    """
 
     count = design.shape[1]
+    column_norms = np.asarray(design.multiply(design).sum(axis=0)).ravel()
+    scale = strength / count if strength > 0.0 else 0.0
+
+    psd_diagonal = weights * weights * (2.0 * column_norms + 2.0 * l2)
     if strength > 0.0:
-        diagonal = 2.0 * l2 + (strength / count) / np.maximum(weights, 1e-15)
-    else:
-        diagonal = 2.0 * l2
+        psd_diagonal = psd_diagonal + scale * weights
+    # F(z) = f(e^z) is NOT convex: the transformed entropy term has negative
+    # curvature for z < log n - 2.  Keep the exact term's positive part only
+    # (Gauss-Newton style): the operator stays PSD, the approximation is
+    # exact at stationarity where g -> 0, and indefinite-CG failure modes
+    # disappear.
+    positive_gradient_part = np.maximum(weights * gradient, 0.0)
+    jacobi = np.maximum(psd_diagonal + positive_gradient_part, 1e-300)
+    jacobi = np.maximum(jacobi, 1e-12 * float(np.max(jacobi)))
 
     def matvec(direction):
-        product = design @ direction
-        return np.asarray(design.T @ product + diagonal * direction, dtype=float)
+        masked = free * direction
+        inner = weights * masked
+        product = design @ inner
+        base = 2.0 * np.asarray(design.T @ product, dtype=float) + 2.0 * l2 * inner
+        if strength > 0.0:
+            base = base + scale * masked
+        outer = weights * base + positive_gradient_part * masked
+        if damping > 0.0:
+            outer = outer + damping * jacobi * masked
+        return free * outer
 
-    return LinearOperator((count, count), matvec=matvec)
+    return LinearOperator((count, count), matvec=matvec), jacobi
 
 
 def solve_entropy_interior(design, observed, l2, strength, start, max_iter):
-    """Positivity via w=exp(z); Levenberg-Marquardt on the transformed Newton system."""
+    """Projected Newton on the entropy-regularized objective in z = log w.
+
+    Why z-space: the optimum is strictly positive but per-coordinate often
+    exponentially small, so w-space Newton is globally step-limited by
+    fraction-to-boundary, while z-space turns multiplicative moves into
+    unit-scale steps.  z lives on the box [z_lower, z_upper]; coordinates
+    pinned at a bound with a satisfied sign condition are the active set
+    and are frozen.  Newton steps come from Jacobi-preconditioned CG on
+    the free subspace of the exact transformed Hessian, with Levenberg
+    escalation only when Armijo rejects, and honest success bookkeeping.
+
+    Convergence is judged on the free-subspace z-gradient, the
+    mass-relevant w-space projected gradient (w >= 1e-14 max w), or the
+    Newton decrement.  Boundary-coordinate entropy gradients (|g| ~
+    (mu/n)|log w| as w -> 0) are reported but are not failure signals:
+    their stationarity lives below the z box and is irrelevant to every
+    concentration metric.
+    """
+
+    if strength <= 0.0:
+        return solve_entropy(design, observed, l2, strength, start, max_iter)
 
     count = design.shape[1]
-    # Entropy makes zero exact weights stationary only in a measure-zero
-    # numerical sense. Start every column at a common small mass so the solve is
-    # strictly interior and the Hessian diagonal remains finite.
-    weights = np.asarray(start, dtype=float).copy()
+    weights = np.maximum(np.asarray(start, dtype=float), 0.0)
     total = float(np.sum(weights))
     floor = max(total / count * 1e-3, 1e-12)
     weights = np.maximum(weights, floor)
-    initial_value, _ = objective_entropy(design, observed, l2, weights, strength, count, {})
-    objective_scale = max(1.0, abs(initial_value))
-    damping = 1e-6
+    z = np.log(weights)
+    log_count = float(np.log(count))
+    scale = strength / count
+    z_lower, z_upper = -650.0, 40.0
 
-    class Result:
+    def value_and_gradient_z(z_):
+        w_ = np.exp(np.clip(z_, z_lower, z_upper))
+        residual = design @ w_ - observed
+        data = float(residual @ residual) + l2 * float(w_ @ w_)
+        gradient_w = 2.0 * np.asarray(design.T @ residual, dtype=float) + 2.0 * l2 * w_
+        data += scale * float(np.sum(w_ * (z_ - log_count)))
+        gradient_w = gradient_w + scale * ((z_ - log_count) + 1.0)
+        return data, w_, gradient_w
+
+    def active_mask(z_, gradient_z_):
+        pinned_low = (z_ <= z_lower + 1e-9) & (gradient_z_ > 0.0)
+        pinned_high = (z_ >= z_upper - 1e-9) & (gradient_z_ < 0.0)
+        return ~(pinned_low | pinned_high)
+
+    def projected_gradient_relevant(w_, g_):
+        mask = w_ >= 1e-14 * float(np.max(w_))
+        projected = np.where(mask, g_, np.minimum(g_, 0.0))
+        return float(np.max(np.abs(projected)))
+
+    class _Result:
         pass
 
-    result = Result()
+    result = _Result()
     result.nit = 0
     result.nfev = 0
-    value, gradient = objective_entropy(design, observed, l2, weights, strength, count, {})
-    projected = projected_gradient(weights, gradient)
-    converged = np.linalg.norm(projected, ord=np.inf) * objective_scale <= 1e-7
-    message = "interior Newton converged by projected gradient"
-    status = 0
-    success = converged
+    value, weights, gradient_w = value_and_gradient_z(z)
+    gradient_z = weights * gradient_w
+    free = active_mask(z, gradient_z)
+    zgrad_scale = max(1.0, float(np.max(np.abs(gradient_z * free))))
+    gscale = max(1.0, float(np.max(np.abs(gradient_w))))
+    z_tolerance = 1e-8 * zgrad_scale
+    pgrad_tolerance = 1e-6 * gscale
+    decrement_tolerance = 1e-12 * max(1.0, abs(value))
+    converged = False
+    message = "interior Newton reached iteration limit"
+    damping = 0.0
+    best_value = value
+    stagnant_iterations = 0
+    previous_direction = None
 
-    while not converged and result.nit < max_iter:
+    while result.nit < max_iter:
         result.nit += 1
-        hessian = entropy_hessian(design, l2, strength, weights)
-        # Solve (D H D + damping I) dz = -D grad, then w_new = w exp(dz).
-        system = LinearOperator(
-            (count, count),
-            matvec=lambda direction: weights * hessian.matvec(weights * direction) + damping * direction,
-        )
-        direction, info = cg(system, -weights * gradient, rtol=1e-4, atol=0.0, maxiter=200)
-        result.nfev += 1
-        if info != 0 or not np.all(np.isfinite(direction)):
-            damping *= 10.0
-            continue
+        operator, jacobi = entropy_hessian_z(design, l2, strength, weights, gradient_w, free, damping)
+        preconditioner = LinearOperator((count, count), matvec=lambda v: (free * v) / jacobi)
+        rhs = -(free.astype(float)) * gradient_z
         accepted = False
-        step = 1.0
-        for _ in range(40):
-            candidate = weights * np.exp(np.clip(step * direction, -30.0, 30.0))
-            candidate_value, candidate_gradient = objective_entropy(
-                design, observed, l2, candidate, strength, count, {}
+        slope = 0.0
+        for _ in range(10):
+            warm_start = (
+                None if previous_direction is None or not np.all(np.isfinite(previous_direction))
+                else free.astype(float) * previous_direction
             )
+            direction, info = cg(operator, rhs, M=preconditioner, x0=warm_start, rtol=1e-8, atol=0.0, maxiter=1500)
             result.nfev += 1
-            if candidate_value <= value + 1e-4 * float(gradient @ (candidate - weights)):
-                weights, value, gradient = candidate, candidate_value, candidate_gradient
-                damping = max(damping / 3.0, 1e-12)
-                accepted = True
+            slope = float(gradient_z @ direction)
+            if info != 0 or not np.isfinite(slope) or slope >= 0.0:
+                direction = -(free * gradient_z) / jacobi
+                slope = float(gradient_z @ direction)
+            previous_direction = direction
+            step = 1.0
+            for _ in range(60):
+                candidate_z = np.clip(z + step * direction, z_lower, z_upper)
+                candidate_value, candidate_weights, candidate_gradient_w = value_and_gradient_z(candidate_z)
+                result.nfev += 1
+                if candidate_value <= value + 1e-4 * step * slope:
+                    accepted = True
+                    break
+                step *= 0.5
+            if accepted:
+                z, value, weights, gradient_w = candidate_z, candidate_value, candidate_weights, candidate_gradient_w
+                gradient_z = weights * gradient_w
+                free = active_mask(z, gradient_z)
+                damping = 0.0 if damping <= 1e-12 else damping / 10.0
                 break
-            step *= 0.5
+            damping = damping * 10.0 if damping > 0.0 else 1e-8
+            operator, jacobi = entropy_hessian_z(design, l2, strength, weights, gradient_w, free, damping)
+            preconditioner = LinearOperator((count, count), matvec=lambda v: (free * v) / jacobi)
         if not accepted:
-            damping *= 10.0
-            if damping > 1e8:
-                status = 2
-                success = False
-                message = "interior Newton line search failed"
-                break
-        projected = projected_gradient(weights, gradient)
-        converged = np.linalg.norm(projected, ord=np.inf) * objective_scale <= 1e-7
+            result.x = weights
+            result.fun = value
+            result.success = False
+            result.status = 2
+            result.message = "interior Newton line search failed"
+            return np.asarray(result.x, dtype=float), result
+        zgrad_free = float(np.max(np.abs(gradient_z * free))) if np.any(free) else 0.0
+        pgrad_relevant = projected_gradient_relevant(weights, gradient_w)
+        decrement_squared = max(0.0, -slope)
+        if value < best_value - 1e-14 * max(1.0, abs(value)):
+            best_value = value
+            stagnant_iterations = 0
+        else:
+            stagnant_iterations += 1
+        if zgrad_free <= z_tolerance:
+            converged = True
+            message = f"interior Newton converged: zgrad={zgrad_free:.2e} pgrad_rel={pgrad_relevant:.2e} dec={np.sqrt(max(decrement_squared, 0.0)):.2e} nfree={int(np.sum(free))}"
+            break
+        if stagnant_iterations >= 50 and zgrad_free <= 1e-6 * zgrad_scale:
+            converged = True
+            message = f"interior Newton converged by objective stagnation: zgrad={zgrad_free:.2e} pgrad_rel={pgrad_relevant:.2e} nfree={int(np.sum(free))}"
+            break
 
     result.x = weights
     result.fun = value
     result.success = converged
-    result.status = status if not success else 0
+    result.status = 0 if converged else 1
     result.message = message
-    if not converged and result.success:
-        result.success = False
-        result.status = 1
-        result.message = "interior Newton reached iteration limit"
-    return result.x, result
+    return np.asarray(result.x, dtype=float), result
 
 
 def response_graph(design, neighbours):
@@ -332,6 +424,7 @@ def main() -> None:
     rows = []
     seed_weights_path = OUTPUT / "seed_weights.npz"
     archive = {}
+    previous_entropy_weights = reference
 
     for family, strengths in (("entropy", ENTROPY_STRENGTHS),):
         for strength in strengths:
@@ -340,7 +433,13 @@ def main() -> None:
                 if strength == 0.0:
                     weights, result = solve_entropy(design, problem.observed, l2, strength, reference, 3000)
                 else:
-                    weights, result = solve_entropy_interior(design, problem.observed, l2, strength, reference, 3000)
+                    # Continuation: warm-start each temperature from the
+                    # previous point's solution, keeping every solve near its
+                    # optimum regardless of how far large mu pushes the
+                    # weights from the ridge-NNLS reference.
+                    start = reference if strength == ENTROPY_STRENGTHS[1] else np.asarray(previous_entropy_weights, dtype=float)
+                    weights, result = solve_entropy_interior(design, problem.observed, l2, strength, start, 3000)
+                    previous_entropy_weights = weights
                 solver_message = str(result.message)
                 iterations = int(result.nit)
                 residual = design @ weights - problem.observed

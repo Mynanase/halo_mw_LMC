@@ -15,5 +15,5 @@ if [[ -d "$DATA_ROOT/.agent-local" && ! -d .agent-local ]]; then
     ln -s "$DATA_ROOT/.agent-local" .agent-local
 fi
 
-uv run --locked --extra inference --extra astronomy python -m unittest tests.test_full_weight_regularization
+uv run --locked --extra inference --extra astronomy python -m unittest tests.test_full_weight_regularization tests.test_entropy_newton
 uv run --locked --extra inference --extra astronomy python scripts/full_weight_regularization_scan.py
