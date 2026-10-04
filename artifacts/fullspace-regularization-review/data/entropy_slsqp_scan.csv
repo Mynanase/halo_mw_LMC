@@ -1,0 +1,14 @@
+# Parent entropy scan (SLSQP/L-BFGS, non-converged: pgrad 7.9e-3..35 at nit=3000 everywhere),
+# run d8e30cd1 (commit b4ee735). Transcribed from the run log (orx logs d8e30cd1).
+# Superseded by entropy_newton_scan.csv: the converged solutions show the parent's
+# monotone N_eff response was a solver artifact.
+mu,N_eff,max_share,top10_share,velocity_J,projected_gradient
+0.0,24.8,0.1793,0.370,139620.6,7.418e-10
+0.1,24.8,0.1793,0.370,139618.6,7.912e-03
+0.3,24.8,0.1792,0.370,139610.2,2.009e-02
+1.0,24.9,0.1789,0.369,139565.6,2.990e-01
+3.0,25.5,0.1768,0.365,139332.0,9.949e-01
+10.0,26.7,0.1730,0.357,139052.4,1.931
+30.0,31.8,0.1578,0.328,138563.6,4.270
+100.0,41.7,0.1360,0.288,138424.6,3.524e+01
+300.0,56.1,0.1100,0.250,138952.5,1.904e+01

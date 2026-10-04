@@ -10,6 +10,8 @@ halo_mw_LMC/Agama-master/
 halo_mw_LMC/model_skopt/
 halo_mw_LMC/output/
 *.pdf
+# Published artifacts keep their vector figures (negate the blanket *.pdf)
+!artifacts/**/*.pdf
 *.log
 
 # === Python cache ===

@@ -1,0 +1,14 @@
+# Entropy scan solved by projected Newton in z space, run 144acf4a (commit 58ab11b, wall 633s).
+# Columns mu,N_eff,weight_sum,inner_objective,density_chi2_raw,velocity_J: mu..J read from the
+# run's scan.json BEFORE the shared .agent-local path was overwritten by run 7ba8c44d; the log
+# (orx logs 144acf4a) carries Neff/J per point and matches this table.
+mu,N_eff,weight_sum,inner_objective,density_chi2_raw,velocity_J
+0.0,24.8,7.575,473.4,473.4,139620.6
+0.1,14.7,9.732,473.4,473.4,140089.4
+0.3,13.9,9.884,473.4,473.4,140182.4
+1.0,14.0,11.291,473.3,473.4,140909.7
+3.0,13.9,13.946,473.3,473.4,141687.6
+10.0,15.8,17.169,473.1,473.4,142455.3
+30.0,20.6,19.944,472.5,473.5,142615.0
+100.0,20.6,23.025,470.0,473.7,143154.1
+300.0,19.7,25.231,462.3,474.2,143439.8
