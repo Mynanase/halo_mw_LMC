@@ -25,7 +25,7 @@ class EntropyTests(unittest.TestCase):
         value, gradient = scan.objective_entropy(design, observed, 0.5, weights, 0.0, 2, cache)
         residual = design @ weights - observed
         self.assertAlmostEqual(value, float(residual @ residual) + 0.5 * float(weights @ weights), places=14)
-        self.assertTrue(np.allclose(gradient, design.T @ residual + 0.5 * weights))
+        self.assertTrue(np.allclose(gradient, 2.0 * design.T @ residual + 2.0 * 0.5 * weights))
 
     def test_entropy_penalty_is_nonnegative_and_uniform_is_zero(self):
         design = scipy.sparse.csr_matrix(np.eye(2))
@@ -45,8 +45,78 @@ class EntropyTests(unittest.TestCase):
         self.assertAlmostEqual(penalty_uniform, -np.log(2.0), places=12)
         self.assertGreater(penalty_concentrated, penalty_uniform)
 
+    def test_scaled_ill_conditioned_system_does_not_stop_at_start(self):
+        """Verify the repaired scaled objective explores nonzero temperatures."""
+
+        rng = np.random.default_rng(7)
+        rows, count = 80, 40
+        columns = rng.gamma(shape=2.0, size=(rows, count))
+        truth = rng.gamma(shape=2.0, size=count)
+        observed_physical = columns @ truth
+        error = 0.02 * observed_physical
+        design_dense = columns / error[:, None]
+        observed = observed_physical / error
+        design = scipy.sparse.csr_matrix(design_dense)
+        start = scan.initial_weights(design, observed, 0.0)
+        before = scan.gradient_diagnostics(design, observed, 0.0, 0.0, start)
+        # The ridge-NNLS start is feasible for the non-negative bound. It is
+        # not a stationary point after adding a nonzero entropy term.
+        self.assertLess(before["projected_gradient_l_inf"], 1e-3)
+        weights, result = scan.solve_entropy(design, observed, 0.0, 10.0, start, 500)
+        after = scan.gradient_diagnostics(design, observed, 0.0, 10.0, weights)
+        moved = float(np.linalg.norm(weights - start) / max(np.linalg.norm(start), 1e-30))
+        self.assertTrue(bool(result.success))
+        self.assertGreater(result.nit, 1)
+        self.assertLess(after["projected_gradient_l_inf"], 1e-3)
+        # A temperature comparable to the small data term must produce a
+        # genuinely different KKT point, not a one-step return to the start.
+        self.assertGreater(moved, 1e-10)
+
+    def test_entropy_scan_strengths_reach_large_fraction_of_data_term(self):
+        # The production objective is ~473, so the upper temperatures must be
+        # large enough to make entropy a non-degenerate part of the frontier.
+        self.assertGreaterEqual(max(scan.ENTROPY_STRENGTHS), 100.0)
+
 
 class ResponseGraphTests(unittest.TestCase):
+    def test_graph_solve_is_exact_active_set_optimum(self):
+        """Dense-NNLS graph solve: machine-precision KKT, objective <= TRF."""
+
+        rng = np.random.default_rng(11)
+        rows, count = 60, 45
+        columns = rng.gamma(shape=2.0, size=(rows, count))
+        truth = np.zeros(count)
+        support = rng.choice(count, 12, replace=False)
+        truth[support] = rng.gamma(shape=2.0, size=12)
+        observed = columns @ truth + 0.05 * rng.standard_normal(rows)
+        design = scipy.sparse.csr_matrix(columns)
+        laplacian, _ = scan.response_graph(design, neighbours=5)
+        l2, rho = 0.7, 1e-2
+        weights, result = scan.solve_graph(design, observed, l2, rho, laplacian, None, 5000)
+        kkt = scan.graph_kkt_diagnostics(design, observed, l2, rho, laplacian, weights)
+        self.assertTrue(bool(result.success))
+        self.assertLessEqual(kkt["kkt_reduced"], 1e-10)
+
+        from scipy.optimize import lsq_linear
+
+        square_root = scan._laplacian_square_root(laplacian)
+        matrix = scipy.sparse.vstack([
+            design,
+            np.sqrt(l2) * scipy.sparse.eye(count),
+            np.sqrt(rho) * scipy.sparse.csr_matrix(square_root),
+        ]).toarray()
+        target = np.concatenate([observed, np.zeros(2 * count)])
+        reference = lsq_linear(
+            matrix, target, bounds=(0.0, np.inf), method="trf",
+            lsq_solver="exact", max_iter=2000,
+        )
+
+        def objective(vector):
+            residual = columns @ vector - observed
+            return float(residual @ residual + l2 * vector @ vector + rho * vector @ (laplacian.toarray() @ vector))
+
+        reference_value = objective(np.asarray(reference.x))
+        self.assertLessEqual(objective(weights), reference_value + 1e-9 * max(1.0, abs(reference_value)))
     def test_knn_graph_is_symmetric_and_laplacian_psd(self):
         rng = np.random.default_rng(4)
         columns = np.vstack([

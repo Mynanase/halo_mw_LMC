@@ -30,7 +30,7 @@ from pathlib import Path
 
 import numpy as np
 from scipy.optimize import minimize
-from scipy.sparse import coo_matrix, csr_matrix, vstack
+from scipy.sparse import coo_matrix, csr_matrix
 from scipy.sparse.linalg import eigsh
 
 REPO = Path(__file__).resolve().parents[1]
@@ -41,7 +41,7 @@ from halo_mw_lmc.evaluate import score_orbit_weights  # noqa: E402
 from review_fz_energy_basis import build_design_problem  # noqa: E402
 
 OUTPUT = REPO / ".agent-local/benchmarks/full_weight_regularization"
-ENTROPY_STRENGTHS = (0.0, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1)
+ENTROPY_STRENGTHS = (0.0, 0.1, 0.3, 1.0, 3.0, 10.0, 30.0, 100.0, 300.0)
 GRAPH_STRENGTHS = (0.0, 1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2)
 
 
@@ -72,27 +72,47 @@ def objective_entropy(design, observed, l2, weights, strength, count, cache):
     data = float(residual @ residual) + l2 * float(weights @ weights)
     if strength == 0.0:
         cache.clear()
-        return data, np.asarray(design.T @ residual + l2 * weights, dtype=float)
+        return data, np.asarray(2.0 * design.T @ residual + 2.0 * l2 * weights, dtype=float)
     safe = np.maximum(weights, 1e-15)
     entropy = float(np.sum(weights * np.log(safe / count)))
     gradient = np.log(safe / count) + 1.0
     scale = strength / count
-    return data + scale * entropy, np.asarray(design.T @ residual + l2 * weights + scale * gradient, dtype=float)
+    return data + scale * entropy, np.asarray(
+        2.0 * design.T @ residual + 2.0 * l2 * weights + scale * gradient, dtype=float
+    )
 
 
 def solve_entropy(design, observed, l2, strength, start, max_iter):
     count = design.shape[1]
     cache: dict[str, float] = {}
 
+    initial_value, _ = objective_entropy(design, observed, l2, start, strength, count, {})
+    objective_scale = max(1.0, abs(initial_value))
+
     def fun(weights):
         value, gradient = objective_entropy(design, observed, l2, weights, strength, count, cache)
-        return value, gradient
+        return value / objective_scale, np.asarray(gradient, dtype=float) / objective_scale
 
     result = minimize(
         fun, start, jac=True, method="L-BFGS-B", bounds=[(0.0, None)] * count,
-        options={"maxiter": max_iter, "maxfun": max_iter + 100, "ftol": 1e-14, "gtol": 1e-8, "maxls": 50},
+        options={"maxiter": max_iter, "maxfun": max_iter + 100, "ftol": 0.0, "gtol": 1e-8, "maxls": 50},
     )
     return np.maximum(np.asarray(result.x, dtype=float), 0.0), result
+
+
+def projected_gradient(weights, gradient):
+    """First-order residual for non-negative variables."""
+
+    return np.where(weights > 1e-12, gradient, np.minimum(gradient, 0.0))
+
+
+def gradient_diagnostics(design, observed, l2, strength, weights):
+    _, gradient = objective_entropy(design, observed, l2, weights, strength, design.shape[1], {})
+    projected = projected_gradient(weights, gradient)
+    return {
+        "gradient_l_inf": float(np.max(np.abs(gradient))),
+        "projected_gradient_l_inf": float(np.max(np.abs(projected))),
+    }
 
 
 def response_graph(design, neighbours):
@@ -123,19 +143,52 @@ def response_graph(design, neighbours):
 
 
 def solve_graph(design, observed, l2, strength, laplacian, start, max_iter):
-    from scipy.optimize import lsq_linear
+    """Exact solve of the graph-regularized bound-constrained least squares.
 
-    # Append sqrt(rho)*L^{1/2} rows: ||sqrt(rho) L^{1/2} w||^2 = rho w^T L w.
-    # L is PSD; its symmetric square root is exact and keeps the problem a
-    # bound-constrained least-squares instance solved by TRF.
-    square_root = _laplacian_square_root(laplacian)
-    matrix = vstack([design, np.sqrt(strength) * square_root], format="csr") if strength > 0 else design
-    target = np.concatenate([observed, np.zeros(design.shape[1])]) if strength > 0 else observed
-    result = lsq_linear(
-        matrix, target, bounds=(0.0, np.inf), method="trf", lsq_solver="lsmr",
-        lsmr_tol=1e-8, max_iter=max_iter,
-    )
-    return np.asarray(result.x, dtype=float), result
+    The objective ``min_{w>=0} ||A w - b||^2 + l2 ||w||^2 + rho w^T L w`` is a
+    nonnegative-least-squares instance on the augmented design
+    ``[A; sqrt(l2) I; sqrt(rho) L^{1/2}]``.  The same dense Lawson-Hanson
+    NNLS that produces the reference ridge solution returns its exact
+    active-set optimum (reduced KKT residual at machine precision) instead
+    of an approximate TRF iterate; the earlier TRF+LSMR variant was both far
+    slower on this near-dense system and silently dropped the l2 rows.
+    """
+
+    from scipy.optimize import nnls
+
+    count = design.shape[1]
+    rows_input = design.shape[0]
+    dense = np.zeros((rows_input + 2 * count, count), dtype=float, order="F")
+    dense[:rows_input, :] = design.toarray()
+    dense[rows_input:rows_input + count, :] = np.sqrt(l2) * np.eye(count)
+    if strength > 0.0:
+        square_root = _laplacian_square_root(laplacian)
+        dense[rows_input + count:, :] = np.sqrt(strength) * square_root
+    target = np.concatenate([observed, np.zeros(2 * count)])
+    weights, _ = nnls(dense, target, maxiter=max(1000, max_iter))
+
+    class _NNLSResult:
+        """Minimal shim exposing the fields the scan loop reports."""
+
+    result = _NNLSResult()
+    result.x = weights
+    result.nit = int(np.count_nonzero(weights > 0))
+    result.success = True
+    result.status = 0
+    result.message = "dense SciPy NNLS completed (exact active set)"
+    return np.asarray(weights, dtype=float), result
+
+
+def graph_kkt_diagnostics(design, observed, l2, strength, laplacian, weights):
+    """Natural-residual KKT check for the graph-regularized NNLS optimum."""
+
+    residual = design @ weights - observed
+    gradient = 2.0 * design.T @ residual + 2.0 * l2 * weights
+    if strength > 0.0:
+        gradient = gradient + 2.0 * strength * np.asarray(laplacian @ weights).ravel()
+    natural = float(np.max(np.abs(np.minimum(weights, gradient))))
+    scale = max(1.0, float(np.max(np.abs(gradient))))
+    return {"kkt_raw": natural, "kkt_reduced": natural / scale}
 
 
 def _laplacian_square_root(laplacian):
@@ -227,13 +280,23 @@ def main() -> None:
                 weights, result = solve_entropy(design, problem.observed, l2, strength, reference, 3000)
                 solver_message = str(result.message)
                 iterations = int(result.nit)
-                objective_value = float(result.fun)
+                residual = design @ weights - problem.observed
+                objective_value = float(residual @ residual + l2 * weights @ weights)
+                if strength > 0.0:
+                    count = design.shape[1]
+                    safe = np.maximum(weights, 1e-15)
+                    objective_value += strength / count * float(np.sum(weights * np.log(safe / count)))
             else:
                 weights, result = solve_graph(design, problem.observed, l2, strength, laplacian, reference, 3000)
                 solver_message = str(result.message)
                 iterations = int(result.nit)
                 residual = design @ weights - problem.observed
                 objective_value = float(residual @ residual + l2 * weights @ weights + strength * weights @ laplacian @ weights)
+                diagnostics = graph_kkt_diagnostics(design, problem.observed, l2, strength, laplacian, weights)
+                solver_tag = f"kkt={diagnostics['kkt_reduced']:.2e}"
+            if family == "entropy":
+                diagnostics = gradient_diagnostics(design, problem.observed, l2, strength, weights)
+                solver_tag = f"pgrad={diagnostics['projected_gradient_l_inf']:.3e}"
             seconds = time.perf_counter() - started
             residual = design @ weights - problem.observed
             chi2 = float(residual @ residual)
@@ -243,6 +306,9 @@ def main() -> None:
                 "density_chi2_per_bin_raw": chi2 / fit_bins,
                 "solver_seconds": seconds, "iterations": iterations,
                 "solver_message": solver_message,
+                "solver_success": bool(result.success) if result is not None else True,
+                "solver_status": int(result.status) if result is not None else 0,
+                **diagnostics,
                 **{f"weight_{key}": value for key, value in concentration(weights).items()},
             }
             rows.append(record)
@@ -264,11 +330,13 @@ def main() -> None:
                 f"{family:7s} mu={strength:g} chi2/row={chi2/design.shape[0]:.4f} "
                 f"Neff={record['weight_n_eff']:.1f} max={record['weight_max_share']:.4f} "
                 f"top10={record['weight_top10_share']:.3f} J={record['objective_velocity']:.1f} "
-                f"gate={record['density_gate_passed']} t={seconds:.1f}s nit={iterations}",
+                f"gate={record['density_gate_passed']} t={seconds:.1f}s nit={iterations} "
+                f"status={record['solver_status']} success={record['solver_success']} "
+                f"{solver_tag} msg={solver_message}",
                 flush=True,
             )
 
-    reference_row = next(row for row in rows if row["strength"] == 0.0 and row["family"] == "entropy")
+    reference_row = next(row for row in rows if row["strength"] == 0.0 and row["family"] == family)
     for row in rows:
         row["delta_J"] = row["objective_velocity"] - reference_row["objective_velocity"]
     np.savez_compressed(seed_weights_path, **archive)
