@@ -73,5 +73,46 @@ class ResponseGraphTests(unittest.TestCase):
         self.assertGreater(float(np.abs(dense[:4, 8:]).sum()), 0.0)
 
 
+class OutputDirectoryTests(unittest.TestCase):
+    def test_output_directory_is_run_tagged_and_latest_linked(self):
+        import os
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as base:
+            runs = []
+            original = os.getcwd()
+            original_repo = scan.REPO
+            try:
+                scan.REPO = Path(base)
+                for suffix in ("11111111-1111-4111-8111-111111111111", "22222222-2222-4222-8222-222222222222"):
+                    fake = Path(base) / ".orx/runs" / suffix / "repo"
+                    fake.mkdir(parents=True, exist_ok=True)
+                    os.chdir(fake)
+                    root = scan.output_directory()
+                    runs.append(root)
+                    self.assertIn(suffix[:8], str(root))
+                    self.assertTrue(root.is_dir())
+            finally:
+                os.chdir(original)
+                scan.REPO = original_repo
+            self.assertNotEqual(runs[0], runs[1])
+            latest = runs[0].parent / "latest"
+            self.assertTrue(latest.is_symlink())
+            self.assertEqual(latest.resolve(), runs[1].resolve())
+
+    def test_manual_invocation_falls_back_to_timestamp(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as base:
+            original = scan.REPO
+            try:
+                scan.REPO = Path(base)
+                root = scan.output_directory()
+                self.assertIn("runs", str(root))
+                self.assertTrue(root.is_dir())
+            finally:
+                scan.REPO = original
+
+
 if __name__ == "__main__":
     unittest.main()

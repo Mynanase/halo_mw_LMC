@@ -40,7 +40,37 @@ from benchmark_nphi1_bundling import weight_concentration  # noqa: E402
 from halo_mw_lmc.evaluate import score_orbit_weights  # noqa: E402
 from review_fz_energy_basis import build_design_problem  # noqa: E402
 
-OUTPUT = REPO / ".agent-local/benchmarks/full_weight_regularization"
+def output_directory():
+    """Run-tagged artifacts directory (prevents cross-run clobbering).
+
+    ``.agent-local`` is a host-wide shared symlink, so a fixed output path
+    made every new scan overwrite the previous run's scan.json and
+    seed_weights.npz.  Orx runs execute from
+    ``~/.orx/runs/<runId>/repo``, giving a unique tag from the working
+    directory; manual invocations fall back to a UTC timestamp.  A
+    ``latest`` symlink preserves the "just point me at the results"
+    ergonomics.
+    """
+
+    import re
+
+    cwd = str(Path.cwd().resolve())
+    match = re.search(r"[\\/]\.orx[\\/]runs[\\/]([0-9a-f-]{36})", cwd)
+    tag = match.group(1)[:8] if match else time.strftime("manual-%Y%m%d-%H%M%S")
+    root = REPO / ".agent-local/benchmarks/full_weight_regularization/runs" / tag
+    root.mkdir(parents=True, exist_ok=True)
+    latest = root.parent / "latest"
+    temporary = root.parent / ".latest.tmp"
+    if temporary.is_symlink() or temporary.exists():
+        temporary.unlink()
+    try:
+        temporary.symlink_to(root)
+        temporary.replace(latest)
+    except OSError:
+        pass  # concurrent runs: the other tag's symlink wins; both dirs live
+    return root
+
+
 ENTROPY_STRENGTHS = (0.0, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2, 3e-2, 1e-1)
 GRAPH_STRENGTHS = (0.0, 1e-6, 3e-6, 1e-5, 3e-5, 1e-4, 3e-4, 1e-3, 3e-3, 1e-2)
 
@@ -195,7 +225,7 @@ def load_prepared_and_library():
 
 def main() -> None:
     started_all = time.perf_counter()
-    OUTPUT.mkdir(parents=True, exist_ok=True)
+    output = output_directory()
     problem, response = build_design_problem()
     prepared, library = load_prepared_and_library()
     design = problem.design
@@ -217,7 +247,7 @@ def main() -> None:
     print(f"kNN graph+Laplacian {graph_seconds:.2f}s; spectrum[0:2]={spectrum}", flush=True)
 
     rows = []
-    seed_weights_path = OUTPUT / "seed_weights.npz"
+    seed_weights_path = output / "seed_weights.npz"
     archive = {}
 
     for family, strengths in (("entropy", ENTROPY_STRENGTHS), ("graph", GRAPH_STRENGTHS)):
@@ -272,7 +302,7 @@ def main() -> None:
     for row in rows:
         row["delta_J"] = row["objective_velocity"] - reference_row["objective_velocity"]
     np.savez_compressed(seed_weights_path, **archive)
-    (OUTPUT / "scan.json").write_text(json.dumps({
+    (output / "scan.json").write_text(json.dumps({
         "design_shape": list(design.shape), "l2": l2,
         "entropy_strengths": list(ENTROPY_STRENGTHS), "graph_strengths": list(GRAPH_STRENGTHS),
         "graph_neighbours": 10, "graph_seconds": graph_seconds,
@@ -281,7 +311,7 @@ def main() -> None:
         "reference_seconds": reference_seconds, "rows": rows,
         "wall_seconds": time.perf_counter() - started_all,
     }, indent=2) + "\n")
-    print(f"artifacts: {OUTPUT} (wall {time.perf_counter()-started_all:.1f}s)", flush=True)
+    print(f"artifacts: {output} (wall {time.perf_counter()-started_all:.1f}s)", flush=True)
 
 
 if __name__ == "__main__":
